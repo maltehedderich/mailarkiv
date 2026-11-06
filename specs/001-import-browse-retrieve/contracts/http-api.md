@@ -19,7 +19,7 @@ Any route can answer 500 `internal_error` when the server fails outside the impo
 
 ## Access
 
-Each route declares a rule when it is registered: `Public` or `SignedIn`. The zero value, `Undeclared`, answers 403 for everyone (User Story 2 scenario 5). Paths under `/api/` with no route answer 401 without a session and 404 with one.
+Each route declares a rule when it is registered: `Public` or `SignedIn`. The zero value, `Undeclared`, answers 403 `no_access_rule` for everyone (User Story 2 scenario 5). Paths under `/api/` with no route answer 401 without a session and 404 with one.
 
 All non-GET requests pass through `http.CrossOriginProtection`. A rejected request gets 403 `cross_origin`, and the session check for a route runs before its handler reads the body.
 

@@ -19,14 +19,14 @@ Tested: without the umask, SQLite creates `catalog.db` world-readable (`0644`).
 ## Connections
 
 - One writer connection: `journal_mode=WAL`, `synchronous=FULL`, `foreign_keys=ON`, `busy_timeout=5000`, `_txlock=immediate`.
-- A read pool: the same settings plus `query_only=ON`.
+- A read pool: the same settings plus `query_only=ON`, without `_txlock=immediate`. Tested: on a `query_only` connection, `BEGIN IMMEDIATE` fails, so a read transaction couldn't start.
 - The CLI runs as a separate process against the same file. `busy_timeout` covers the overlap.
 
 Migrations are numbered SQL files in `internal/sqlitedb/migrations/`, applied in one transaction each and tracked with `PRAGMA user_version`. A database newer than the binary refuses to open (FR-026).
 
 ## Tables
 
-Times are integer Unix milliseconds in UTC. Table ownership follows constitution principle II: only the owner writes.
+Times are integer Unix milliseconds in UTC. Every table is `STRICT`, so SQLite refuses a value of the wrong type. Table ownership follows constitution principle II: only the owner writes.
 
 ### `account` (owner: `identity`)
 

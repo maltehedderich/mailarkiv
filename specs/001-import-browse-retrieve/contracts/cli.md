@@ -27,7 +27,7 @@ Startup order:
 | 1 | Startup failed: storage unusable, catalog unusable, a database newer than the binary, lock held, or the port is taken. The log says which |
 | 2 | Bad arguments |
 
-Logs are JSON lines from `log/slog` on stderr, for the journal or a container runtime to collect. Fields: `time`, `level`, `msg`, `category` where one applies, `message_id` or `content_hash` where one applies. Sign-in attempts and successful requests aren't logged, so no submitted address can reach the log (FR-029).
+Logs are JSON lines from `log/slog` on stderr, for the journal or a container runtime to collect. Fields: `time`, `level`, `msg`, `category` where one applies, `message_id` or `content_hash` where one applies. A refused start logs `cause` as `storage`, `catalog`, `lock`, or `port`. Sign-in attempts and successful requests aren't logged, so no submitted address can reach the log (FR-029).
 
 ## `mailarkiv account create`
 
