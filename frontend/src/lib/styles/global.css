@@ -1,0 +1,56 @@
+/*
+ * Global rules. Values come from tokens.css, and frontend/DESIGN.md says which
+ * token to use where.
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body,
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+h1,
+h2,
+h3 {
+  font: inherit;
+}
+
+button,
+input {
+  color: inherit;
+  font: inherit;
+}
+
+body {
+  background: var(--canvas);
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: var(--size-body);
+  font-weight: var(--weight-regular);
+  line-height: var(--leading-body);
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* Lucide draws at 2 px, which is heavy beside 13 px text. */
+.icon {
+  display: block;
+  flex: none;
+  width: var(--icon-size);
+  height: var(--icon-size);
+}
+
+.icon * {
+  stroke-width: 1.6;
+}

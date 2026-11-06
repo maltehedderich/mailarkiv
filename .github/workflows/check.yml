@@ -1,0 +1,31 @@
+name: check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+      - name: Install strace
+        run: sudo apt-get update && sudo apt-get install --yes strace
+      - name: Cache Go builds and modules
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-${{ runner.os }}-${{ hashFiles('mise.lock', 'go.sum') }}
+          restore-keys: go-${{ runner.os }}-
+      - run: mise run setup
+      - name: Install the browser's system libraries
+        working-directory: frontend
+        run: bunx playwright install-deps chromium
+      - run: mise run check

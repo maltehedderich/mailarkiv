@@ -12,8 +12,11 @@
   --hue-accent: 232;
 
   /* Type */
-  --font-sans: "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "Geist Mono Variable", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-sans:
+    "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    sans-serif;
+  --font-mono:
+    "Geist Mono Variable", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --size-label: 12px;
   --size-evidence: 12.5px;
   --size-body: 13px;
@@ -93,8 +96,11 @@
   --state-bad-fill: oklch(0.58 0.19 27 / 0.16);
 
   /* Elevation */
-  --shadow-panel: 0 0 0 1px var(--line), 0 1px 2px oklch(0.25 0.03 var(--hue-neutral) / 0.05);
-  --shadow-pop: 0 0 0 1px var(--line-strong), 0 12px 40px -8px oklch(0.25 0.03 var(--hue-neutral) / 0.22);
+  --shadow-panel:
+    0 0 0 1px var(--line), 0 1px 2px oklch(0.25 0.03 var(--hue-neutral) / 0.05);
+  --shadow-pop:
+    0 0 0 1px var(--line-strong),
+    0 12px 40px -8px oklch(0.25 0.03 var(--hue-neutral) / 0.22);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -128,6 +134,7 @@
     --state-bad-fill: oklch(0.7 0.17 25 / 0.16);
 
     --shadow-panel: 0 0 0 1px var(--line);
-    --shadow-pop: 0 0 0 1px var(--line-strong), 0 16px 48px -8px oklch(0 0 0 / 0.65);
+    --shadow-pop:
+      0 0 0 1px var(--line-strong), 0 16px 48px -8px oklch(0 0 0 / 0.65);
   }
 }
