@@ -46,6 +46,9 @@ export type SignInResult =
   | { kind: "blocked" }
   | { kind: "unavailable" };
 
+export type SignOutResult =
+  { kind: "ok" } | { kind: "session_ended" } | { kind: "unavailable" };
+
 export async function getSession(
   fetch: Fetch = globalThis.fetch,
 ): Promise<ApiResult<SessionInfo>> {
@@ -89,6 +92,35 @@ export async function signIn(
       return { kind: "invalid" };
     case 429:
       return { kind: "blocked" };
+    default:
+      return { kind: "unavailable" };
+  }
+}
+
+/**
+ * Ends the session. A marked 401 means it had already ended, so the browser is
+ * signed out either way. Anything else that isn't a marked 204 leaves the
+ * administrator signed in, and the screen says so (FR-045).
+ */
+export async function signOut(
+  fetch: Fetch = globalThis.fetch,
+): Promise<SignOutResult> {
+  let response: Response;
+  try {
+    response = await fetch("/api/session", {
+      method: "DELETE",
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+  } catch {
+    return { kind: "unavailable" };
+  }
+  await discard(response);
+  if (!isMarked(response)) return { kind: "unavailable" };
+  switch (response.status) {
+    case 204:
+      return { kind: "ok" };
+    case 401:
+      return { kind: "session_ended" };
     default:
       return { kind: "unavailable" };
   }

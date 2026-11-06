@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { getSession, listMessages, signIn, type Fetch } from "./api";
+import { getSession, listMessages, signIn, signOut, type Fetch } from "./api";
 
 // FR-045 and the contract: every call ends in success, session_ended for a
 // marked 401, or unavailable for anything else.
@@ -212,5 +212,34 @@ describe("signIn", () => {
     expect(await signIn("a@example.test", "x", fetch)).toEqual({
       kind: "unavailable",
     });
+  });
+});
+
+describe("signOut", () => {
+  test("sends DELETE and succeeds on a marked 204", async () => {
+    const { fetch, calls } = answer(204, undefined);
+    expect(await signOut(fetch)).toEqual({ kind: "ok" });
+    expect(calls[0].url).toBe("/api/session");
+    expect(calls[0].init?.method).toBe("DELETE");
+    expect(calls[0].init?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  // The session had already ended, so the browser is signed out either way.
+  test("a marked 401 means the session ended", async () => {
+    const { fetch } = answer(401, { error: "no_session" });
+    expect(await signOut(fetch)).toEqual({ kind: "session_ended" });
+  });
+
+  // FR-045: the administrator is told they're still signed in.
+  test.each([
+    ["an unmarked 204", answer(204, undefined, { marked: false }).fetch],
+    ["an unmarked 401", answer(401, "", { marked: false }).fetch],
+    ["a marked 403", answer(403, { error: "cross_origin" }).fetch],
+    ["a marked 500", answer(500, { error: "internal_error" }).fetch],
+    ["an unmarked 502", answer(502, "", { marked: false }).fetch],
+    ["a network error", failing(networkError)],
+    ["a timeout", failing(timeout)],
+  ])("%s is unavailable", async (_name, fetch) => {
+    expect(await signOut(fetch)).toEqual({ kind: "unavailable" });
   });
 });

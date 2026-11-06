@@ -1,8 +1,10 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
+  import { page } from "$app/state";
 
   import { signIn, type SignInResult } from "#lib/api.js";
   import Mark from "#lib/components/Mark.svelte";
+  import { safeNext, showsSessionEnded } from "#lib/session.js";
 
   type Problem = Exclude<SignInResult["kind"], "ok">;
 
@@ -24,6 +26,9 @@
   let busy = $state(false);
   let problem: Problem | null = $state(null);
 
+  // FR-040: only a tab that had a signed-in page open sees this.
+  const ended = $derived(showsSessionEnded(page.url));
+
   async function submit(event: SubmitEvent) {
     event.preventDefault();
     if (busy) return;
@@ -33,7 +38,9 @@
     const result = await signIn(email, password);
     busy = false;
     if (result.kind === "ok") {
-      await goto("/", { replace: true });
+      // Back to the page the session ended on (FR-040).
+      const next = safeNext(page.url.searchParams.get("next"), page.url.origin);
+      await goto(next, { replace: true });
       return;
     }
     problem = result.kind;
@@ -48,6 +55,10 @@
   <div class="column">
     <p class="brand"><Mark /> MailArkiv</p>
     <h1>Sign in</h1>
+
+    {#if ended}
+      <p class="ended">Your session ended. Sign in again to continue.</p>
+    {/if}
 
     {#if !secure}
       <p class="problem">
@@ -113,6 +124,10 @@
     font-size: var(--size-section);
     font-weight: var(--weight-strong);
     letter-spacing: var(--tracking-section);
+  }
+
+  .ended {
+    color: var(--text-2);
   }
 
   form {

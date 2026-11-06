@@ -18,6 +18,8 @@ export interface TestServer {
   dataDir: string;
   /** Creates an account through the CLI, as an operator would. */
   createAccount(email: string, password: string): Promise<void>;
+  /** Sets a new password through the CLI, which ends the account's sessions. */
+  setPassword(email: string, password: string): Promise<void>;
   stop(): Promise<void>;
 }
 
@@ -49,16 +51,20 @@ export async function startServer(): Promise<TestServer> {
   return {
     origin,
     dataDir,
-    createAccount: (email, password) => createAccount(dataDir, email, password),
+    createAccount: (email, password) =>
+      runAccountCommand("create", dataDir, email, password),
+    setPassword: (email, password) =>
+      runAccountCommand("set-password", dataDir, email, password),
     stop,
   };
 }
 
 /**
- * Runs `account create`. stdin is a pipe, not a terminal, so the command reads
- * the password as one line.
+ * Runs an `account` command. stdin is a pipe, not a terminal, so the command
+ * reads the password as one line.
  */
-function createAccount(
+function runAccountCommand(
+  command: "create" | "set-password",
   dataDir: string,
   email: string,
   password: string,
@@ -66,7 +72,7 @@ function createAccount(
   return new Promise((resolve, reject) => {
     const child = spawn(
       BINARY,
-      ["account", "create", "--data-dir", dataDir, email],
+      ["account", command, "--data-dir", dataDir, email],
       { stdio: ["pipe", "ignore", "pipe"] },
     );
     let stderr = "";
@@ -76,7 +82,7 @@ function createAccount(
       if (code === 0) {
         resolve();
       } else {
-        reject(new Error(`account create exited with ${code}: ${stderr}`));
+        reject(new Error(`account ${command} exited with ${code}: ${stderr}`));
       }
     });
     child.stdin?.end(`${password}\n`);

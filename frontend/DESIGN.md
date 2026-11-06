@@ -129,7 +129,7 @@ A shadow means something sits above the page. The panel gets `--shadow-panel`, d
 
 ## Layout
 
-Signed-in pages have a sidebar on `--canvas` and one `--panel` beside it, inset 8 px. A view has a 52 px header with its title, then a scrolling body. Import and status centre their content in `--content-width`. The page itself never scrolls sideways.
+Signed-in pages have a sidebar on `--canvas` and one `--panel` beside it, inset 8 px. The sidebar stays in view while the page scrolls, with Sign out at its foot. A view has a 52 px header with its title, then a scrolling body. Import and status centre their content in `--content-width`. The page itself never scrolls sideways.
 
 Sign-in and the failed-download page are standalone: a `--form-width` column, centred, on `--panel`, with no sidebar.
 
@@ -212,7 +212,7 @@ Sections stack with a `--line` above each: a 136 px label column, then content. 
 
 ### Sign-in
 
-Standalone. Email address, password, and a full-width primary Sign in. A standing note says "Accounts and passwords are managed on the server."
+Standalone. Email address, password, and a full-width primary Sign in. A standing note says "Accounts and passwords are managed on the server." When a session ended in this tab, a line above the form says "Your session ended. Sign in again to continue."
 
 ### Failed download
 

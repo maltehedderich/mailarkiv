@@ -1,6 +1,7 @@
 import { redirect } from "@sveltejs/kit";
 
 import { listMessages } from "#lib/api.js";
+import { signInPath } from "#lib/session.js";
 
 import type { PageLoad } from "./$types";
 
@@ -8,6 +9,6 @@ import type { PageLoad } from "./$types";
 // shows the failed-load state.
 export const load: PageLoad = async ({ fetch, url }) => {
   const messages = await listMessages(url.searchParams.get("page"), fetch);
-  if (messages.kind === "session_ended") redirect(307, "/sign-in");
+  if (messages.kind === "session_ended") redirect(307, signInPath(url));
   return { messages };
 };

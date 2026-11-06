@@ -70,7 +70,10 @@ test("an administrator imports one file and downloads the same bytes", async ({
     buffer: CONTENT,
   });
   await page.getByRole("button", { name: "Import" }).click();
-  await expect(page.getByRole("status")).toContainText("Archived");
+  // Scoped to main: the sidebar's sign-out line is a status element too.
+  await expect(page.getByRole("main").getByRole("status")).toContainText(
+    "Archived",
+  );
 
   // The new message is first, with its name, size, short hash, and a time
   // that ends in its UTC offset (scenario 12, FR-043).

@@ -1,11 +1,14 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
+  import { page } from "$app/state";
 
+  import { getSession } from "#lib/api.js";
   import FailedLoad from "#lib/components/FailedLoad.svelte";
   import MessageRow from "#lib/components/MessageRow.svelte";
   import { formatBytes, formatSize } from "#lib/format/size.js";
   import type { ImportResult } from "#lib/import/classify.js";
   import { upload } from "#lib/import/upload.js";
+  import { signInPath } from "#lib/session.js";
 
   import type { PageProps } from "./$types";
 
@@ -40,6 +43,15 @@
     const file = input.files?.[0];
     if (busy || file === undefined) return;
     busy = true;
+    // FR-040: a session that ended opens sign-in before any byte is sent.
+    // Only a marked 401 changes anything. After any other result the upload
+    // goes ahead, and its own answer decides the outcome.
+    const session = await getSession();
+    if (session.kind === "session_ended") {
+      busy = false;
+      await goto(signInPath(page.url));
+      return;
+    }
     // FR-032: the last result stays until the next import starts.
     result = null;
     progress = "Uploading, 0%";
