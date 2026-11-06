@@ -8,11 +8,18 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/maltehedderich/mailarkiv/internal/archive"
+	"github.com/maltehedderich/mailarkiv/internal/identity"
+	"github.com/maltehedderich/mailarkiv/internal/opstatus"
+	"github.com/maltehedderich/mailarkiv/internal/sqlitedb"
 )
 
 // lockedBuffer holds log output. The handler writes on the server's goroutine,
@@ -34,49 +41,101 @@ func (b *lockedBuffer) String() string {
 	return b.buffer.String()
 }
 
+// testNow is the fake clock's time. Sessions last 12 hours, so none expires
+// during a test.
+var testNow = time.Date(2026, 11, 6, 15, 50, 52, 123_000_000, time.UTC)
+
+// harness is the handler over a real listener, with real modules, SQLite, and
+// files behind it.
 type harness struct {
-	server *httptest.Server
-	log    *lockedBuffer
+	server   *httptest.Server
+	log      *lockedBuffer
+	dataDir  string
+	db       *sqlitedb.DB
+	identity *identity.Identity
 }
 
 func newHarness(t *testing.T, routes []Route) *harness {
 	t.Helper()
-	log := &lockedBuffer{}
-	deps := Deps{
-		Files:  staticFiles(),
-		Logger: slog.New(slog.NewJSONHandler(log, nil)),
+	h := &harness{log: &lockedBuffer{}}
+	deps := h.deps(t)
+	h.server = httptest.NewServer(newHandler(deps, routes))
+	t.Cleanup(h.server.Close)
+	return h
+}
+
+// deps opens a catalog in a new data directory and builds the modules on it.
+func (h *harness) deps(t *testing.T) Deps {
+	t.Helper()
+	logger := slog.New(slog.NewJSONHandler(h.log, nil))
+	now := func() time.Time { return testNow }
+
+	h.dataDir = filepath.Join(t.TempDir(), "data")
+	if err := os.Mkdir(h.dataDir, 0o700); err != nil {
+		t.Fatal(err)
 	}
-	server := httptest.NewServer(newHandler(deps, routes))
-	t.Cleanup(server.Close)
-	return &harness{server: server, log: log}
+	db, err := sqlitedb.Open(filepath.Join(h.dataDir, "catalog.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	h.db = db
+	h.identity = identity.New(db, now)
+
+	status := opstatus.New(logger, now)
+	files, err := archive.Open(h.dataDir, db, status, logger, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return Deps{
+		Files:    staticFiles(),
+		Logger:   logger,
+		Identity: h.identity,
+		Archive:  files,
+		Status:   status,
+	}
 }
 
 func (h *harness) do(t *testing.T, method, path string, change func(*http.Request)) (*http.Response, string) {
 	t.Helper()
-	request, err := http.NewRequest(method, h.server.URL+path, nil)
+	return h.send(t, method, path, nil, change)
+}
+
+// send makes a request with a body. A *bytes.Reader or *strings.Reader body
+// sends Content-Length. Any other reader sends a chunked body.
+func (h *harness) send(t *testing.T, method, path string, body io.Reader, change func(*http.Request)) (*http.Response, string) {
+	t.Helper()
+	request, err := http.NewRequest(method, h.server.URL+path, body)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if change != nil {
 		change(request)
 	}
-	// Redirects stay visible: every response has to carry the headers.
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-		CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-	response, err := client.Do(request)
+	response, err := testClient.Do(request)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer response.Body.Close()
-	body, err := io.ReadAll(response.Body)
+	read, err := io.ReadAll(response.Body)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return response, string(body)
+	return response, string(read)
+}
+
+// testClient leaves redirects visible: every response has to carry the
+// headers. The timeout is long enough for a 150 MB body under the race
+// detector.
+var testClient = &http.Client{
+	Timeout: 2 * time.Minute,
+	CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	},
 }
 
 // Go tests send the cookie by hand. net/http/cookiejar withholds Secure cookies
@@ -315,9 +374,9 @@ func TestInternalError(t *testing.T) {
 // The checkpoint for this phase: the real route table over static files, and no
 // /api/ route that opens without a session.
 func TestNewServesTheRouteTable(t *testing.T) {
-	server := httptest.NewServer(New(Deps{Files: staticFiles(), Logger: slog.New(slog.DiscardHandler)}))
-	t.Cleanup(server.Close)
-	h := &harness{server: server}
+	h := &harness{log: &lockedBuffer{}}
+	h.server = httptest.NewServer(New(h.deps(t)))
+	t.Cleanup(h.server.Close)
 
 	response, body := h.do(t, http.MethodGet, "/api/messages", nil)
 	if response.StatusCode != http.StatusUnauthorized || body != `{"error":"no_session"}` {

@@ -4,7 +4,11 @@ go 1.27.3
 
 ignore ./frontend/node_modules
 
-require modernc.org/sqlite v1.61.1
+require (
+	golang.org/x/crypto v0.58.1-0.20261009181718-2f1f834330b2
+	golang.org/x/term v0.47.0
+	modernc.org/sqlite v1.61.1
+)
 
 require (
 	github.com/dustin/go-humanize v1.1.0 // indirect

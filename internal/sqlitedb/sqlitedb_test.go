@@ -391,3 +391,60 @@ func TestMessageIDsAreNeverReused(t *testing.T) {
 		t.Fatalf("second ID = %d, first was %d", second, first)
 	}
 }
+
+func TestInTxCommitsOnlyWhenTheFunctionSucceeds(t *testing.T) {
+	db, _ := openCatalog(t)
+	ctx := context.Background()
+	if _, err := db.Writer.Exec("CREATE TABLE note (text TEXT NOT NULL) STRICT"); err != nil {
+		t.Fatal(err)
+	}
+	count := func() int {
+		t.Helper()
+		var n int
+		if err := db.Reader.QueryRow("SELECT COUNT(*) FROM note").Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+
+	err := InTx(ctx, db.Writer, func(tx *sql.Tx) error {
+		_, err := tx.Exec("INSERT INTO note (text) VALUES ('kept')")
+		return err
+	})
+	if err != nil || count() != 1 {
+		t.Fatalf("InTx = %v with %d rows, want success and 1 row", err, count())
+	}
+
+	failure := errors.New("the function failed")
+	err = InTx(ctx, db.Writer, func(tx *sql.Tx) error {
+		if _, err := tx.Exec("INSERT INTO note (text) VALUES ('dropped')"); err != nil {
+			return err
+		}
+		return failure
+	})
+	if !errors.Is(err, failure) {
+		t.Fatalf("InTx = %v, want the function's error", err)
+	}
+	if strings.Contains(err.Error(), "already been committed or rolled back") {
+		t.Errorf("InTx reported a second rollback: %v", err)
+	}
+	if count() != 1 {
+		t.Fatalf("rows = %d, want the failed insert rolled back", count())
+	}
+}
+
+func TestInTxReportsAFailedBegin(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "catalog.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	ran := false
+	err = InTx(context.Background(), db.Writer, func(*sql.Tx) error { ran = true; return nil })
+	if err == nil || ran {
+		t.Fatalf("InTx on a closed catalog = %v, ran = %v, want an error and no run", err, ran)
+	}
+}

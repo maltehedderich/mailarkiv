@@ -1,11 +1,17 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"io/fs"
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/maltehedderich/mailarkiv/internal/archive"
+	"github.com/maltehedderich/mailarkiv/internal/identity"
+	"github.com/maltehedderich/mailarkiv/internal/opstatus"
 )
 
 // Access is a route's rule for who may call it. The zero value, Undeclared,
@@ -41,6 +47,11 @@ func (r Route) pattern() string {
 // extend it.
 func Routes() []Route {
 	return []Route{
+		{Method: http.MethodPost, Path: "/api/session", Access: Public, Handler: signIn},
+		{Method: http.MethodGet, Path: "/api/session", Access: SignedIn, Handler: readSession},
+		{Method: http.MethodPost, Path: "/api/imports", Access: SignedIn, Handler: importFile},
+		{Method: http.MethodGet, Path: "/api/messages", Access: SignedIn, Handler: listMessages},
+		{Method: http.MethodGet, Path: "/api/messages/{id}/original", Access: SignedIn, Handler: downloadOriginal},
 		{Path: "/", Access: Public, Handler: serveStatic},
 	}
 }
@@ -48,13 +59,19 @@ func Routes() []Route {
 // Deps is what the HTTP adapter needs from the rest of the program.
 type Deps struct {
 	// Files holds the built interface, with app.html at its root.
-	Files  fs.FS
-	Logger *slog.Logger
+	Files    fs.FS
+	Logger   *slog.Logger
+	Identity *identity.Identity
+	Archive  *archive.Archive
+	Status   *opstatus.Status
 }
 
 type server struct {
-	logger *slog.Logger
-	static http.Handler
+	logger   *slog.Logger
+	static   http.Handler
+	identity *identity.Identity
+	archive  *archive.Archive
+	status   *opstatus.Status
 }
 
 // New returns the server's handler.
@@ -63,7 +80,13 @@ func New(deps Deps) http.Handler {
 }
 
 func newHandler(deps Deps, routes []Route) http.Handler {
-	s := &server{logger: deps.Logger, static: Static(deps.Files)}
+	s := &server{
+		logger:   deps.Logger,
+		static:   Static(deps.Files),
+		identity: deps.Identity,
+		archive:  deps.Archive,
+		status:   deps.Status,
+	}
 
 	mux := http.NewServeMux()
 	for _, route := range routes {
@@ -83,10 +106,11 @@ func (s *server) guard(route Route) http.Handler {
 		switch route.Access {
 		case Public:
 		case SignedIn:
-			if !s.hasSession(r) {
-				writeError(w, http.StatusUnauthorized, "no_session")
+			account, ok := s.checkSession(w, r)
+			if !ok {
 				return
 			}
+			r = r.WithContext(context.WithValue(r.Context(), accountKey{}, account))
 		default:
 			writeError(w, http.StatusForbidden, "no_access_rule")
 			return
@@ -95,18 +119,47 @@ func (s *server) guard(route Route) http.Handler {
 	})
 }
 
-// hasSession reports whether the request carries a valid session. Accounts
-// arrive with the identity module. Until then no request has a session, so
-// every SignedIn route fails closed.
-func (s *server) hasSession(*http.Request) bool {
-	return false
+// sessionCookieName has the __Host- prefix, so the browser accepts the cookie
+// only with Secure, Path=/, and no Domain.
+const sessionCookieName = "__Host-mailarkiv_session"
+
+// checkSession finds the request's account. When it returns false, it has
+// already answered: 401 for no valid session, or 500 when the lookup failed,
+// because the session may still be valid.
+func (s *server) checkSession(w http.ResponseWriter, r *http.Request) (identity.Account, bool) {
+	cookie, err := r.Cookie(sessionCookieName)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "no_session")
+		return identity.Account{}, false
+	}
+	account, err := s.identity.LookupSession(r.Context(), cookie.Value)
+	if errors.Is(err, identity.ErrNoSession) {
+		writeError(w, http.StatusUnauthorized, "no_session")
+		return identity.Account{}, false
+	}
+	if err != nil {
+		s.writeInternalError(w, r, err)
+		return identity.Account{}, false
+	}
+	return account, true
+}
+
+type accountKey struct{}
+
+// signedInAccount returns the account the guard found. Only a SignedIn route's
+// handler may call it.
+func signedInAccount(r *http.Request) identity.Account {
+	account, ok := r.Context().Value(accountKey{}).(identity.Account)
+	if !ok {
+		panic("signedInAccount called outside a SignedIn route")
+	}
+	return account
 }
 
 // unknownAPI answers 404 only to a caller with a session, so a caller without
 // one learns nothing about which paths exist.
 func (s *server) unknownAPI(w http.ResponseWriter, r *http.Request) {
-	if !s.hasSession(r) {
-		writeError(w, http.StatusUnauthorized, "no_session")
+	if _, ok := s.checkSession(w, r); !ok {
 		return
 	}
 	writeError(w, http.StatusNotFound, "not_found")
@@ -118,11 +171,16 @@ func serveStatic(s *server, w http.ResponseWriter, r *http.Request) {
 
 // writeError writes the contract's error body, { "error": "<code>" }.
 func writeError(w http.ResponseWriter, status int, code string) {
-	body, err := json.Marshal(struct {
+	writeJSON(w, status, struct {
 		Error string `json:"error"`
 	}{code})
+}
+
+// writeJSON writes v as the response body. v holds only strings, numbers, and
+// structs of them, so it always marshals.
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	body, err := json.Marshal(v)
 	if err != nil {
-		// A struct holding one string always marshals.
 		panic(err)
 	}
 	w.Header().Set("Content-Type", "application/json")

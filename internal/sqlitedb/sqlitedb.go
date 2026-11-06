@@ -145,3 +145,19 @@ func migrateOnce(ctx context.Context, writer *sql.DB, files []string) (applied b
 	}
 	return true, nil
 }
+
+// InTx runs fn in a transaction on db, and commits only if fn returns nil.
+// Otherwise it rolls back and returns fn's error.
+func InTx(ctx context.Context, db *sql.DB, fn func(*sql.Tx) error) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin a transaction: %w", err)
+	}
+	if err := fn(tx); err != nil {
+		return errors.Join(err, tx.Rollback())
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
+}

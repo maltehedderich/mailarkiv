@@ -63,6 +63,10 @@ type serverProcess struct {
 	lines   []string
 	scanned chan struct{} // Closed when stderr ends.
 	waited  bool
+
+	// group sends signals to the whole process group. strace needs it: in its
+	// -o FILE PROG mode it blocks fatal signals, so only the server gets them.
+	group bool
 }
 
 // startServer runs the binary on a free port and returns once it listens.
@@ -70,7 +74,13 @@ type serverProcess struct {
 // finding it and using it. The server logs the address it got.
 func startServer(t *testing.T, dataDir string) *serverProcess {
 	t.Helper()
-	cmd := exec.Command(serverBinary, "serve", "--data-dir", dataDir, "--listen", "127.0.0.1:0")
+	return startProcess(t, exec.Command(serverBinary, "serve", "--data-dir", dataDir, "--listen", "127.0.0.1:0"))
+}
+
+// startProcess starts cmd, which runs the server, and returns once it listens.
+// A cmd that sets Setpgid gets its signals as a process group.
+func startProcess(t *testing.T, cmd *exec.Cmd) *serverProcess {
+	t.Helper()
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -80,6 +90,7 @@ func startServer(t *testing.T, dataDir string) *serverProcess {
 	}
 
 	p := &serverProcess{t: t, cmd: cmd, scanned: make(chan struct{})}
+	p.group = cmd.SysProcAttr != nil && cmd.SysProcAttr.Setpgid
 	t.Cleanup(p.cleanUp)
 
 	listening := make(chan string, 1)
@@ -124,7 +135,7 @@ func (p *serverProcess) stderr() string {
 // stop sends the signal and returns the exit code.
 func (p *serverProcess) stop(signal syscall.Signal) int {
 	p.t.Helper()
-	if err := p.cmd.Process.Signal(signal); err != nil {
+	if err := p.signal(signal); err != nil {
 		p.t.Fatal(err)
 	}
 	select {
@@ -153,9 +164,16 @@ func (p *serverProcess) cleanUp() {
 	if waited {
 		return
 	}
-	_ = p.cmd.Process.Kill()
+	_ = p.signal(syscall.SIGKILL)
 	<-p.scanned
 	p.wait()
+}
+
+func (p *serverProcess) signal(signal syscall.Signal) error {
+	if p.group {
+		return syscall.Kill(-p.cmd.Process.Pid, signal)
+	}
+	return p.cmd.Process.Signal(signal)
 }
 
 // get answers with the response and its body. The client has a timeout, like

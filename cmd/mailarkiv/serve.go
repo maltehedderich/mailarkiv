@@ -16,6 +16,9 @@ import (
 	"time"
 
 	"github.com/maltehedderich/mailarkiv/frontend"
+	"github.com/maltehedderich/mailarkiv/internal/archive"
+	"github.com/maltehedderich/mailarkiv/internal/identity"
+	"github.com/maltehedderich/mailarkiv/internal/opstatus"
 	"github.com/maltehedderich/mailarkiv/internal/sqlitedb"
 	"github.com/maltehedderich/mailarkiv/internal/web"
 )
@@ -66,7 +69,7 @@ func serve(args []string) int {
 	if err != nil {
 		return startupFailed(logger, causeCatalog, err)
 	}
-	code := listenAndServe(logger, *listen)
+	code := serveCatalog(logger, *dataDir, db, *listen)
 	if err := db.Close(); err != nil {
 		logger.Error("close the catalog", "error", err.Error())
 		return exitFailed
@@ -74,22 +77,37 @@ func serve(args []string) int {
 	return code
 }
 
-// listenAndServe serves until SIGTERM or SIGINT, then gives requests in
-// progress the grace period.
-func listenAndServe(logger *slog.Logger, listen string) int {
+// serveCatalog builds the modules on the open catalog and serves them.
+func serveCatalog(logger *slog.Logger, dataDir string, db *sqlitedb.DB, listen string) int {
 	files, err := fs.Sub(frontend.Build, "build")
 	if err != nil {
 		logger.Error("open the embedded interface", "error", err.Error())
 		return exitFailed
 	}
+	status := opstatus.New(logger, time.Now)
+	originals, err := archive.Open(dataDir, db, status, logger, time.Now)
+	if err != nil {
+		return startupFailed(logger, causeStorage, err)
+	}
+	return listenAndServe(logger, listen, web.New(web.Deps{
+		Files:    files,
+		Logger:   logger,
+		Identity: identity.New(db, time.Now),
+		Archive:  originals,
+		Status:   status,
+	}))
+}
 
+// listenAndServe serves until SIGTERM or SIGINT, then gives requests in
+// progress the grace period.
+func listenAndServe(logger *slog.Logger, listen string, handler http.Handler) int {
 	listener, err := net.Listen("tcp", listen)
 	if err != nil {
 		return startupFailed(logger, causePort, err)
 	}
 
 	server := &http.Server{
-		Handler:           web.New(web.Deps{Files: files, Logger: logger}),
+		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,

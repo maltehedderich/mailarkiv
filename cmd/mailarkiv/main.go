@@ -13,10 +13,14 @@ const (
 
 	usage = `Usage:
   mailarkiv serve --data-dir DIR [--listen ADDR]
+  mailarkiv account create --data-dir DIR EMAIL
 
 Options:
   --data-dir DIR   Directory that holds the archive. Required.
   --listen ADDR    Address to listen on. Default: ` + defaultListen + `
+
+account create asks for the password. Without a terminal, it reads one line
+from stdin. The password is never an argument.
 `
 )
 
@@ -33,6 +37,8 @@ func run(args []string) int {
 	switch args[0] {
 	case "serve":
 		return serve(args[1:])
+	case "account":
+		return account(args[1:])
 	default:
 		return badArgs()
 	}
