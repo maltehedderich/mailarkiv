@@ -12,14 +12,16 @@ This repository contains product and architecture plans, engineering policy, and
 
 - Read the [product scope](docs/PRODUCT.md) for user journeys, first-release requirements, and candidates for later releases.
 - Read the [architecture principles](docs/ARCHITECTURE.md) for the proposed design, storage model, and reliability rules.
+- Read the [architecture decision records](docs/adr/) for adopted dependencies and their versions.
 
 ## Planned features
 
-- Import `.eml` files, collect email from IMAP mailboxes, or receive archive copies from a mail server through SMTP journaling.
+- Import `.eml` files, collect email from IMAP mailboxes that allow password login, or receive archive copies from a mail server through SMTP journaling.
 - Search by message text, sender, recipient, date, subject, and attachment filename in a web interface.
-- Preserve original messages byte for byte, download individual emails, and export selected messages in standard formats.
-- Preview messages with remote content blocked by default, and control who can access the archive.
+- Preserve original messages byte for byte, download individual emails, and export selected messages as a ZIP of `.eml` files.
+- Preview messages with remote content blocked by default, and limit access to local administrator accounts.
 - See collection failures and indexing delays, check stored messages for corruption, and back up and restore the archive.
+- Permanently delete a message when someone asks you to erase their data.
 
 ## Planned deployment
 
@@ -29,7 +31,7 @@ The planned distribution is a Linux binary or a single application container wit
 
 MailArkiv stores archive copies alongside your existing mail service. Sending email, spam filtering, and everyday mailbox management remain with your mail server and email client.
 
-Restoring messages directly into a mailbox is still under consideration. Legal holds, guaranteed immutable retention, and regulatory compliance certification are outside the initial release.
+The first release does not support Microsoft 365, restoring messages into a mailbox, or access for anyone other than administrators. These may follow if users need them. Legal holds, guaranteed immutable retention, and regulatory compliance certification are also outside the first release.
 
 ## Contributing
 
