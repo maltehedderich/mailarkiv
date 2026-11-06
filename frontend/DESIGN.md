@@ -2,7 +2,7 @@
 
 This guide says which token to use where, and why. Exact values live in [`src/lib/styles/tokens.css`](src/lib/styles/tokens.css), so change them there and nowhere else.
 
-It covers the Slice 1 screens: sign-in, the import list with the import box, file history, the failed-download page, and status. Behavior comes from [the Slice 1 spec](../specs/001-import-browse-retrieve/spec.md). If this file conflicts with the spec or [the constitution](../.specify/memory/constitution.md), they win.
+It covers the Slice 1 screens: sign-in, the import list with the import box, file history, the failed-download page, and status. Behavior and failure wording come from [the Slice 1 spec](../specs/001-import-browse-retrieve/spec.md). If this file conflicts with the spec or [the constitution](../.specify/memory/constitution.md), they win.
 
 ## Character
 
@@ -177,7 +177,7 @@ Uses `--fill-1` with a `--line` edge, `--radius-large`, at least 76 px tall. It 
 | Chosen                 | The name and exact bytes, the removal warning again, and Import (FR-034)                      |
 | Uploading              | "Uploading, 42%" and a progress bar. Import is off (FR-035)                                   |
 | Storing                | A separate storing state with no percentage (FR-035)                                          |
-| Refused in the browser | Empty, over 150 MB, or several files: a message, with nothing uploaded (FR-036)               |
+| Refused in the browser | A message, with nothing uploaded (FR-036)                                                     |
 
 ### Import outcome
 
@@ -212,15 +212,19 @@ Sections stack with a `--line` above each: a 136 px label column, then content. 
 
 ### Sign-in
 
-Standalone. Email address, password, and a full-width primary Sign in. Wrong password and unknown address show the same line: "That email address and password don't match." A standing note says "Accounts and passwords are managed on the server."
+Standalone. Email address, password, and a full-width primary Sign in. A standing note says "Accounts and passwords are managed on the server."
 
 ### Failed download
 
-Standalone, and it replaces the download when the hash check fails (FR-023). A section heading "This message wasn't downloaded", the reason, the next step in `--text-3`, and a default button back to the list. Nothing is saved.
+Standalone. A section heading, the reason, the next step in `--text-3`, and a default button back to the list.
 
 ### Loading
 
 Skeleton rows keep the real columns. They don't animate, so a slow archive doesn't look busy.
+
+### Failed load
+
+Data that didn't arrive leaves one block in place of the content: what happened in `--text-2`, the next step in `--text-3`, and a default button to try again. An action that didn't finish shows one line in `--state-bad-text` beside its control. Both sit in a `role="status"` element.
 
 ## Accessibility and keyboard
 
@@ -295,7 +299,7 @@ Follow the Writing section in [AGENTS.md](../AGENTS.md).
 - Use sentence case. Start buttons with a verb.
 - A failure says what happened, then what to do next.
 - Say what's known and nothing more, as in "1,204 messages are waiting" rather than "All good."
-- Use the spec's exact words for outcomes and failure categories.
+- Use the spec's exact words for outcomes and failures.
 
 ## Later slices
 

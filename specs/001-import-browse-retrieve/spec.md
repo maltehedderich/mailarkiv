@@ -179,13 +179,13 @@ Administrators and operators can tell when capture, recovery, or retrieval went 
 
 - **FR-001**: An operator on the server host MUST be able to create an administrator account for an email address and set a new password for an existing account. The web interface MUST NOT offer a way to create an account. The sign-in page MUST always say that accounts and passwords are managed on the server and point to the operator documentation, with the same note whether or not any account exists.
 - **FR-002**: Passwords MUST have at least 12 characters and MUST be stored only in a form that cannot be reversed.
-- **FR-003**: Administrators MUST be able to sign in with an email address and password, and to sign out. A failed sign-in MUST NOT reveal whether the account exists.
+- **FR-003**: Administrators MUST be able to sign in with an email address and password, and to sign out. A failed sign-in MUST NOT reveal whether the account exists, so a wrong password, an unknown address, and a malformed address MUST all show "That email address and password don't match."
 - **FR-004**: After 10 failed sign-ins for one submitted email address within 15 minutes, the system MUST refuse sign-in for that address for the next 15 minutes. The limit and its message MUST be the same whether or not the account exists. Setting a new password MUST lift the block.
 - **FR-005**: A session MUST end at sign-out, 12 hours after sign-in, or when the account's password is set, whichever comes first.
 - **FR-006**: The server MUST check access on every operation and deny by default. Only sign-in and the static application files, which contain no mail data, may be reached without a session.
 - **FR-007**: The system MUST reject state-changing requests forged from another website and MUST NOT let other websites embed its pages.
 - **FR-008**: Every account MUST see the whole archive. This slice has no roles.
-- **FR-044**: Every account MUST have one email address, which identifies it. The address MUST have one `@` with text on both sides and no spaces. The system MUST ignore capital letters when comparing addresses, including for the sign-in limit, and MUST refuse a second account for the same address. The system MUST NOT send email to the address or check that it receives mail.
+- **FR-044**: Every account MUST have one email address, which identifies it. The address MUST have one `@` with text on both sides and no spaces. The system MUST store the address in lowercase, whatever capital letters were typed, and MUST ignore capital letters when comparing addresses, including for the sign-in limit. It MUST refuse a second account for the same address. The system MUST NOT send email to the address or check that it receives mail.
 
 **Import**
 
@@ -206,7 +206,7 @@ Administrators and operators can tell when capture, recovery, or retrieval went 
 - **FR-020**: Administrators MUST be able to open a message's import history, showing its full content hash and every source observation.
 - **FR-021**: Supplied file names MUST be treated as untrusted. They MUST be shown as plain text with control and bidirectional characters neutralized, and MUST NOT be used to choose a storage location or a download name. A long name MUST be shortened in the middle so its ending stays visible, with the full name in the import history. A missing name MUST show as "(no file name)".
 - **FR-022**: Download MUST return the exact stored bytes as a saved file, never displayed in the browser, named from the content hash with an `.eml` extension.
-- **FR-023**: Before a download starts, the system MUST check the stored original against its content hash. If it is missing or does not match, the download MUST fail: the administrator sees the reason in the browser with a way back to the list, and nothing is saved or presented as the original.
+- **FR-023**: Before a download starts, the system MUST check the stored original against its content hash. If it is missing or does not match, the download MUST fail: the administrator sees "This message wasn't downloaded" and the reason in the browser with a way back to the list, and nothing is saved or presented as the original.
 
 **Recovery and visibility**
 
@@ -264,6 +264,13 @@ Unreferenced originals are not failures, but each one MUST show this next step: 
 - **FR-041**: Sign-in, the message list, import, import history, and the status screen MUST meet WCAG 2.2 AA and work by keyboard alone. Import results MUST be announced to screen readers. Drag-and-drop, if offered, MUST be an addition to a file button.
 - **FR-042**: The same screens MUST work at 360 px wide with no horizontal page scrolling.
 - **FR-043**: Times MUST be absolute, in the viewer's time zone with the UTC offset shown, and never relative only.
+- **FR-045**: When a screen's data can't be loaded, or sign-in or sign-out can't finish, because of a server or network failure, the web interface MUST say so and offer a way to try again. It MUST NOT show an empty list, a problem count of zero, or the wrong-password message in its place.
+
+| What didn't finish                      | What the administrator is told                                                                                   |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| A screen's or the history drawer's data | "This page couldn't be loaded." and "Try again. If this repeats, check the server log.", with a Try again button |
+| Sign-in                                 | "Sign-in didn't finish. Try again. If this repeats, check the server log."                                       |
+| Sign-out                                | "Sign-out didn't finish, so you're still signed in. Try again."                                                  |
 
 ### Key Entities *(include if feature involves data)*
 
@@ -308,7 +315,7 @@ Each choice below filled a gap in the issue. The numbers here and in the success
 
 - **Decided design**: Issue #1, [the architecture principles](../../docs/ARCHITECTURE.md), and [ADR 0002](../../docs/adr/0002-modernc-sqlite-driver.md) fix the catalog engine, storage layout, capture order, and dependency baseline. The plan carries them, and this spec states only the behavior they must produce.
 - **First account**: The operator creates it on the host. A first-run web page would let whoever reaches a new install first claim its whole archive.
-- **Email address**: Accounts sign in with an email address, although this slice sends no email. Nothing checks the address, so the operator who creates the account vouches for it. A mistyped address still signs in as typed and can't be changed: the operator creates a new account and sets a new password on the wrong one.
+- **Email address**: Accounts sign in with an email address, although this slice sends no email. Nothing checks the address, so the operator who creates the account vouches for it. A mistyped address still signs in, typo included, and can't be changed: the operator creates a new account and sets a new password on the wrong one.
 - **List columns**: The list shows capture data only. Subject, sender, and date need the parser that Slice 3 adds, and that slice can add those columns.
 - **File check**: The header-line check keeps wrong files out while nothing can be deleted. The cost is that a real message with a damaged first line is refused. The administrator still holds that file, so nothing is lost.
 - **Two-step import**: Pressing Import costs one extra click per file. That is worth it while a wrong import can't be removed. Slice 6 can drop the notice and revisit the step.
@@ -320,5 +327,5 @@ Each choice below filled a gap in the issue. The numbers here and in the success
 - **API**: The server's request interface serves the web interface and is not a published contract in this slice. The web interface meets the issue's "UI or documented API" condition. Direct requests are still tested, because they are the path an attacker would use.
 - **Scale**: FR-024 scans stored originals before the server accepts imports. How long that takes at the 5 million message target is unmeasured, and the sizing test in Slice 3 does not list it.
 - **Download errors**: The plan should test a plain link first: a successful download leaves the page in place, and a failure returns a small error page. Reading the file into the page first could hold 150 MB in the browser tab. This behavior is untested.
-- **Visual design**: `DESIGN.md`, written separately, owns layout, type, color, and labels. This spec sets behavior only.
+- **Visual design**: `DESIGN.md`, written separately, owns layout, type, color, and control labels. This spec sets behavior and the wording of outcomes and failures.
 - **Plan inputs**: The plan ranks credible failures by likelihood and harm, names each required check and its layer, and adds the check commands to `AGENTS.md`. The server must send the embedding rule in FR-007 as a response header, because static pages can't carry it. Test fixtures use synthetic mail only.
