@@ -19,7 +19,8 @@ test("the page renders and no request leaves its origin", async ({ page }) => {
 
   await page.goto(server.origin, { waitUntil: "networkidle" });
 
-  await expect(page.getByRole("heading", { name: "MailArkiv" })).toBeVisible();
+  // With no session, the app opens sign-in.
+  await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
   // The page and its scripts loaded, so an empty list can't pass this test.
   expect(requested.length).toBeGreaterThan(1);
   expect(

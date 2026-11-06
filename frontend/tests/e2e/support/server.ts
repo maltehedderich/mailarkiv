@@ -14,6 +14,10 @@ const POLL_INTERVAL_MS = 50;
 export interface TestServer {
   /** Uses localhost, the host research tested with the Secure session cookie. */
   origin: string;
+  /** The server's data directory, removed by stop. */
+  dataDir: string;
+  /** Creates an account through the CLI, as an operator would. */
+  createAccount(email: string, password: string): Promise<void>;
   stop(): Promise<void>;
 }
 
@@ -42,7 +46,41 @@ export async function startServer(): Promise<TestServer> {
     await stop();
     throw new Error(`The server didn't start: ${String(error)}\n${stderr}`);
   }
-  return { origin, stop };
+  return {
+    origin,
+    dataDir,
+    createAccount: (email, password) => createAccount(dataDir, email, password),
+    stop,
+  };
+}
+
+/**
+ * Runs `account create`. stdin is a pipe, not a terminal, so the command reads
+ * the password as one line.
+ */
+function createAccount(
+  dataDir: string,
+  email: string,
+  password: string,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      BINARY,
+      ["account", "create", "--data-dir", dataDir, email],
+      { stdio: ["pipe", "ignore", "pipe"] },
+    );
+    let stderr = "";
+    child.stderr?.on("data", (chunk) => (stderr += chunk));
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`account create exited with ${code}: ${stderr}`));
+      }
+    });
+    child.stdin?.end(`${password}\n`);
+  });
 }
 
 function freePort(): Promise<number> {
