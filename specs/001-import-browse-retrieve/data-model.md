@@ -72,7 +72,7 @@ Setting a password deletes the address's failures and block in its transaction.
 
 | Column | Type | Rules |
 | ------ | ---- | ----- |
-| `id` | INTEGER PRIMARY KEY AUTOINCREMENT | The internal message ID in URLs, failure reports, and logs. Never reused, so a stale reference can't point to a different message after a deletion in Slice 6 |
+| `id` | INTEGER PRIMARY KEY AUTOINCREMENT | The internal message ID in URLs, failure reports, and logs. Never reused, so a stale reference can't point to a different message after a deletion in Slice 6. Not consecutive either: a repeat import uses up an ID in its `INSERT … ON CONFLICT DO NOTHING` |
 | `content_hash` | TEXT NOT NULL UNIQUE | Lowercase hex SHA-256. Identifies the message (FR-016) |
 | `size` | INTEGER NOT NULL | Bytes, from 1 to 150,000,000 |
 | `latest_observation_id` | INTEGER REFERENCES `source_observation` | Set in the same transaction that creates the row, so committed rows are never NULL. Indexed descending for the list |
@@ -158,6 +158,8 @@ blob durable
     ▼
 committed ──► response sent
 ```
+
+Once the whole body has arrived, capture runs on a context the client can't cancel, so a client that leaves during the fsyncs still gets its file committed. A body that ends early, or stalls for 60 seconds, ends the request with `panic(http.ErrAbortHandler)`, so the client gets no response at all.
 
 A crash at any point before `committed` leaves at most a temp file, which recovery removes, or an unreferenced blob, which recovery lists. A crash between `committed` and the response leaves a listed message and an Unconfirmed result, and importing again shows Already archived.
 

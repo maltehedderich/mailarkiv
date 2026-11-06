@@ -79,7 +79,7 @@ The request body is the file's exact bytes. The body's `Content-Type` is ignored
 
 | Header | Value |
 | ------ | ----- |
-| `MailArkiv-File-Name` | Optional. Percent-encoded UTF-8 file name. Invalid UTF-8 after decoding is replaced with U+FFFD |
+| `MailArkiv-File-Name` | Optional. Percent-encoded UTF-8 file name, decoded like a path segment, so `+` stays a plus. Invalid UTF-8 after decoding is replaced with U+FFFD. An empty header stores an empty name, which isn't the same as no header |
 
 Responses:
 
@@ -144,7 +144,7 @@ Any other call, apart from the session check before an upload, shows the failed-
 
 ### `GET /api/messages?page=N`
 
-`page` starts at 1 and defaults to 1. Anything else is 400 `bad_page`. A page past the end returns no items with the real total, and the client moves to the last page.
+`page` starts at 1 and defaults to 1. Anything else, including `01`, `+1`, and a repeated `page`, is 400 `bad_page`. A page past the end returns no items with the real total, and the client moves to the last page.
 
 ```json
 {
@@ -198,6 +198,8 @@ The interface links here with a plain `<a>` that has no `download` attribute. Th
 | Unknown ID | 404 | `download-failed/missing.html`, with no failure event |
 | Stored file missing | 404 | `download-failed/missing.html`, with a `stored_original_missing` event |
 | Stored file damaged or unreadable | 500 | `download-failed/damaged.html`, with a `stored_original_damaged` event |
+
+Until T094 adds these pages, an unknown ID answers 404 `not_found` as JSON.
 | Catalog can't be read | 500 | `internal_error` as JSON, with no failure event |
 | No session, `Sec-Fetch-Mode: navigate` | 303 | To `/sign-in?ended=1&next=<path from a same-origin Referer, or />` |
 | No session, any other request | 401 | `no_session` |

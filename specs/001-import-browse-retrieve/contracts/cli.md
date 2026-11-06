@@ -55,7 +55,7 @@ Both commands refuse to run when the current user doesn't own the data directory
 
 | Exit | Message on stderr | When |
 | ---- | ----------------- | ---- |
-| 0 | None. Prints a one-line confirmation on stdout | Done |
+| 0 | None. Prints one confirmation line on stdout, such as `Created the account admin@example.test.` | Done |
 | 1 | That email address isn't valid. | FR-044 |
 | 1 | An account with that email address already exists. | `create`, whatever the capital letters. The existing account doesn't change |
 | 1 | No account has that email address. | `set-password` |
