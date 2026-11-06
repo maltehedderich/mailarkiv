@@ -1,0 +1,5 @@
+{"engine":"tantivy","stage":"index","docs":1000000,"batch":5000,"index_s":261.0,"close_s":25.7,"docs_per_s":3488,"dir_MiB":1222,"VmHWM_MiB":785,"VmRSS_MiB":312}
+du_MiB 1224	$SCRATCH/data/m/tantivy
+segments 5
+{"engine":"tantivy","stage":"update","batch100_p50_ms":71.5,"batch100_p95_ms":89.5,"delete_one_avg_ms":11.4}
+{"engine":"tantivy","stage":"forcemerge","segments_in":5,"seconds":78.6,"error":"none","wait_err":None,"write_MiB":1142,"count":1000000,"dir_MiB":1142}

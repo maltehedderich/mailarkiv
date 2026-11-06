@@ -1,0 +1,21 @@
+tantivy 100000 docs 61s "VmHWM_MiB":194,"VmRSS_MiB":45
+tantivy 180000 docs 124s "VmHWM_MiB":194,"VmRSS_MiB":62
+{"engine":"tantivy","stage":"index","docs":200000,"batch":5000,"index_s":138.8,"close_s":3.5,"docs_per_s":1406,"dir_MiB":300,"VmHWM_MiB":194,"VmRSS_MiB":4}
+{"engine":"tantivy","stage":"open","open_s":0.003,"docs":200000,"segments":10,"VmHWM_MiB":5,"VmRSS_MiB":5}
+{"engine":"tantivy","class":"unique_token","n":20,"p50_ms":0.135,"p95_ms":0.303,"max_ms":1.029,"median_hits":1,"errors":0}
+{"engine":"tantivy","class":"rare_0.01pct","n":100,"p50_ms":0.257,"p95_ms":0.719,"max_ms":1.128,"median_hits":20,"errors":0}
+{"engine":"tantivy","class":"mid_1pct","n":100,"p50_ms":0.515,"p95_ms":0.869,"max_ms":2.260,"median_hits":1982,"errors":0}
+{"engine":"tantivy","class":"common_60pct","n":100,"p50_ms":1.888,"p95_ms":2.577,"max_ms":12.479,"median_hits":81704,"errors":0}
+{"engine":"tantivy","class":"and_common_mid","n":100,"p50_ms":1.188,"p95_ms":1.568,"max_ms":11.504,"median_hits":1295,"errors":0}
+{"engine":"tantivy","class":"prefix_4char","n":100,"p50_ms":3.841,"p95_ms":16.582,"max_ms":42.194,"median_hits":21184,"errors":0}
+{"engine":"tantivy","class":"prefix_2char","n":100,"p50_ms":42.431,"p95_ms":70.441,"max_ms":74.821,"median_hits":155510,"errors":0}
+{"engine":"tantivy","class":"typed_term_term_prefix","n":100,"p50_ms":19.180,"p95_ms":46.524,"max_ms":54.709,"median_hits":1028,"errors":0}
+{"engine":"tantivy","class":"phrase","n":100,"p50_ms":1.075,"p95_ms":1.633,"max_ms":12.155,"median_hits":1000,"errors":0}
+{"engine":"tantivy","class":"sender_90days","n":100,"p50_ms":0.796,"p95_ms":1.210,"max_ms":10.833,"median_hits":124,"errors":0}
+{"engine":"tantivy","class":"mid_1year","n":100,"p50_ms":1.149,"p95_ms":1.559,"max_ms":13.330,"median_hits":503,"errors":0}
+{"engine":"tantivy","class":"attachment_name","n":100,"p50_ms":0.263,"p95_ms":0.397,"max_ms":1.245,"median_hits":44,"errors":0}
+{"engine":"tantivy","class":"mid_1pct_bm25","n":100,"p50_ms":1.626,"p95_ms":2.013,"max_ms":12.559,"median_hits":1982,"errors":0}
+{"engine":"tantivy","class":"common_60pct_bm25","n":100,"p50_ms":2.689,"p95_ms":3.528,"max_ms":13.697,"median_hits":81704,"errors":0}
+{"engine":"tantivy","class":"and_common_mid_bm25","n":100,"p50_ms":2.764,"p95_ms":3.486,"max_ms":13.400,"median_hits":1295,"errors":0}
+{"engine":"tantivy","class":"count_common","n":100,"p50_ms":0.537,"p95_ms":0.788,"max_ms":11.592,"median_hits":81704,"errors":0}
+{"engine":"tantivy","stage":"query_end","sink":151830,"VmHWM_MiB":155,"VmRSS_MiB":155}

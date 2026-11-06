@@ -1,0 +1,6 @@
+tantivy 245000 docs 61s "VmHWM_MiB":341,"VmRSS_MiB":249
+tantivy 430000 docs 121s "VmHWM_MiB":620,"VmRSS_MiB":198
+tantivy 610000 docs 182s "VmHWM_MiB":620,"VmRSS_MiB":442
+tantivy 790000 docs 242s "VmHWM_MiB":668,"VmRSS_MiB":237
+tantivy 940000 docs 303s "VmHWM_MiB":668,"VmRSS_MiB":277
+{"engine":"tantivy","stage":"index","docs":1000000,"batch":5000,"index_s":322.4,"close_s":29.1,"docs_per_s":2844,"dir_MiB":1235,"VmHWM_MiB":668,"VmRSS_MiB":91}

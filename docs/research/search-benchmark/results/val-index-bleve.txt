@@ -1,0 +1,2 @@
+{"VmHWM_MiB":1977,"VmRSS_MiB":1609,"async_errors":0,"batch":5000,"close_s":0.004344832000015231,"dir_MiB":1183,"docs":200000,"docs_per_s":635.4244415515806,"engine":"bleve","index_s":314.745902091,"stage":"index"}
+bleve wall 315.10 s peak 2025268 KB

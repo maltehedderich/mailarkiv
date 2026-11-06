@@ -1,0 +1,6 @@
+bleve 45000 docs 67s rss=map[VmHWM_MiB:1624 VmRSS_MiB:1221]
+bleve 85000 docs 131s rss=map[VmHWM_MiB:1988 VmRSS_MiB:1671]
+bleve 125000 docs 197s rss=map[VmHWM_MiB:2019 VmRSS_MiB:1746]
+bleve 160000 docs 257s rss=map[VmHWM_MiB:2019 VmRSS_MiB:1410]
+bleve 200000 docs 321s rss=map[VmHWM_MiB:2019 VmRSS_MiB:1437]
+{"VmHWM_MiB":2019,"VmRSS_MiB":1432,"async_errors":0,"batch":5000,"close_s":0.008126215000004322,"dir_MiB":1183,"docs":200000,"docs_per_s":623.0238373314132,"engine":"bleve","index_s":321.006878264,"stage":"index"}

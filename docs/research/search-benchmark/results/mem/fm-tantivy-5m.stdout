@@ -1,0 +1,1 @@
+{"engine":"tantivy","stage":"forcemerge","segments_in":13,"seconds":485.0,"error":"none","wait_err":None,"write_MiB":5502,"count":5000000,"dir_MiB":5502}

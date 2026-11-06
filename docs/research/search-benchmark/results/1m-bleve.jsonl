@@ -1,0 +1,5 @@
+{"VmHWM_MiB":3048,"VmRSS_MiB":1762,"async_errors":0,"batch":5000,"close_s":0.003786928999943484,"dir_MiB":5448,"docs":1000000,"docs_per_s":629.0519951392628,"engine":"bleve","index_s":1589.689922932,"stage":"index"}
+du_MiB 5449	$SCRATCH/data/m/bleve
+segments 21
+{"batch100_p50_ms":224.139,"batch100_p95_ms":288.622,"delete_one_avg_ms":3.2772666666666668,"engine":"bleve","stage":"update"}
+{"async_errors":0,"count":1000000,"count_err":"\u003cnil\u003e","dir_MiB":8069,"engine":"bleve","error":"\u003cnil\u003e","seconds":102.154988133,"stage":"forcemerge","write_MiB":2621}

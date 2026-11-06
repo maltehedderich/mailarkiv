@@ -1,0 +1,5 @@
+t=20s write_MiB=509 async_errors=0
+t=40s write_MiB=1415 async_errors=0
+t=60s write_MiB=2132 async_errors=0
+t=80s write_MiB=2427 async_errors=0
+{"async_errors":0,"count":1000000,"count_err":"\u003cnil\u003e","dir_MiB":8069,"engine":"bleve","error":"\u003cnil\u003e","seconds":93.070643964,"stage":"forcemerge","write_MiB":2621}

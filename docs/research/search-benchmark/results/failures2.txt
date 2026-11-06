@@ -1,0 +1,107 @@
+################ A: kill -9 of the real indexer process
+bleve round=1 acked=17000 count_after_kill=[17000 <nil>] expected_after_resume>=19000 count_after_resume=[19000 <nil>]
+   resume: {"VmHWM_MiB":214,"VmRSS_MiB":183,"async_errors":0,"batch":500,"close_s":0.0017087889999998218,"dir_MiB":144,"docs":2000,"docs_per_s":620.7211410596565,"engine":"bleve","index_s":3.220349857,"stage":"i
+bleve round=2 acked=22000 count_after_kill=[22000 <nil>] expected_after_resume>=24000 count_after_resume=[24000 <nil>]
+   resume: {"VmHWM_MiB":264,"VmRSS_MiB":214,"async_errors":0,"batch":500,"close_s":0.01855792700000025,"dir_MiB":188,"docs":2000,"docs_per_s":573.3878979998536,"engine":"bleve","index_s":3.4694819949999998,"stag
+bleve round=3 acked=27000 count_after_kill=[27000 <nil>] expected_after_resume>=29000 count_after_resume=[29000 <nil>]
+   resume: {"VmHWM_MiB":204,"VmRSS_MiB":193,"async_errors":0,"batch":500,"close_s":0.0016809939999999912,"dir_MiB":212,"docs":2000,"docs_per_s":773.9303930796724,"engine":"bleve","index_s":2.5825305849999998,"st
+fts round=1 acked=9000 count_after_kill=[9000 <nil>] expected_after_resume>=11000 count_after_resume=[11000 <nil>]
+   resume: {"VmHWM_MiB":104,"VmRSS_MiB":34,"async_errors":0,"batch":500,"close_s":0.036642087999999795,"dir_MiB":114,"docs":2000,"docs_per_s":419.6066732549264,"engine":"fts","index_s":4.729726201,"stage":"index
+fts round=2 acked=12000 count_after_kill=[12000 <nil>] expected_after_resume>=14000 count_after_resume=[14000 <nil>]
+   resume: {"VmHWM_MiB":151,"VmRSS_MiB":38,"async_errors":0,"batch":500,"close_s":0.06298000299999984,"dir_MiB":143,"docs":2000,"docs_per_s":297.136671701398,"engine":"fts","index_s":6.667929191,"stage":"index"}
+fts round=3 acked=15000 count_after_kill=[15000 <nil>] expected_after_resume>=17000 count_after_resume=[17000 <nil>]
+   resume: {"VmHWM_MiB":137,"VmRSS_MiB":37,"async_errors":0,"batch":500,"close_s":0.04963140200000016,"dir_MiB":174,"docs":2000,"docs_per_s":343.3203274541081,"engine":"fts","index_s":5.7758318509999995,"stage":
+tantivy round=1 acked=73000 count_after_kill=[73000 ok] expected_after_resume>=75000 count_after_resume=[75000 ok]
+   resume: {"engine":"tantivy","stage":"index","docs":2000,"batch":500,"index_s":1.0,"close_s":5.7,"docs_per_s":300,"dir_MiB":115,"VmHWM_MiB":151,"VmRSS_MiB":71}
+tantivy round=2 acked=102000 count_after_kill=[102000 ok] expected_after_resume>=104000 count_after_resume=[104000 ok]
+   resume: {"engine":"tantivy","stage":"index","docs":2000,"batch":500,"index_s":1.1,"close_s":3.2,"docs_per_s":462,"dir_MiB":168,"VmHWM_MiB":153,"VmRSS_MiB":114}
+tantivy round=3 acked=118000 count_after_kill=[118000 ok] expected_after_resume>=120000 count_after_resume=[120000 ok]
+   resume: {"engine":"tantivy","stage":"index","docs":2000,"batch":500,"index_s":1.1,"close_s":4.2,"docs_per_s":379,"dir_MiB":188,"VmHWM_MiB":114,"VmRSS_MiB":61}
+################ B: disk full WITH concurrent searches (OpenCloud's panic path)
+== bleve
+first_run_rc=3
+panic_lines=0
+{"async_errors":23,"docs_acked":9000,"elapsed_s":24.4458391,"engine":"bleve","error":"segment: /idx/e/store/00000000000e.zap persist err: write /idx/e/store/00000000000e.zap: no space left on device","queries_failed":0,"queries_ok":105319,"stage":"index"}
+last_ack=9000
+count_after: 9000 <nil>
+resume_rc=0
+{"VmHWM_MiB":199,"VmRSS_MiB":195,"async_errors":0,"batch":500,"close_s":0.0005070490000000927,"dir_MiB":76,"docs":1000,"docs_per_s":609.2849854072256,"engine":"bleve","index_s":1.640760893,"stage":"in
+count_after_resume: 10000 <nil>
+== fts
+first_run_rc=3
+panic_lines=0
+{"async_errors":0,"docs_acked":5000,"elapsed_s":15.243835105,"engine":"fts","error":"database or disk is full (13)","queries_failed":0,"queries_ok":62976,"stage":"index"}
+last_ack=5000
+count_after: 5000 <nil>
+resume_rc=0
+{"VmHWM_MiB":81,"VmRSS_MiB":31,"async_errors":0,"batch":500,"close_s":0.029427416999999956,"dir_MiB":63,"docs":1000,"docs_per_s":375.96651695737614,"engine":"fts","index_s":2.630383759,"stage":"index"
+count_after_resume: 6000 <nil>
+== tantivy
+first_run_rc=3
+panic_lines=0
+{"engine":"tantivy","stage":"index","error":"An IO error occurred: 'No space left on device (os error 28)'","docs_acked":31000,"elapsed_s":60.1,"queries_ok":6577,"queries_failed":0}
+last_ack=31000
+count_after: 31000 ok
+resume_rc=0
+{"engine":"tantivy","stage":"index","docs":1000,"batch":500,"index_s":0.8,"close_s":7.9,"docs_per_s":116,"dir_MiB":48,"VmHWM_MiB":86,"VmRSS_MiB":3}
+count_after_resume: 32000 ok
+################ C0: force merge on clean copies (cost to purge deleted terms, 200k docs)
+{"async_errors":0,"count":200000,"count_err":"\u003cnil\u003e","dir_MiB":2249,"engine":"bleve","error":"\u003cnil\u003e","seconds":40.017885209,"stage":"forcemerge","write_MiB":1066}
+{"async_errors":0,"count":200000,"count_err":"\u003cnil\u003e","dir_MiB":3697,"engine":"fts","error":"\u003cnil\u003e","seconds":412.904845877,"stage":"forcemerge","write_MiB":5429}
+{"engine":"tantivy","stage":"forcemerge","segments_in":3,"seconds":12.7,"error":"none","wait_err":None,"write_MiB":244,"count":200000,"dir_MiB":244}
+################ C1: Bleve, corrupt smallest segment, force a merge through it
+corrupted 000000000022.zap size 36940569 at 9235142
+spike/failures2.sh: line 51: 2890932 Killed                  timeout -s KILL 200 "$G" forcemerge bleve "$d" > "$F/m.out" 2>&1
+rc=137 (137 means killed by the 200 s limit)
+bleve async error: source: merger, persist error: merging err: error loading roaring bitmap: error in roaringArray.readFrom: did not find expected serialCookie in header
+bleve async error: source: merger, persist error: merging err: error loading roaring bitmap: error in roaringArray.readFrom: did not find expected serialCookie in header
+bleve async error: source: merger, persist error: merging err: error loading roaring bitmap: error in roaringArray.readFrom: did not find expected serialCookie in header
+panic_lines=0
+t=160s write_MiB=3668 async_errors=50
+t=180s write_MiB=4133 async_errors=56
+corrupted 000000000022.zap size 36940569 at 18470284
+spike/failures2.sh: line 51: 2891384 Killed                  timeout -s KILL 200 "$G" forcemerge bleve "$d" > "$F/m.out" 2>&1
+rc=137 (137 means killed by the 200 s limit)
+bleve async error: source: merger, persist error: merging err: error loading roaring bitmap: error in roaringArray.readFrom: did not find expected serialCookie in header
+bleve async error: source: merger, persist error: merging err: error loading roaring bitmap: error in roaringArray.readFrom: did not find expected serialCookie in header
+bleve async error: source: merger, persist error: merging err: error loading roaring bitmap: error in roaringArray.readFrom: did not find expected serialCookie in header
+panic_lines=0
+t=160s write_MiB=4199 async_errors=28
+t=180s write_MiB=4650 async_errors=31
+corrupted 000000000022.zap size 36940569 at 27705426
+rc=0 (137 means killed by the 200 s limit)
+panic_lines=0
+t=40s write_MiB=1040 async_errors=0
+{"async_errors":0,"count":200000,"count_err":"\u003cnil\u003e","dir_MiB":2249,"engine":"bleve","error":"\u003cnil\u003e","seconds":41.016833379,"stage":"forcemerge","write_MiB":1066}
+################ C2: Tantivy, corrupt one segment file, checksum, query, force merge
+corrupted 4fa32e115bf64404bb7b1c0e40c53998.idx size 11969864 at 5984932
+checksum: Ok({"4fa32e115bf64404bb7b1c0e40c53998.idx"})
+query_rc=0 classes=16
+merge_rc=0
+thread 'merge_thread_0' (2891969) panicked at $SCRATCH/tools/cargo-home/registry/src/index.crates.io-1949cf8c6b5b557f/tantivy-0.26.1/src/postings/compre
+{"engine":"tantivy","stage":"forcemerge","segments_in":3,"seconds":5.9,"error":"System error.'Merge thread panicked: index out of bounds: the len is 7 but the index is 7'","wait_err":None,"write_MiB":114,"count":200000,"dir_MiB":375}
+{"engine":"tantivy","stage":"forcemerge","segments_in":3,"seconds":5.9,"error":"System error.'Merge thread panicked: index out of bounds: the len is 7 but the index is 7'","wait_err":None,"write_MiB":114,"count":200000,"dir_MiB":375}
+corrupted 1f7f82c69690435ca941c2bc446128b4.term size 7625728 at 3812864
+checksum: Ok({"1f7f82c69690435ca941c2bc446128b4.term"})
+query_rc=101 classes=5
+thread 'main' (2892028) panicked at $SCRATCH/tools/cargo-home/registry/src/index.crates.io-1949cf8c6b5b557f/byteorder-1.5.0/src/lib.rs:2150:9:
+merge_rc=0
+thread 'merge_thread_0' (2892035) panicked at $SCRATCH/tools/cargo-home/registry/src/index.crates.io-1949cf8c6b5b557f/byteorder-1.5.0/src/lib.rs:2150:9:
+{"engine":"tantivy","stage":"forcemerge","segments_in":3,"seconds":7.8,"error":"System error.'Merge thread panicked: assertion failed: 1 <= nbytes && nbytes <= out.len() && nbytes <= buf.len()'","wait_err":None,"write_MiB":174,"count":20000
+{"engine":"tantivy","stage":"forcemerge","segments_in":3,"seconds":7.8,"error":"System error.'Merge thread panicked: assertion failed: 1 <= nbytes && nbytes <= out.len() && nbytes <= buf.len()'","wait_err":None,"write_MiB":174,"count":200000,"dir_MiB":436}
+corrupted 4fa32e115bf64404bb7b1c0e40c53998.pos size 12860993 at 6430496
+checksum: Ok({"4fa32e115bf64404bb7b1c0e40c53998.pos"})
+query_rc=0 classes=16
+merge_rc=0
+thread 'merge_thread_3' (2892100) panicked at $SCRATCH/tools/cargo-home/registry/src/index.crates.io-1949cf8c6b5b557f/ownedbytes-0.9.0/src/lib.rs:76:49:
+{"engine":"tantivy","stage":"forcemerge","segments_in":3,"seconds":5.5,"error":"System error.'Merge thread panicked: mid > len'","wait_err":None,"write_MiB":119,"count":200000,"dir_MiB":380}
+{"engine":"tantivy","stage":"forcemerge","segments_in":3,"seconds":5.5,"error":"System error.'Merge thread panicked: mid > len'","wait_err":None,"write_MiB":119,"count":200000,"dir_MiB":380}
+corrupted b765870ff4de403fb128f4beb1009b5a.fast size 744190 at 372095
+checksum: Ok({"b765870ff4de403fb128f4beb1009b5a.fast"})
+query_rc=0 classes=16
+merge_rc=0
+{"engine":"tantivy","stage":"forcemerge","segments_in":3,"seconds":14.1,"error":"none","wait_err":None,"write_MiB":244,"count":200000,"dir_MiB":244}
+################ C3: FTS5, corrupt middle of file, optimize
+corrupted search.db size 1971122176 at 985561088
+{"async_errors":0,"count":200000,"count_err":"\u003cnil\u003e","dir_MiB":2912,"engine":"fts","error":"database disk image is malformed (11)","seconds":103.592216828,"stage":"forcemerge","write_MiB":1034}
+################ done
