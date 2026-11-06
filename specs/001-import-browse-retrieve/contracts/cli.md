@@ -45,6 +45,8 @@ mailarkiv account set-password --data-dir DIR EMAIL
 
 Replaces the password. In one transaction, it ends all of that account's sessions and lifts any sign-in block on the address (FR-004, FR-005). It's safe to run while the server is up.
 
+It doesn't create a missing data directory, so a mistyped path can't start a second archive. That case exits 1 with `The data directory couldn't be read: <cause>`. An existing directory with no catalog gets an empty one, then the no-account line. The password rule is checked before the account lookup.
+
 ## Shared behavior of `account` commands
 
 Both commands lowercase `EMAIL` before using it, so `Admin@example.test` creates or finds `admin@example.test`.
@@ -55,7 +57,7 @@ Both commands refuse to run when the current user doesn't own the data directory
 
 | Exit | Message on stderr | When |
 | ---- | ----------------- | ---- |
-| 0 | None. Prints one confirmation line on stdout, such as `Created the account admin@example.test.` | Done |
+| 0 | None. Prints one confirmation line on stdout, such as `Created the account admin@example.test.` or `Set a new password for admin@example.test.` | Done |
 | 1 | That email address isn't valid. | FR-044 |
 | 1 | An account with that email address already exists. | `create`, whatever the capital letters. The existing account doesn't change |
 | 1 | No account has that email address. | `set-password` |

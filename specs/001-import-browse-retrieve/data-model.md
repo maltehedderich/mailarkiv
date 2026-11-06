@@ -61,10 +61,12 @@ A session is valid only if its row exists and `expires_at` is in the future. Sig
 
 Sign-in follows these steps, the same for any address (FR-004):
 
-1. If an unexpired block exists, refuse without checking the password. The attempt doesn't count and doesn't extend the block.
+1. If an unexpired block exists, refuse without checking the password. The attempt doesn't count and doesn't extend the block. It checks again once it has a hash slot, and keeps the slot until step 4 ends, so guesses sent at once can't outrun the block: at most 2 are checked after the ninth failure.
 2. Check the password, against a dummy hash if the account doesn't exist.
-3. On success, delete the address's failures and create a session.
-4. On failure, delete failures older than 15 minutes, add one, and count. At 10, write a block for 15 minutes from now and delete the address's failures.
+3. On success, delete the address's failures and create a session in one transaction. If the account's hash no longer equals the one just checked, because a new password was set meanwhile, store nothing and refuse as a wrong password. That refusal isn't counted.
+4. On failure, delete failures older than 15 minutes, add one, and count. At 10, write a block for 15 minutes from now and delete the address's failures. The failure is stored even if the client has left, because the password was checked.
+
+A failure exactly 15 minutes old no longer counts, and a block ends at exactly `blocked_until`. A guess already being checked when the block starts can store one failure after it.
 
 Setting a password deletes the address's failures and block in its transaction.
 

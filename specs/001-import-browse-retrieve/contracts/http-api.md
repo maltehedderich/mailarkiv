@@ -21,7 +21,7 @@ Any route can answer 500 `internal_error` when the server fails outside the impo
 
 Each route declares a rule when it is registered: `Public` or `SignedIn`. The zero value, `Undeclared`, answers 403 `no_access_rule` for everyone (User Story 2 scenario 5). Paths under `/api/` with no route answer 401 without a session and 404 with one.
 
-All non-GET requests pass through `http.CrossOriginProtection`. A rejected request gets 403 `cross_origin`, and the session check for a route runs before its handler reads the body.
+All non-GET requests pass through `http.CrossOriginProtection` before the session check, so a forged request gets 403 `cross_origin` with or without a session. Without `Sec-Fetch-Site`, a foreign `Origin` is refused the same way. The session check for a route runs before its handler reads the body.
 
 | Method | Path | Rule | Purpose |
 | ------ | ---- | ---- | ------- |
@@ -65,11 +65,11 @@ The signed-in layout reads this at each page load (FR-039), and the import scree
 
 Before an upload, only a marked 401 changes anything: it opens the sign-in page. After any other result, the upload goes ahead and its own answer decides the outcome.
 
-The sign-in page shows the session-ended message only if this tab has already loaded a signed-in page. A first visit with no session opens sign-in without it.
+The sign-in page shows the session-ended message, "Your session ended. Sign in again to continue.", only if this tab has already loaded a signed-in page. A first visit with no session opens sign-in without it. The client adds `ended=1` only for such a tab, and `next` only when the page isn't `/`, so a first visit to `/` opens exactly `/sign-in`. The server's download redirect always sends `ended=1`, so the sign-in page checks the tab's flag as well.
 
 ### `DELETE /api/session`
 
-204, with the row deleted and the cookie cleared.
+204, with the row deleted and the cookie cleared: `__Host-mailarkiv_session=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Strict`.
 
 ## Import
 
@@ -198,11 +198,13 @@ The interface links here with a plain `<a>` that has no `download` attribute. Th
 | Unknown ID | 404 | `download-failed/missing.html`, with no failure event |
 | Stored file missing | 404 | `download-failed/missing.html`, with a `stored_original_missing` event |
 | Stored file damaged or unreadable | 500 | `download-failed/damaged.html`, with a `stored_original_damaged` event |
-
-Until T094 adds these pages, an unknown ID answers 404 `not_found` as JSON.
 | Catalog can't be read | 500 | `internal_error` as JSON, with no failure event |
 | No session, `Sec-Fetch-Mode: navigate` | 303 | To `/sign-in?ended=1&next=<path from a same-origin Referer, or />` |
 | No session, any other request | 401 | `no_session` |
+
+Until T094 adds these pages, an unknown ID answers 404 `not_found` as JSON.
+
+A same-origin `Referer` is one whose host equals the request's `Host`. The scheme isn't compared, because TLS may end at a proxy. Only its path and query are used, and the client checks `next` again before following it.
 
 Success headers: `Content-Type: application/octet-stream`, `Content-Disposition: attachment; filename="<content_hash>.eml"`, `Content-Length`. A read that fails after the headers aborts the connection, so the browser shows a failed download, and it records a `stored_original_damaged` event.
 
