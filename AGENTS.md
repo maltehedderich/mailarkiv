@@ -10,10 +10,23 @@ Read [the design guide](frontend/DESIGN.md) before you build or change a screen.
 
 ## Required checks
 
-The repository currently contains planning documents and workflow tooling; application build, lint, type-check, and test commands are not configured yet.
+`mise run` is the only interface, so CI, docs, and people all use these commands. Run `mise run setup` first on a new clone.
+
+| Command | Runs | Layer |
+| ------- | ---- | ----- |
+| `mise run lint` | `gofmt -l`, `go vet`, `staticcheck`, `prettier --check` | Static |
+| `mise run typecheck` | `svelte-kit sync`, `svelte-check --fail-on-warnings` | Static |
+| `mise run audit` | `govulncheck ./...`, `bun audit --ignore=GHSA-gcqx-w48m-w2h4` | Static, needs network |
+| `mise run server:test` | `go test -race ./...`, including process-level crash, syscall, and marker tests. Needs `strace` | Unit, integration, process |
+| `mise run frontend:test` | `vitest run` | Unit |
+| `mise run test:e2e` | `playwright test` against the built binary | End to end |
+| `mise run test` | The three test tasks above | |
+| `mise run check` | `lint`, `typecheck`, `test`, `audit`. CI gates on this | |
+
+Other tasks are `setup`, `dev`, `build`, `frontend:build`, `server:build`, `format`, and `clean`. `.github/workflows/check.yml` installs `strace`, caches Go builds, and runs `mise run setup` and `mise run check`.
 
 - For documentation-only changes, review affected text against the constitution, check local links, and verify that scope and acceptance behavior agree across documents. These checks are sufficient while runtime behavior is unchanged.
-- When adding application tooling, document its exact required check commands here in the same change. Feature plans must identify the checks that apply and the layer each runs at.
+- When adding tooling, document its exact required check commands here in the same change. Feature plans must identify the checks that apply and the layer each runs at.
 - Report checks run and any that could not run, with the reason and remaining risk. Do not report an unconfigured check as passed.
 
 ## Writing

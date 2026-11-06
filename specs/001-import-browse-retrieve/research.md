@@ -185,6 +185,7 @@ A second check runs the default-build binary under `strace -f -y` and asserts th
 | `@sveltejs/vite-plugin-svelte` | 7.3.1 | |
 | `@sveltejs/adapter-static` | 4.0.1 | |
 | `typescript` | 6.0.3 | 7.0.2 is newer, but `svelte-check` 4.7.8 only accepts `^5 \|\| ^6` |
+| `@types/node` | 26.6.6 | Added during T020: `svelte-check` needs it for the browser-test helpers, and `tsconfig.json` names it because TypeScript 6 no longer includes ambient types on its own |
 | `svelte-check` | 4.7.8 | |
 | `vitest` | 5.1.0 | |
 | `@playwright/test` | 1.65.0 | |

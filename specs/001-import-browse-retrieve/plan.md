@@ -153,7 +153,7 @@ go.mod, go.sum, mise.toml, mise.lock, .github/workflows/check.yml
 
 **Structure Decision**: One Go module at the root and one frontend package under `frontend/`, where the design tokens already live. Only `cmd/mailarkiv` imports the embedded frontend, so `internal/` tests need no frontend build.
 
-Allowed imports: `web` uses `archive`, `identity`, and `opstatus`. `archive` uses `opstatus`, `sqlitedb`, and `fault`. `identity` uses `sqlitedb`. `opstatus` imports no other module. `archtest` enforces this.
+Allowed imports: `web` uses `archive`, `identity`, `opstatus`, and `fault`, because the `after-response` crash point must fire in the handler after the flush. `archive` uses `opstatus`, `sqlitedb`, and `fault`. `identity` uses `sqlitedb`. `opstatus`, `sqlitedb`, and `fault` import no other module. Only `cmd/mailarkiv` imports `frontend`. `archtest` enforces this.
 
 The history drawer opens through `?message=<id>` on the list page. A plain URL then gives the Back button and the return-after-sign-in behavior (FR-040).
 
@@ -164,11 +164,11 @@ Each slice ends in behavior that can be checked, and it merges to `main` with `m
 | Slice | Delivers | Verified by |
 | ----- | -------- | ----------- |
 | 1. Tooling | `mise.toml`, Go module, frontend scaffold with pinned packages, CI, ADR 0005 and 0006, `.gitignore`, `AGENTS.md` checks. The binary serves a static page | `mise run check` passes in CI |
-| 2. Walking skeleton | Account create, sign-in, one import with the full durable capture order, the list, plain-link download | US1's independent test, `TestImportedBytesRoundTrip`, `TestCaptureSyscallOrder` |
-| 3. Access | Deny-by-default rules, sign-out, session end, cross-site and framing rules, sign-in limit, set-password, return after sign-in | Scenario 2, risks 3, 8, 9, 13 |
-| 4. Crash safety | Lock, startup checks, recovery, `faults` build, crash matrix, failed-import results | Scenario 3, risks 1, 2, 4, 11, 12 |
-| 5. Provenance | Repeat imports, history drawer, concurrent imports, restore, download verification | Scenarios 4 and 5, risks 10, 14 |
-| 6. Visibility | Status screen, problem count, failure log, privacy test | Scenario 5, risk 6 |
+| 2. Walking skeleton | The route table with deny-by-default rules and `opstatus` with its failure log, so no route exists without an access rule and capture can record failures from the start. Account create, sign-in, one import with the full durable capture order, the list, plain-link download, and the problem count in `GET /api/session` | US1's independent test, `TestImportedBytesRoundTrip`, `TestCaptureSyscallOrder` |
+| 3. Access | Sign-out, session end, cross-site and framing rules, sign-in limit, set-password, return after sign-in | Scenario 2, risks 3, 8, 9, 13 |
+| 4. Crash safety | Lock, startup checks, recovery, `faults` build, crash matrix, failed-import results, blob reuse and the outcome decision, and `GET /api/status`. `TestCrashMatrix` imports the same bytes again and reads the unreferenced list, so it needs the last three | Scenario 3, risks 1, 2, 4, 11, 12 |
+| 5. Provenance | Repeat-import checks, history drawer, concurrent-import checks, download verification | Scenarios 4 and 5, risks 10, 14 |
+| 6. Visibility | Status screen, problem count on every signed-in page, privacy test | Scenario 5, risk 6 |
 | 7. Interface completion | Two-step import, progress and storing states, all six outcomes, proxy classification, leave warning, name display, paging at 10,000, keyboard, 360 px, accessibility | Scenarios 1 (untimed) and 7, risks 7, 15, 17, 19 |
 | 8. Operator guide | `docs/OPERATIONS.md`, README status, sign-in link, a timed walkthrough, other browsers | Scenario 1 timed, scenarios 6 and 8 |
 
