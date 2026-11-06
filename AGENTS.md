@@ -4,6 +4,10 @@
 
 Read [the engineering constitution](.specify/memory/constitution.md) before planning or implementing changes. MailArkiv adopted **version 1.0.0, approved and ratified on 2026-11-06**, as its authoritative engineering policy. It overrides conflicting repository guidance. Check changes against its principles and record exceptions in the plan's Complexity Tracking section.
 
+## Frontend design
+
+Read [the design guide](frontend/DESIGN.md) before you build or change a screen. Exact values live in [the tokens](frontend/src/lib/styles/tokens.css).
+
 ## Required checks
 
 The repository currently contains planning documents and workflow tooling; application build, lint, type-check, and test commands are not configured yet.
