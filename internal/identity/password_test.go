@@ -22,7 +22,7 @@ func TestPasswordHashRoundTrip(t *testing.T) {
 		{goodPassword + " ", false},
 		{"Correct horse battery", false},
 	} {
-		got, err := p.verify(context.Background(), hash, tt.password)
+		got, err := p.verify(hash, tt.password)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -74,14 +74,14 @@ func TestWaiterLeavesWhenItsContextEnds(t *testing.T) {
 	defer cancel()
 	done := make(chan error, 1)
 	go func() {
-		_, err := p.verify(ctx, dummyHash, goodPassword)
+		_, err := p.hash(ctx, goodPassword)
 		done <- err
 	}()
 
 	select {
 	case err := <-done:
 		if !errors.Is(err, context.DeadlineExceeded) {
-			t.Fatalf("verify = %v, want the context's error", err)
+			t.Fatalf("hash = %v, want the context's error", err)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("the waiter didn't leave when its context ended")

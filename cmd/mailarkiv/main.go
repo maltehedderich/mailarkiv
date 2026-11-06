@@ -14,13 +14,14 @@ const (
 	usage = `Usage:
   mailarkiv serve --data-dir DIR [--listen ADDR]
   mailarkiv account create --data-dir DIR EMAIL
+  mailarkiv account set-password --data-dir DIR EMAIL
 
 Options:
   --data-dir DIR   Directory that holds the archive. Required.
   --listen ADDR    Address to listen on. Default: ` + defaultListen + `
 
-account create asks for the password. Without a terminal, it reads one line
-from stdin. The password is never an argument.
+The account commands ask for the password. Without a terminal, they read one
+line from stdin. The password is never an argument.
 `
 )
 

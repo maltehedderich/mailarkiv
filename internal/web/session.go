@@ -3,6 +3,7 @@ package web
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 
@@ -40,21 +41,46 @@ func signIn(s *server, w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "invalid_credentials")
 		return
 	}
+	if errors.Is(err, identity.ErrSignInBlocked) {
+		writeError(w, http.StatusTooManyRequests, "sign_in_blocked")
+		return
+	}
 	if err != nil {
 		s.writeInternalError(w, r, err)
 		return
 	}
 
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, newSessionCookie(token, sessionMaxAge))
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// signOut answers DELETE /api/session. The guard has already checked the
+// session, so this ends it and clears the cookie (FR-005).
+func signOut(s *server, w http.ResponseWriter, r *http.Request) {
+	cookie, err := r.Cookie(sessionCookieName)
+	if err != nil {
+		s.writeInternalError(w, r, fmt.Errorf("read the session cookie: %w", err))
+		return
+	}
+	if err := s.identity.SignOut(r.Context(), cookie.Value); err != nil {
+		s.writeInternalError(w, r, err)
+		return
+	}
+	// A negative MaxAge sends Max-Age=0, which removes the cookie at once.
+	http.SetCookie(w, newSessionCookie("", -1))
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func newSessionCookie(value string, maxAge int) *http.Cookie {
+	return &http.Cookie{
 		Name:     sessionCookieName,
-		Value:    token,
+		Value:    value,
 		Path:     "/",
-		MaxAge:   sessionMaxAge,
+		MaxAge:   maxAge,
 		HttpOnly: true,
 		Secure:   true,
 		SameSite: http.SameSiteStrictMode,
-	})
-	w.WriteHeader(http.StatusNoContent)
+	}
 }
 
 // readSession answers GET /api/session. The guard has already checked the

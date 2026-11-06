@@ -24,6 +24,7 @@ import (
 const (
 	msgInvalidAddress = "That email address isn't valid."
 	msgAccountExists  = "An account with that email address already exists."
+	msgNoAccount      = "No account has that email address."
 	msgPasswordShort  = "Passwords must have at least 12 characters."
 	msgNoMatch        = "The passwords don't match."
 	msgNotOwner       = "Run this as the user that owns the data directory."
@@ -34,14 +35,51 @@ var (
 	errPasswordsDiffer = errors.New("the passwords differ")
 )
 
+// accountCommand is what differs between the account commands.
+type accountCommand struct {
+	// makeDataDir creates a missing data directory, because a first account can
+	// start an archive. A new password can't, so it never makes a second, empty
+	// archive from a mistyped path.
+	makeDataDir bool
+	run         func(id *identity.Identity, address, password string) error
+	// done is the confirmation line, with the address in it.
+	done string
+	// failed starts the line for an error the contract doesn't name.
+	failed string
+}
+
 func account(args []string) int {
-	if len(args) == 0 || args[0] != "create" {
+	if len(args) == 0 {
 		return badArgs()
 	}
-	flags := flag.NewFlagSet("account create", flag.ContinueOnError)
+	switch args[0] {
+	case "create":
+		return runAccountCommand(args[1:], accountCommand{
+			makeDataDir: true,
+			run: func(id *identity.Identity, address, password string) error {
+				return id.CreateAccount(context.Background(), address, password)
+			},
+			done:   "Created the account %s.\n",
+			failed: "The account wasn't created",
+		})
+	case "set-password":
+		return runAccountCommand(args[1:], accountCommand{
+			run: func(id *identity.Identity, address, password string) error {
+				return id.SetPassword(context.Background(), address, password)
+			},
+			done:   "Set a new password for %s.\n",
+			failed: "The password wasn't set",
+		})
+	default:
+		return badArgs()
+	}
+}
+
+func runAccountCommand(args []string, command accountCommand) int {
+	flags := flag.NewFlagSet("account", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	dataDir := flags.String("data-dir", "", "")
-	if err := flags.Parse(args[1:]); err != nil {
+	if err := flags.Parse(args); err != nil {
 		return badArgs()
 	}
 	// The password is never an argument, so a second one is a usage error.
@@ -53,8 +91,10 @@ func account(args []string) int {
 		return refuse(msgInvalidAddress)
 	}
 
-	if err := os.MkdirAll(*dataDir, 0o700); err != nil {
-		return refuse(fmt.Sprintf("The data directory couldn't be created: %v", err))
+	if command.makeDataDir {
+		if err := os.MkdirAll(*dataDir, 0o700); err != nil {
+			return refuse(fmt.Sprintf("The data directory couldn't be created: %v", err))
+		}
 	}
 	info, err := os.Stat(*dataDir)
 	if err != nil {
@@ -80,19 +120,21 @@ func account(args []string) int {
 	if err != nil {
 		return refuse(fmt.Sprintf("The catalog couldn't be opened: %v", err))
 	}
-	err = identity.New(db, time.Now).CreateAccount(context.Background(), address, password)
+	err = command.run(identity.New(db, time.Now), address, password)
 	if closeErr := db.Close(); err == nil && closeErr != nil {
 		err = fmt.Errorf("close the catalog: %w", closeErr)
 	}
 	switch {
 	case errors.Is(err, identity.ErrAccountExists):
 		return refuse(msgAccountExists)
+	case errors.Is(err, identity.ErrNoAccount):
+		return refuse(msgNoAccount)
 	case errors.Is(err, identity.ErrPasswordTooShort):
 		return refuse(msgPasswordShort)
 	case err != nil:
-		return refuse(fmt.Sprintf("The account wasn't created: %v", err))
+		return refuse(fmt.Sprintf("%s: %v", command.failed, err))
 	}
-	fmt.Printf("Created the account %s.\n", address)
+	fmt.Printf(command.done, address)
 	return 0
 }
 

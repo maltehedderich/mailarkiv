@@ -34,6 +34,9 @@ type Route struct {
 	Path    string
 	Access  Access
 	Handler func(*server, http.ResponseWriter, *http.Request)
+	// NoSession replaces a SignedIn route's 401 answer for a caller without a
+	// valid session. Nil means the 401. It never runs when the lookup failed.
+	NoSession func(http.ResponseWriter, *http.Request)
 }
 
 func (r Route) pattern() string {
@@ -49,9 +52,10 @@ func Routes() []Route {
 	return []Route{
 		{Method: http.MethodPost, Path: "/api/session", Access: Public, Handler: signIn},
 		{Method: http.MethodGet, Path: "/api/session", Access: SignedIn, Handler: readSession},
+		{Method: http.MethodDelete, Path: "/api/session", Access: SignedIn, Handler: signOut},
 		{Method: http.MethodPost, Path: "/api/imports", Access: SignedIn, Handler: importFile},
 		{Method: http.MethodGet, Path: "/api/messages", Access: SignedIn, Handler: listMessages},
-		{Method: http.MethodGet, Path: "/api/messages/{id}/original", Access: SignedIn, Handler: downloadOriginal},
+		{Method: http.MethodGet, Path: "/api/messages/{id}/original", Access: SignedIn, Handler: downloadOriginal, NoSession: redirectToSignIn},
 		{Path: "/", Access: Public, Handler: serveStatic},
 	}
 }
@@ -96,7 +100,7 @@ func newHandler(deps Deps, routes []Route) http.Handler {
 	// path with an unknown method.
 	mux.HandleFunc(apiPrefix, s.unknownAPI)
 
-	return withHeaders(mux)
+	return withHeaders(withCrossOriginCheck(mux))
 }
 
 // guard applies the route's access rule before its handler runs. A handler that
@@ -106,7 +110,11 @@ func (s *server) guard(route Route) http.Handler {
 		switch route.Access {
 		case Public:
 		case SignedIn:
-			account, ok := s.checkSession(w, r)
+			noSession := route.NoSession
+			if noSession == nil {
+				noSession = answerNoSession
+			}
+			account, ok := s.checkSession(w, r, noSession)
 			if !ok {
 				return
 			}
@@ -123,18 +131,23 @@ func (s *server) guard(route Route) http.Handler {
 // only with Secure, Path=/, and no Domain.
 const sessionCookieName = "__Host-mailarkiv_session"
 
+// answerNoSession is the answer to a caller without a valid session.
+func answerNoSession(w http.ResponseWriter, _ *http.Request) {
+	writeError(w, http.StatusUnauthorized, "no_session")
+}
+
 // checkSession finds the request's account. When it returns false, it has
-// already answered: 401 for no valid session, or 500 when the lookup failed,
-// because the session may still be valid.
-func (s *server) checkSession(w http.ResponseWriter, r *http.Request) (identity.Account, bool) {
+// already answered: through noSession for no valid session, or 500 when the
+// lookup failed, because the session may still be valid.
+func (s *server) checkSession(w http.ResponseWriter, r *http.Request, noSession func(http.ResponseWriter, *http.Request)) (identity.Account, bool) {
 	cookie, err := r.Cookie(sessionCookieName)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "no_session")
+		noSession(w, r)
 		return identity.Account{}, false
 	}
 	account, err := s.identity.LookupSession(r.Context(), cookie.Value)
 	if errors.Is(err, identity.ErrNoSession) {
-		writeError(w, http.StatusUnauthorized, "no_session")
+		noSession(w, r)
 		return identity.Account{}, false
 	}
 	if err != nil {
@@ -159,7 +172,7 @@ func signedInAccount(r *http.Request) identity.Account {
 // unknownAPI answers 404 only to a caller with a session, so a caller without
 // one learns nothing about which paths exist.
 func (s *server) unknownAPI(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.checkSession(w, r); !ok {
+	if _, ok := s.checkSession(w, r, answerNoSession); !ok {
 		return
 	}
 	writeError(w, http.StatusNotFound, "not_found")

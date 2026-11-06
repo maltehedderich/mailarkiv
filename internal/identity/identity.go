@@ -38,6 +38,13 @@ var (
 	// address, and a malformed address, so a caller can't tell which (FR-003).
 	ErrInvalidCredentials = errors.New("that email address and password don't match")
 
+	// ErrSignInBlocked means the address had 10 failed sign-ins within 15
+	// minutes, and the block hasn't ended (FR-004).
+	ErrSignInBlocked = errors.New("too many failed sign-ins for this address")
+
+	// ErrNoAccount means no account has the address.
+	ErrNoAccount = errors.New("no account has that email address")
+
 	// ErrNoSession means the token names no unexpired session.
 	ErrNoSession = errors.New("no valid session")
 )
@@ -115,9 +122,28 @@ func (id *Identity) CreateAccount(ctx context.Context, address, password string)
 }
 
 // SignIn checks the password and starts a session. It returns the session
-// token, which only the caller's cookie holds.
+// token, which only the caller's cookie holds. Every address, valid or not,
+// takes the same steps (FR-003, FR-004).
 func (id *Identity) SignIn(ctx context.Context, address, password string) (string, error) {
 	email := strings.ToLower(address)
+	key := addressKey(email)
+
+	// A blocked address is refused before any password work and without waiting
+	// for a slot. The attempt neither counts nor extends the block.
+	if err := id.refuseBlocked(ctx, key); err != nil {
+		return "", err
+	}
+
+	// Guesses sent at once all pass that check, so each looks again once it has a
+	// slot, and keeps the slot until its failure is stored. So at most
+	// maxConcurrentHashes guesses are checked after the ninth failure.
+	if err := id.passwords.acquire(ctx); err != nil {
+		return "", err
+	}
+	defer id.passwords.release()
+	if err := id.refuseBlocked(ctx, key); err != nil {
+		return "", err
+	}
 
 	var accountID int64
 	stored := dummyHash
@@ -129,20 +155,27 @@ func (id *Identity) SignIn(ctx context.Context, address, password string) (strin
 	}
 
 	// An unknown address still pays for a full check against dummyHash.
-	match, err := id.passwords.verify(ctx, stored, password)
+	match, err := id.passwords.verify(stored, password)
 	if err != nil {
 		return "", err
 	}
 	if !known || !match {
+		if err := id.recordFailure(ctx, key); err != nil {
+			return "", err
+		}
 		return "", ErrInvalidCredentials
 	}
-	return id.startSession(ctx, accountID)
+	return id.startSession(ctx, accountID, stored, key)
 }
 
-// startSession stores a new session for the account. Only the token's SHA-256
-// reaches the catalog. Expired sessions go in the same transaction, so the table
-// can't grow without limit.
-func (id *Identity) startSession(ctx context.Context, accountID int64) (string, error) {
+// startSession stores a new session for the account and deletes the address's
+// failed sign-ins. Only the token's SHA-256 reaches the catalog. Expired
+// sessions go in the same transaction, so the table can't grow without limit.
+//
+// checkedHash is the hash the password matched. If the account's password
+// changed during the check, the session isn't stored and the answer is
+// ErrInvalidCredentials, because setting a password ends every session (FR-005).
+func (id *Identity) startSession(ctx context.Context, accountID int64, checkedHash string, key []byte) (string, error) {
 	random := make([]byte, tokenLength)
 	// crypto/rand.Read never returns an error. It crashes the program instead.
 	_, _ = rand.Read(random)
@@ -154,10 +187,24 @@ func (id *Identity) startSession(ctx context.Context, accountID int64) (string, 
 		if _, err := tx.ExecContext(ctx, "DELETE FROM session WHERE expires_at <= ?", now.UnixMilli()); err != nil {
 			return fmt.Errorf("delete expired sessions: %w", err)
 		}
-		_, err := tx.ExecContext(ctx,
-			"INSERT INTO session (token_hash, account_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
-			tokenHash[:], accountID, now.UnixMilli(), now.Add(sessionLifetime).UnixMilli())
-		return err
+		if _, err := tx.ExecContext(ctx, "DELETE FROM sign_in_failure WHERE address_key = ?", key); err != nil {
+			return fmt.Errorf("delete the address's failures: %w", err)
+		}
+		result, err := tx.ExecContext(ctx,
+			`INSERT INTO session (token_hash, account_id, created_at, expires_at)
+			 SELECT ?, id, ?, ? FROM account WHERE id = ? AND password_hash = ?`,
+			tokenHash[:], now.UnixMilli(), now.Add(sessionLifetime).UnixMilli(), accountID, checkedHash)
+		if err != nil {
+			return err
+		}
+		added, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if added == 0 {
+			return ErrInvalidCredentials
+		}
+		return nil
 	})
 	if err != nil {
 		return "", fmt.Errorf("store the session: %w", err)

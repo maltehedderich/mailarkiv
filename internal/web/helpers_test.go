@@ -6,7 +6,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"io/fs"
 	"net/http"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"strings"
@@ -29,6 +31,12 @@ var sessionCookie = regexp.MustCompile(`^__Host-mailarkiv_session=([A-Za-z0-9_-]
 // cookie by hand.
 func (h *harness) signIn(t *testing.T, address string) func(*http.Request) {
 	t.Helper()
+	return withSession(h.signInToken(t, address))
+}
+
+// signInToken signs in over HTTP and returns the session token.
+func (h *harness) signInToken(t *testing.T, address string) string {
+	t.Helper()
 	body := `{"email":` + quote(address) + `,"password":` + quote(goodPassword) + `}`
 	response, _ := h.send(t, http.MethodPost, "/api/session", strings.NewReader(body), nil)
 	if response.StatusCode != http.StatusNoContent {
@@ -38,7 +46,40 @@ func (h *harness) signIn(t *testing.T, address string) func(*http.Request) {
 	if match == nil {
 		t.Fatalf("Set-Cookie = %q", response.Header.Get("Set-Cookie"))
 	}
-	return withSession(match[1])
+	return match[1]
+}
+
+// archiveCounts is what the archive holds: catalog rows and stored files.
+type archiveCounts struct {
+	messages     int
+	observations int
+	blobs        int
+}
+
+func (h *harness) counts(t *testing.T) archiveCounts {
+	t.Helper()
+	var c archiveCounts
+	for query, into := range map[string]*int{
+		"SELECT COUNT(*) FROM message":            &c.messages,
+		"SELECT COUNT(*) FROM source_observation": &c.observations,
+	} {
+		if err := h.db.Reader.QueryRowContext(context.Background(), query).Scan(into); err != nil {
+			t.Fatal(err)
+		}
+	}
+	err := filepath.WalkDir(filepath.Join(h.dataDir, "blobs"), func(_ string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.Type().IsRegular() {
+			c.blobs++
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
 }
 
 func withSession(token string) func(*http.Request) {

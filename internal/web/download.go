@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -52,6 +53,34 @@ func downloadOriginal(s *server, w http.ResponseWriter, r *http.Request) {
 		// connection makes the browser show a failed download, not a short file.
 		panic(http.ErrAbortHandler)
 	}
+}
+
+// redirectToSignIn answers the download route for a caller without a valid
+// session. A plain link has no page to report a 401 on, so a navigation goes to
+// sign-in, which offers a way back to the page the link was on. Anything else
+// gets the usual 401.
+func redirectToSignIn(w http.ResponseWriter, r *http.Request) {
+	if r.Header.Get("Sec-Fetch-Mode") != "navigate" {
+		answerNoSession(w, r)
+		return
+	}
+	w.Header().Set("Location", "/sign-in?ended=1&next="+url.QueryEscape(returnPath(r)))
+	w.WriteHeader(http.StatusSeeOther)
+}
+
+// returnPath is the path and query of the page that linked here, or / when the
+// Referer is missing, unreadable, or from another host. The scheme isn't
+// compared, because TLS may end at a proxy. Only the path and query leave here,
+// and the sign-in page checks them again before using them.
+func returnPath(r *http.Request) string {
+	referer, err := url.Parse(r.Referer())
+	if err != nil || referer.Host != r.Host || referer.EscapedPath() == "" {
+		return "/"
+	}
+	if referer.RawQuery == "" {
+		return referer.EscapedPath()
+	}
+	return referer.EscapedPath() + "?" + referer.RawQuery
 }
 
 // readErrorTracker remembers a read error, so the caller can tell it from a

@@ -193,6 +193,31 @@ func (p *serverProcess) get(path string) (*http.Response, string) {
 	return response, string(body)
 }
 
+// request sends one request with the session token as its cookie, sent by
+// hand, because net/http/cookiejar withholds Secure cookies over plain HTTP.
+// An empty token sends no cookie.
+func (p *serverProcess) request(method, path, body, token string) (*http.Response, string) {
+	p.t.Helper()
+	request, err := http.NewRequest(method, p.baseURL+path, strings.NewReader(body))
+	if err != nil {
+		p.t.Fatal(err)
+	}
+	if token != "" {
+		request.Header.Set("Cookie", "__Host-mailarkiv_session="+token)
+	}
+	client := &http.Client{Timeout: 10 * time.Second}
+	response, err := client.Do(request)
+	if err != nil {
+		p.t.Fatal(err)
+	}
+	defer response.Body.Close()
+	read, err := io.ReadAll(response.Body)
+	if err != nil {
+		p.t.Fatal(err)
+	}
+	return response, string(read)
+}
+
 // runToExit runs the binary with args until it exits by itself, for the cases
 // where it must refuse to start.
 func runToExit(t *testing.T, args ...string) (exitCode int, stderr string) {

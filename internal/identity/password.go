@@ -42,16 +42,33 @@ func newPasswords() *passwords {
 	return &passwords{slots: make(chan struct{}, maxConcurrentHashes)}
 }
 
-// hash returns the password's Argon2id hash in PHC format, with a new salt.
+// acquire waits for a slot. A caller whose context ends while it waits leaves
+// the queue.
+func (p *passwords) acquire(ctx context.Context) error {
+	select {
+	case p.slots <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (p *passwords) release() {
+	<-p.slots
+}
+
+// hash waits for a slot and returns the password's Argon2id hash in PHC format,
+// with a new salt.
 func (p *passwords) hash(ctx context.Context, password string) (string, error) {
 	salt := make([]byte, saltLength)
 	// crypto/rand.Read never returns an error. It crashes the program instead.
 	_, _ = rand.Read(salt)
 
-	key, err := p.derive(ctx, password, salt, settings{time: argonTime, memory: argonMemory, threads: argonThreads, key: make([]byte, keyLength)})
-	if err != nil {
+	if err := p.acquire(ctx); err != nil {
 		return "", err
 	}
+	defer p.release()
+	key := argon2.IDKey([]byte(password), salt, argonTime, argonMemory, argonThreads, keyLength)
 	return fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s",
 		argon2.Version, argonMemory, argonTime, argonThreads,
 		base64.RawStdEncoding.EncodeToString(salt),
@@ -59,29 +76,14 @@ func (p *passwords) hash(ctx context.Context, password string) (string, error) {
 }
 
 // verify reports whether password matches the stored hash, comparing in
-// constant time.
-func (p *passwords) verify(ctx context.Context, stored, password string) (bool, error) {
+// constant time. The caller holds a slot.
+func (p *passwords) verify(stored, password string) (bool, error) {
 	parsed, err := parseHash(stored)
 	if err != nil {
 		return false, err
 	}
-	key, err := p.derive(ctx, password, parsed.salt, parsed)
-	if err != nil {
-		return false, err
-	}
+	key := argon2.IDKey([]byte(password), parsed.salt, parsed.time, parsed.memory, parsed.threads, uint32(len(parsed.key)))
 	return subtle.ConstantTimeCompare(key, parsed.key) == 1, nil
-}
-
-// derive waits for a slot, then runs Argon2id. A caller whose context ends while
-// it waits leaves the queue.
-func (p *passwords) derive(ctx context.Context, password string, salt []byte, s settings) ([]byte, error) {
-	select {
-	case p.slots <- struct{}{}:
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
-	defer func() { <-p.slots }()
-	return argon2.IDKey([]byte(password), salt, s.time, s.memory, s.threads, uint32(len(s.key))), nil
 }
 
 type settings struct {

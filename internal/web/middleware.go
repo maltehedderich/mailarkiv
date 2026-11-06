@@ -24,3 +24,14 @@ func withHeaders(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
+
+// withCrossOriginCheck refuses a state-changing request from another site
+// before any route runs, so it never reads a body or changes the archive
+// (FR-007). GET and HEAD always pass, and no route changes anything on them.
+func withCrossOriginCheck(next http.Handler) http.Handler {
+	protection := http.NewCrossOriginProtection()
+	protection.SetDenyHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeError(w, http.StatusForbidden, "cross_origin")
+	}))
+	return protection.Handler(next)
+}

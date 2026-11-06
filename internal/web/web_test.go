@@ -41,9 +41,27 @@ func (b *lockedBuffer) String() string {
 	return b.buffer.String()
 }
 
-// testNow is the fake clock's time. Sessions last 12 hours, so none expires
-// during a test.
+// testNow is where the fake clock starts. Sessions last 12 hours, so none
+// expires unless a test moves the clock.
 var testNow = time.Date(2026, 11, 6, 15, 50, 52, 123_000_000, time.UTC)
+
+// fakeClock stands in for time, the one nondeterministic collaborator here.
+type fakeClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+func (c *fakeClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
+
+func (c *fakeClock) Advance(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.now = c.now.Add(d)
+}
 
 // harness is the handler over a real listener, with real modules, SQLite, and
 // files behind it.
@@ -53,6 +71,7 @@ type harness struct {
 	dataDir  string
 	db       *sqlitedb.DB
 	identity *identity.Identity
+	clock    *fakeClock
 }
 
 func newHarness(t *testing.T, routes []Route) *harness {
@@ -68,7 +87,8 @@ func newHarness(t *testing.T, routes []Route) *harness {
 func (h *harness) deps(t *testing.T) Deps {
 	t.Helper()
 	logger := slog.New(slog.NewJSONHandler(h.log, nil))
-	now := func() time.Time { return testNow }
+	h.clock = &fakeClock{now: testNow}
+	now := h.clock.Now
 
 	h.dataDir = filepath.Join(t.TempDir(), "data")
 	if err := os.Mkdir(h.dataDir, 0o700); err != nil {
@@ -414,4 +434,109 @@ func TestFormatTime(t *testing.T) {
 			}
 		})
 	}
+}
+
+const crossOrigin = `{"error":"cross_origin"}`
+
+// FR-007, User Story 2 scenario 3: a state-changing request from another site
+// is refused before any route runs, with or without a session, and stores
+// nothing.
+func TestCrossOriginRequestsAreRefused(t *testing.T) {
+	h := newHarness(t, Routes())
+	h.createAccount(t, "admin@example.test")
+	session := h.signIn(t, "admin@example.test")
+	response, body := h.send(t, http.MethodPost, "/api/imports", bytes.NewReader(mail("stored before")), session)
+	if response.StatusCode != http.StatusCreated {
+		t.Fatalf("import = %d %s, want 201", response.StatusCode, body)
+	}
+	id := messageID(t, body)
+	before := h.counts(t)
+
+	forgeries := []struct {
+		name   string
+		change func(*http.Request)
+	}{
+		{"Sec-Fetch-Site cross-site", withHeader("Sec-Fetch-Site", "cross-site")},
+		{"Origin of another site and no Sec-Fetch-Site", withHeader("Origin", "http://elsewhere.test")},
+	}
+	var checked int
+	for _, route := range Routes() {
+		if route.Method == http.MethodGet {
+			continue
+		}
+		method, path := route.Method, concretePath(route.Path, id)
+		if method == "" {
+			// The static files' route takes every method, and only GET and HEAD
+			// are served.
+			method, path = http.MethodPost, "/sign-in"
+		}
+		checked++
+		for _, forgery := range forgeries {
+			for _, signedIn := range []bool{true, false} {
+				name := method + " " + path + "/" + forgery.name
+				change := forgery.change
+				if signedIn {
+					name += "/with a session"
+					change = both(session, forgery.change)
+				}
+				t.Run(name, func(t *testing.T) {
+					var requestBody io.Reader = bytes.NewReader(mail("forged"))
+					if path == "/api/session" && method == http.MethodPost {
+						requestBody = strings.NewReader(`{"email":"admin@example.test","password":"correct horse battery"}`)
+					}
+					response, body := h.send(t, method, path, requestBody, change)
+
+					assertJSONResponse(t, response, body, http.StatusForbidden, crossOrigin)
+					if cookie := response.Header.Get("Set-Cookie"); cookie != "" {
+						t.Errorf("Set-Cookie = %q, want none", cookie)
+					}
+				})
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("the route table has no state-changing route")
+	}
+
+	if after := h.counts(t); after != before {
+		t.Fatalf("the archive changed: %+v, then %+v", before, after)
+	}
+	// The forged sign-out didn't end the session.
+	response, body = h.do(t, http.MethodGet, "/api/session", session)
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/session after the forgeries = %d %s, want 200", response.StatusCode, body)
+	}
+}
+
+// FR-007: a request from this site's own pages, or from a client that isn't a
+// browser, reaches its route.
+func TestSameOriginRequestsReachTheRoute(t *testing.T) {
+	var ran atomic.Bool
+	h := newHarness(t, append(Routes(),
+		Route{Method: http.MethodPost, Path: "/api/open", Access: Public, Handler: recordRun(&ran)},
+	))
+
+	for _, tt := range []struct {
+		name   string
+		change func(*http.Request)
+	}{
+		{"Sec-Fetch-Site same-origin", withHeader("Sec-Fetch-Site", "same-origin")},
+		{"no Sec-Fetch-Site and no Origin", nil},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ran.Store(false)
+			response, body := h.do(t, http.MethodPost, "/api/open", tt.change)
+
+			if response.StatusCode != http.StatusOK || !ran.Load() {
+				t.Fatalf("status = %d %q, ran = %v; want the handler to run", response.StatusCode, body, ran.Load())
+			}
+		})
+	}
+
+	t.Run("a same-origin POST to a static path isn't served", func(t *testing.T) {
+		response, body := h.do(t, http.MethodPost, "/sign-in", withHeader("Sec-Fetch-Site", "same-origin"))
+		if response.StatusCode != http.StatusMethodNotAllowed || strings.Contains(body, appPage) {
+			t.Fatalf("status = %d %q, want 405 without the application page", response.StatusCode, body)
+		}
+	})
 }
