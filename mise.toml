@@ -49,6 +49,14 @@ hide = true
 dir = "frontend"
 run = "bun run dev"
 
+# `go run` compiles the embedded interface, so it needs a frontend build.
+[tasks."dev:account"]
+description = "Create an account in the local development data"
+depends = ["frontend:build"]
+interactive = true
+usage = 'arg "<email>" help="Email address to sign in with"'
+run = 'go run ./cmd/mailarkiv account create --data-dir .data/dev "$usage_email"'
+
 [tasks.lint]
 description = "Run read-only static checks"
 depends = ["frontend:build"]

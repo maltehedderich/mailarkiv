@@ -23,7 +23,7 @@ Read [the design guide](frontend/DESIGN.md) before you build or change a screen.
 | `mise run test` | The three test tasks above | |
 | `mise run check` | `lint`, `typecheck`, `test`, `audit`. CI gates on this | |
 
-Other tasks are `setup`, `dev`, `build`, `frontend:build`, `server:build`, `format`, and `clean`. `.github/workflows/check.yml` installs `strace`, caches Go builds, and runs `mise run setup` and `mise run check`.
+Other tasks are `setup`, `dev`, `dev:account`, `build`, `frontend:build`, `server:build`, `format`, and `clean`. `.github/workflows/check.yml` installs `strace`, caches Go builds, and runs `mise run setup` and `mise run check`.
 
 - For documentation-only changes, review affected text against the constitution, check local links, and verify that scope and acceptance behavior agree across documents. These checks are sufficient while runtime behavior is unchanged.
 - When adding tooling, document its exact required check commands here in the same change. Feature plans must identify the checks that apply and the layer each runs at.
