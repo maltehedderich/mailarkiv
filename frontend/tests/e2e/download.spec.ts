@@ -118,16 +118,46 @@ for (const { name, change, status, reason } of CASES) {
 test("a failure stays until it's dismissed, and a retry replaces it", async ({
   page,
 }) => {
+  await page.clock.install();
   await archiveOneFile(page);
   await damage();
 
   await downloadButton(page).click();
   const toast = toasts(page).getByRole("listitem");
   await expect(toast).toContainText(DAMAGED);
-  await page.waitForTimeout(1_000);
+  await page.clock.fastForward(60_000);
   await expect(toast).toHaveCount(1);
 
+  let release!: () => void;
+  let requested!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const retryRequested = new Promise<void>((resolve) => {
+    requested = resolve;
+  });
+  await page.route("**/original", async (route) => {
+    requested();
+    await held;
+    await route.fulfill({
+      status: 404,
+      headers: {
+        "MailArkiv-Response": "1",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ error: "stored_original_missing" }),
+    });
+  });
   await downloadButton(page).click();
+  await retryRequested;
+  await page.clock.fastForward(400);
+  await expect(toast).toContainText("Downloading");
+  release();
+  // A distinct result proves the retry's UI update completed before Dismiss.
+  await expect(toast).toContainText(
+    "A download or repeat import found no stored file.",
+  );
+  await expect(toast).not.toContainText(DAMAGED);
   await expect(toast).toHaveCount(1);
 
   // Dismissing by keyboard moves focus on purpose, not to the page.
@@ -263,13 +293,11 @@ test("a focused waiting Cancel survives admission and completion moves focus to 
   page,
 }) => {
   await archiveOneFile(page);
-  await page
-    .getByLabel("Choose a file")
-    .setInputFiles({
-      name: "second.eml",
-      mimeType: "message/rfc822",
-      buffer: Buffer.from("Subject: Second\r\n\r\nSecond.\r\n"),
-    });
+  await page.getByLabel("Choose a file").setInputFiles({
+    name: "second.eml",
+    mimeType: "message/rfc822",
+    buffer: Buffer.from("Subject: Second\r\n\r\nSecond.\r\n"),
+  });
   await page.getByRole("button", { name: "Import", exact: true }).click();
   await expect(toasts(page)).toContainText("Archived");
   await toasts(page).getByRole("button", { name: "Dismiss" }).click();
