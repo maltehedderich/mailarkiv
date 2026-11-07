@@ -29,10 +29,12 @@ input {
   font: inherit;
 }
 
-/* iOS Safari otherwise enlarges text in landscape. */
+/* iOS Safari otherwise enlarges text in landscape. The toasts set
+   --toast-room, so focus scrolls a control clear of them (WCAG 2.4.11). */
 html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
+  scroll-padding-bottom: var(--toast-room, 0px);
 }
 
 body {

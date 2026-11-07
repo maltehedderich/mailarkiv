@@ -138,7 +138,7 @@ The table is the whole of FR-032 and FR-033, tested as one pure function.
 
 The client aborts and reports Unconfirmed after 120 seconds with no upload progress, or 120 seconds after the upload finishes with no answer. Other API calls time out after 30 seconds.
 
-Any other call, apart from the session check before an upload, shows the failed-load state (FR-045) when it ends in anything but success or a marked 401. The state takes the place of the page's data and leaves the page itself, so an import's result stays on screen (FR-032). That includes a 500, a 400 or 404 from a hand-edited URL, an unmarked response, a network error, a timeout, and a body that doesn't parse. Sign-in's 401 and 429 are its own results. Only a marked 401 from a signed-in route opens sign-in.
+Any other call, apart from the session check before an upload and a download, shows the failed-load state (FR-045) when it ends in anything but success or a marked 401. The state takes the place of the page's data and leaves the page itself, so an import's result stays on screen (FR-032). That includes a 500, a 400 or 404 from a hand-edited URL, an unmarked response, a network error, a timeout, and a body that doesn't parse. Sign-in's 401 and 429 are its own results. Only a marked 401 from a signed-in route opens sign-in.
 
 ## Browse
 
@@ -190,23 +190,37 @@ Observations come newest first, with no cap.
 
 ### `GET /api/messages/{id}/original`
 
-The interface links here with a plain `<a>` that has no `download` attribute. The server hashes the stored file before it sends any header.
+The interface fetches this address and saves the body as `<content_hash>.eml` only after every byte has arrived. The server hashes the stored file before it sends any header. A failure answer is JSON with no `Content-Disposition`, so an address opened in a tab doesn't save it either.
 
 | Case | Status | Body |
 | ---- | ------ | ---- |
 | Stored file matches | 200 | The exact bytes |
-| Unknown ID | 404 | `download-failed/missing.html`, with no failure event |
-| Stored file missing | 404 | `download-failed/missing.html`, with a `stored_original_missing` event |
-| Stored file damaged or unreadable | 500 | `download-failed/damaged.html`, with a `stored_original_damaged` event |
-| Catalog can't be read | 500 | `internal_error` as JSON, with no failure event |
+| Unknown ID | 404 | `not_found`, with no failure event |
+| Stored file missing | 404 | `stored_original_missing`, with a `stored_original_missing` event |
+| Stored file damaged or unreadable | 500 | `stored_original_damaged`, with a `stored_original_damaged` event |
+| Catalog can't be read | 500 | `internal_error`, with no failure event |
 | No session, `Sec-Fetch-Mode: navigate` | 303 | To `/sign-in?ended=1&next=<path from a same-origin Referer, or />` |
 | No session, any other request | 401 | `no_session` |
 
-An ID that isn't a number counts as unknown.
+An ID that isn't a number counts as unknown. The interface's fetch isn't a navigation, so it gets the 401. The 303 is for an address opened in a tab.
 
 A same-origin `Referer` is one whose host equals the request's `Host`. The scheme isn't compared, because TLS may end at a proxy. Only its path and query are used, and the client checks `next` again before following it.
 
-Success headers: `Content-Type: application/octet-stream`, `Content-Disposition: attachment; filename="<content_hash>.eml"`, `Content-Length`. The headers go out before the first read. A read that fails after them, or a file that has become shorter since the check, aborts the connection, so the browser shows a failed download, and it records a `stored_original_damaged` event. Hashing can use up the server's 30 second write timeout, so the write deadline restarts once the hash is done, before any answer.
+Success headers: `Content-Type: application/octet-stream`, `Content-Disposition: attachment; filename="<content_hash>.eml"`, `Content-Length`. The headers go out before the first read. A read that fails after them, or a file that has become shorter since the check, aborts the connection, so the client sees a broken transfer and saves nothing, and it records a `stored_original_damaged` event. Hashing can use up the server's 30 second write timeout, so the write deadline restarts once the hash is done, before any answer.
+
+### How the client reads a download
+
+| Response | Result on screen |
+| -------- | ---------------- |
+| Marked 200, with as many bytes as `Content-Length` | Saved as `<content_hash>.eml`, with no notification |
+| Marked 401 | Open sign-in with the session-ended message |
+| Marked 404 with `not_found` or `stored_original_missing` | Download failed, with FR-038's missing-original reason |
+| Marked 500 with `stored_original_damaged` | Download failed, with FR-038's damaged-original reason |
+| Marked 200 whose body breaks, stalls for 120 seconds, or ends short | Download failed: "The download stopped before the whole file arrived." |
+| Marked, anything else | Download failed, with no reason |
+| Unmarked, a network error, or no answer within 120 seconds | Download failed, with no reason |
+
+The client tests this table as one pure function and one stream reader in `frontend/src/lib/download/original.ts`.
 
 ## Status
 

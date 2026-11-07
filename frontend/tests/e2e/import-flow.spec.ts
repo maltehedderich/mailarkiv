@@ -73,8 +73,9 @@ function importButton(page: Page) {
   return page.getByRole("button", { name: "Import", exact: true });
 }
 
+/** The result is a toast, and these tests raise no other. */
 function result(page: Page) {
-  return page.getByRole("status", { name: "Import result" });
+  return page.getByRole("region", { name: "Notifications" });
 }
 
 // Scenario 8, FR-034.

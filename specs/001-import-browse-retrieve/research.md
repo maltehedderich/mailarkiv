@@ -111,27 +111,29 @@ A second check runs the default-build binary under `strace -f -y` and asserts th
 
 ## Web interface
 
-### Download through a plain link
+### Download through fetch
 
-**Decision:** Use `<a href="/api/messages/{id}/original">` with no `download` attribute. Success returns `Content-Disposition: attachment`. A failure returns the matching prerendered "This message wasn't downloaded" page with status 404 or 500.
+**Decision:** The interface fetches `/api/messages/{id}/original`, reads the whole body, and saves it through an object URL with `download="<content_hash>.eml"`. A failure answers JSON with status 404 or 500, and the page shows it as a notification.
 
-**Rationale:** Tested in Chromium, closing the open question in the spec's assumptions. On success the file downloaded and the page URL didn't change. On failure the browser showed the error page at the download URL, with CSS loaded, no scripts, and status 404. A `download` attribute would risk saving the error page as if it were the message. The server hashes the file before sending any header, streaming from a single open file.
+**Rationale:** This replaced the first build's plain link. That link worked in Chromium: a success downloaded with the page left in place, and a failure showed a prerendered "This message wasn't downloaded" page at the download address. But the failure page took the administrator out of the app and needed its own way back. Fetching keeps the list in place and lets one notification report both imports and downloads. The client saves only after every byte has arrived and the count matches `Content-Length`, so a broken transfer saves nothing. The server still hashes the file before it sends any header.
 
-**Remaining risk:** Firefox and Safari were not tested. The behavior follows the HTTP rules for navigation, so we expect the same result. A manual check belongs in the final walkthrough.
+**Cost:** The tab holds the whole file, up to 150 MB, until it's saved. The browser's own download list shows the file only at the end, so the interface shows progress for any download that takes longer than 400 ms.
 
-### Failed-download page
+**Remaining risk:** Firefox and Safari were not tested. A manual check belongs in the final walkthrough.
 
-**Decision:** Prerender `download-failed/missing.html` and `damaged.html` with `csr = false`, embed them, and have the Go handler write those bytes with the error status.
+**Alternatives rejected:** The plain link with prerendered failure pages, described above. `showSaveFilePicker` streams to disk with no memory cost, but only Chromium has it.
 
-**Rationale:** It keeps one design system and adds no Go templates. Tested: Kit 3.1.1 emits plain HTML with an absolute stylesheet link and no scripts. It needs `paths.relative: false`, so MailArkiv must be served at the root of its host name, and the operator guide says so.
+### Session ended on a download
 
-**Alternatives rejected:** A redirect to a client route would return 200 HTML at the end, and `curl -L` could save it as the message.
+**Decision:** With no valid session, the download route answers 401 to the interface's fetch, and the interface opens sign-in with the session-ended message (FR-040). A navigation, such as the address opened in a tab, still gets 303 to `/sign-in?ended=1&next=<referring page>`.
 
-### Session ended on a plain link
+**Rationale:** The 303 was tested in Chromium with a plain link: it sends `Sec-Fetch-Mode: navigate` and the full same-origin `Referer`, and the redirect landed on `/sign-in?ended=1&next=%2F%3Fpage%3D3`. The server sets `Referrer-Policy: same-origin` so the header doesn't leave the site. The client validates `next` against its own origin before using it.
 
-**Decision:** With no valid session, the download route answers 303 to `/sign-in?ended=1&next=<referring page>` when `Sec-Fetch-Mode` is `navigate`, and 401 otherwise.
+### Serving at the root
 
-**Rationale:** Tested in Chromium: a plain link sends `Sec-Fetch-Mode: navigate` and the full same-origin `Referer`, and the redirect landed on `/sign-in?ended=1&next=%2F%3Fpage%3D3`. The server sets `Referrer-Policy: same-origin` so the header doesn't leave the site. The client validates `next` against its own origin before using it.
+**Decision:** Build with `paths.relative: false`, so MailArkiv must be served at the root of its host name. The operator guide says so.
+
+**Rationale:** `app.html` is the fallback for every unknown path, and its asset links must work at any depth. Absolute links do that. Relative ones would break below the first level.
 
 ### Recognizing a proxy's response
 

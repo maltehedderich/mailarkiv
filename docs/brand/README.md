@@ -11,15 +11,15 @@ The app uses copies of these: the 18 px lockup in `frontend/src/lib/components/L
 
 ## Pick a logo file
 
-| You need | File | Use it at |
-| --- | --- | --- |
-| Name and mark, side by side | `logo/lockup-horizontal.svg` | 24 px tall and up |
-| The same, small | `logo/lockup-horizontal-small.svg` | 18 to 23 px tall |
-| Name under the mark | `logo/lockup-stacked.svg` | Tile 40 px and up |
-| Mark alone | `logo/mark.svg` | 20 px and up |
-| Mark alone, small | `logo/mark-18.svg` | 18 to 19 px |
-| Mark alone, tab size | `logo/mark-16.svg` | 16 to 17 px |
-| Name alone | `logo/wordmark.svg` | Caps 9 px and up |
+| You need                    | File                               | Use it at         |
+| --------------------------- | ---------------------------------- | ----------------- |
+| Name and mark, side by side | `logo/lockup-horizontal.svg`       | 24 px tall and up |
+| The same, small             | `logo/lockup-horizontal-small.svg` | 18 to 23 px tall  |
+| Name under the mark         | `logo/lockup-stacked.svg`          | Tile 40 px and up |
+| Mark alone                  | `logo/mark.svg`                    | 20 px and up      |
+| Mark alone, small           | `logo/mark-18.svg`                 | 18 to 19 px       |
+| Mark alone, tab size        | `logo/mark-16.svg`                 | 16 to 17 px       |
+| Name alone                  | `logo/wordmark.svg`                | Caps 9 px and up  |
 
 The small drawings are not reductions. They are redrawn so the grip is 3 px tall on whole pixels, where a plain reduction of the master would give 2.5 px at 16 px and blur.
 
@@ -35,13 +35,13 @@ Don't go below the sizes in the table. Under them, the word or the grip stops be
 
 The logo uses one colour at a time and no accent.
 
-| Name | Hex | Token | Use |
-| --- | --- | --- | --- |
-| Ink | `#161a20` | `--text-1`, light | Logo on light grounds |
-| Paper | `#fefeff` | `--panel`, light | Light ground, field of the app icon |
-| Dark ink | `#f3f3f5` | `--text-1`, dark | Logo on dark grounds |
-| Dark ground | `#0c0d0f` | `--canvas`, dark | Dark ground |
-| Lifted field | `#2a2d33` | None | Field of the dark iOS icon only |
+| Name         | Hex       | Token             | Use                                 |
+| ------------ | --------- | ----------------- | ----------------------------------- |
+| Ink          | `#161a20` | `--text-1`, light | Logo on light grounds               |
+| Paper        | `#fefeff` | `--panel`, light  | Light ground, field of the app icon |
+| Dark ink     | `#f3f3f5` | `--text-1`, dark  | Logo on dark grounds                |
+| Dark ground  | `#0c0d0f` | `--canvas`, dark  | Dark ground                         |
+| Lifted field | `#2a2d33` | None              | Field of the dark iOS icon only     |
 
 Ink on Paper has a contrast of 17.32:1, and Dark ink on Dark ground 17.54:1. The grip is a real hole, so it shows whatever is behind the logo. Don't fill it with a second colour.
 
@@ -86,24 +86,24 @@ Archivo appears only in the logo, as outlines, so no font file ships. It is copy
 
 Icons that fill a square show the whole mark at 62% of the icon on a Paper field. A circle or rounded mask then leaves the drawer whole, and the icon stands apart from dark neighbours and dark wallpaper.
 
-| Platform | Files | Notes |
-| --- | --- | --- |
-| Browser tab | `favicon/favicon.svg`, `favicon.ico`, `favicon-16.png`, `-32`, `-48` | The SVG follows the theme. The ICO and PNGs don't: on a dark tab strip, their ink tile fades and only the grip shows. |
-| Apple touch | `favicon/apple-touch-icon.png` | 180 px, opaque |
-| PWA | `pwa/icon-192.png`, `icon-512.png` | Rounded tile on transparency |
-| PWA, maskable | `pwa/icon-maskable-192.png`, `-512` | The tile's corners reach 39% of the icon's width from the centre. The safe radius is 40%. |
-| iOS | `ios/icon-1024.png`, `-dark`, `-tinted` | Square and opaque. iOS applies the mask. |
-| Android | `android/ic_launcher_foreground`, `_background`, `_monochrome`, as `.svg` and `.png` | 108 dp layers. A 46 dp tile reaches 29 dp from the centre, inside the 33 dp safe radius. |
+| Platform      | Files                                                                                | Notes                                                                                                                 |
+| ------------- | ------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| Browser tab   | `favicon/favicon.svg`, `favicon.ico`, `favicon-16.png`, `-32`, `-48`                 | The SVG follows the theme. The ICO and PNGs don't: on a dark tab strip, their ink tile fades and only the grip shows. |
+| Apple touch   | `favicon/apple-touch-icon.png`                                                       | 180 px, opaque                                                                                                        |
+| PWA           | `pwa/icon-192.png`, `icon-512.png`                                                   | Rounded tile on transparency                                                                                          |
+| PWA, maskable | `pwa/icon-maskable-192.png`, `-512`                                                  | The tile's corners reach 39% of the icon's width from the centre. The safe radius is 40%.                             |
+| iOS           | `ios/icon-1024.png`, `-dark`, `-tinted`                                              | Square and opaque. iOS applies the mask.                                                                              |
+| Android       | `android/ic_launcher_foreground`, `_background`, `_monochrome`, as `.svg` and `.png` | 108 dp layers. A 46 dp tile reaches 29 dp from the centre, inside the 33 dp safe radius.                              |
 
 MailArkiv has no iOS or Android app today, so those two sets are for later.
 
 For the web, copy the files to the site root and add:
 
 ```html
-<link rel="icon" href="/favicon.ico" sizes="32x32">
-<link rel="icon" href="/favicon.svg" type="image/svg+xml">
-<link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/favicon.ico" sizes="32x32" />
+<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+<link rel="manifest" href="/manifest.webmanifest" />
 ```
 
 ```json
@@ -117,8 +117,3 @@ For the web, copy the files to the site root and add:
   ]
 }
 ```
-
-## Before this goes public
-
-- Check the name. [MailArchiva](https://www.capterra.com/p/129318/MailArchiva/) is an email-archiving product with almost the same name. Nobody has searched a trademark register yet. Try TMview, DPMA, and USPTO, in classes 9 and 42.
-- Run a doodle test. Nobody has tried drawing the mark from memory yet.

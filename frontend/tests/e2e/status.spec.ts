@@ -114,10 +114,10 @@ test("a damaged original is counted on every page, and a restart clears it", asy
     buffer: CONTENT,
   });
   await page.getByRole("button", { name: "Import" }).click();
-  const download = page.getByRole("link", { name: /download/i });
-  await expect(download).toBeVisible();
-  const id = /\/api\/messages\/(\d+)\/original$/.exec(
-    (await download.getAttribute("href")) ?? "",
+  const history = page.getByRole("link", { name: /history of/i });
+  await expect(history).toBeVisible();
+  const id = /[?&]message=(\d+)$/.exec(
+    (await history.getAttribute("href")) ?? "",
   )?.[1];
   expect(id).toBeDefined();
   await expect(statusItem(page, "Status")).toBeVisible();

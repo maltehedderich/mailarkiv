@@ -69,8 +69,9 @@ async function importFile(page: Page, file = FILE) {
   await page.getByRole("button", { name: "Import" }).click();
 }
 
+/** The result is a toast, and these tests raise no other. */
 function result(page: Page) {
-  return page.getByRole("status", { name: "Import result" });
+  return page.getByRole("region", { name: "Notifications" });
 }
 
 /** The outcome shows its own word and no other outcome's word. */

@@ -6,7 +6,7 @@
   let { title, children }: { title: string; children: Snippet } = $props();
 </script>
 
-<!-- A page with no sidebar, from DESIGN.md: sign-in and the failed download. -->
+<!-- A page with no sidebar, from DESIGN.md: sign-in. -->
 <main>
   <div class="column">
     <p><Logo /></p>

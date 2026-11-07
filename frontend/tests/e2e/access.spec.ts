@@ -57,9 +57,9 @@ async function importFile(page: Page) {
     buffer: CONTENT,
   });
   await page.getByRole("button", { name: "Import" }).click();
-  await expect(page.getByRole("main").getByRole("status")).toContainText(
-    "Archived",
-  );
+  await expect(
+    page.getByRole("region", { name: "Notifications" }),
+  ).toContainText("Archived");
 }
 
 /** Waits for sign-in and returns its query. */
@@ -207,25 +207,23 @@ test("a session ended by a new password opens sign-in, then returns to the page"
   await expect(page.getByText("No mail yet")).toBeVisible();
 });
 
-// FR-040 through the plain download link, which the router doesn't handle.
-// The server answers 303 to sign-in, and the browser saves nothing.
-test("a download link after the session ended opens sign-in", async ({
-  page,
-}) => {
+// FR-040 through Download. The page fetches the file, gets a marked 401, and
+// opens sign-in. The browser saves nothing.
+test("a download after the session ended opens sign-in", async ({ page }) => {
   await server.createAccount(EMAIL, PASSWORD);
   await signInFromStart(page);
   await importFile(page);
   await page.goto(`${server.origin}/?page=1`);
-  const link = page
+  const download = page
     .getByRole("list", { name: "Messages" })
-    .getByRole("link", { name: /download/i });
-  await expect(link).toBeVisible();
+    .getByRole("button", { name: /download/i });
+  await expect(download).toBeVisible();
 
   await server.setPassword(EMAIL, NEW_PASSWORD);
 
   let downloads = 0;
   page.on("download", () => downloads++);
-  await link.click();
+  await download.click();
 
   const query = await signInQuery(page);
   expect(query.get("ended")).toBe("1");

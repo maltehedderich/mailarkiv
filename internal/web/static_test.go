@@ -11,19 +11,16 @@ import (
 )
 
 const (
-	appPage     = "<!doctype html><title>app</title>"
-	appBundle   = "console.log('bundle');"
-	missingPage = "<!doctype html><h1>missing</h1>"
-	damagedPage = "<!doctype html><h1>damaged</h1>"
+	appPage   = "<!doctype html><title>app</title>"
+	appBundle = "console.log('bundle');"
 )
 
 func staticFiles() fstest.MapFS {
 	return fstest.MapFS{
-		"app.html":                     {Data: []byte(appPage)},
-		"_app/immutable/start.js":      {Data: []byte(appBundle)},
-		"_app/immutable/style.css":     {Data: []byte("body{}")},
-		"download-failed/missing.html": {Data: []byte(missingPage)},
-		"download-failed/damaged.html": {Data: []byte(damagedPage)},
+		"app.html":                 {Data: []byte(appPage)},
+		"_app/immutable/start.js":  {Data: []byte(appBundle)},
+		"_app/immutable/style.css": {Data: []byte("body{}")},
+		"brand/mark.svg":           {Data: []byte("<svg/>")},
 	}
 }
 
@@ -43,7 +40,7 @@ func TestStaticGET(t *testing.T) {
 		{"root", "/", http.StatusOK, appPage, "text/html"},
 		{"unknown path", "/sign-in", http.StatusOK, appPage, "text/html"},
 		{"unknown nested path", "/status/anything", http.StatusOK, appPage, "text/html"},
-		{"directory outside /_app/", "/download-failed", http.StatusOK, appPage, "text/html"},
+		{"directory outside /_app/", "/brand", http.StatusOK, appPage, "text/html"},
 		{"missing /_app/ file", "/_app/immutable/gone.js", http.StatusNotFound, "", ""},
 		{"directory inside /_app/", "/_app/immutable", http.StatusNotFound, "", ""},
 	}

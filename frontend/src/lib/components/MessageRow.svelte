@@ -5,6 +5,7 @@
 
   import type { Message } from "#lib/api.js";
   import FileName from "#lib/components/FileName.svelte";
+  import { startDownload } from "#lib/download/start.js";
   import { displayName } from "#lib/format/file-name.js";
   import { formatSize } from "#lib/format/size.js";
   import { formatTime } from "#lib/format/time.js";
@@ -48,16 +49,15 @@
   <span class="count">
     {message.importCount > 1 ? `${message.importCount}×` : ""}
   </span>
-  <!-- A plain link. The server's Content-Disposition makes it a download, and
-       the router must not handle it. -->
-  <a
+  <!-- The page fetches the file, so a failure shows as a toast here. -->
+  <button
     class="button ghost icon-only download"
-    href="/api/messages/{message.id}/original"
+    type="button"
     aria-label="Download {name}"
-    data-sveltekit-reload
+    onclick={() => startDownload(message)}
   >
     <DownloadIcon />
-  </a>
+  </button>
 </li>
 
 <style>

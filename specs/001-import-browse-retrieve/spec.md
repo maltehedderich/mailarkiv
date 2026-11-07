@@ -148,7 +148,7 @@ Administrators and operators can tell when capture, recovery, or retrieval went 
 1. **Given** a clean start, **When** an administrator opens the status screen, **Then** it shows the start time and that recovery found nothing, and it does not describe the archive as healthy.
 2. **Given** a restart after a crash, **When** an administrator opens the status screen, **Then** it shows how many temporary files were removed and each unreferenced original by content hash and size with its next step, and no stored original has been deleted.
 3. **Given** a failed import, **When** an administrator opens the status screen or the operator reads the log, **Then** each shows the time and the failure category, with no message content.
-4. **Given** a stored original that is missing or does not match its content hash, **When** an administrator downloads it, **Then** the administrator sees the reason in the browser with a way back to the list, nothing is saved as if it were the message, and the status screen and log report the failure with the message's internal ID.
+4. **Given** a stored original that is missing or does not match its content hash, **When** an administrator downloads it, **Then** the administrator sees the reason in a notification and stays on the list, nothing is saved as if it were the message, and the status screen and log report the failure with the message's internal ID.
 5. **Given** a temporary file that recovery cannot remove, **When** startup finishes, **Then** the server runs and the status screen and log report the failure.
 6. **Given** a catalog or storage location that cannot be used, **When** the server starts, **Then** it refuses to start and the log says which one failed.
 7. **Given** a failure before a restart, **When** an administrator opens the status screen after it, **Then** the failure is gone from the screen, and the screen says it covers only the time since the last start and that older failures are in the server log.
@@ -206,7 +206,7 @@ Administrators and operators can tell when capture, recovery, or retrieval went 
 - **FR-020**: Administrators MUST be able to open a message's import history, showing its full content hash and every source observation.
 - **FR-021**: Supplied file names MUST be treated as untrusted. They MUST be shown as plain text with control and bidirectional characters neutralized, and MUST NOT be used to choose a storage location or a download name. A long name MUST be shortened in the middle so its ending stays visible, with the full name in the import history. A missing name MUST show as "(no file name)".
 - **FR-022**: Download MUST return the exact stored bytes as a saved file, never displayed in the browser, named from the content hash with an `.eml` extension.
-- **FR-023**: Before a download starts, the system MUST check the stored original against its content hash. If it is missing or does not match, the download MUST fail: the administrator sees "This message wasn't downloaded" and the reason in the browser with a way back to the list, and nothing is saved or presented as the original.
+- **FR-023**: Before a download starts, the system MUST check the stored original against its content hash. If it is missing or does not match, the download MUST fail: the administrator sees "This message wasn't downloaded" and the reason in a notification on the page they're on, and nothing is saved or presented as the original.
 
 **Recovery and visibility**
 
@@ -224,7 +224,7 @@ Administrators and operators can tell when capture, recovery, or retrieval went 
 
 **Import results and progress**
 
-- **FR-032**: Every import in the web interface MUST end in exactly one of the outcomes below. The result MUST stay on screen until the next import starts.
+- **FR-032**: Every import in the web interface MUST end in exactly one of the outcomes below. The result MUST stay on screen until the next import starts or the administrator dismisses it.
 
 | Outcome          | When                                                                                            | What the administrator is told                                                     |
 | ---------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
@@ -326,6 +326,6 @@ Each choice below filled a gap in the issue. The numbers here and in the success
 - **Storage**: The data directory is on one local filesystem that honors flush requests. The durability guarantee does not hold without that.
 - **API**: The server's request interface serves the web interface and is not a published contract in this slice. The web interface meets the issue's "UI or documented API" condition. Direct requests are still tested, because they are the path an attacker would use.
 - **Scale**: FR-024 scans stored originals before the server accepts imports. How long that takes at the 5 million message target is unmeasured, and the sizing test in Slice 3 does not list it.
-- **Download errors**: The plan should test a plain link first: a successful download leaves the page in place, and a failure returns a small error page. Reading the file into the page first could hold 150 MB in the browser tab. This behavior is untested.
+- **Download errors**: The page fetches the file and saves it once every byte has arrived, so a failure shows as a notification and the page stays in place. The cost is that a download holds up to 150 MB in the browser tab before the save, and the browser's own download list shows it only at the end.
 - **Visual design**: `DESIGN.md`, written separately, owns layout, type, color, and control labels. This spec sets behavior and the wording of outcomes and failures.
 - **Plan inputs**: The plan ranks credible failures by likelihood and harm, names each required check and its layer, and adds the check commands to `AGENTS.md`. The server must send the embedding rule in FR-007 as a response header, because static pages can't carry it. Test fixtures use synthetic mail only.

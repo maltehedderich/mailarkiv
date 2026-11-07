@@ -143,8 +143,7 @@ frontend/
 │   ├── lib/             # api.ts, import client and classifier, formatting, components
 │   └── routes/
 │       ├── (app)/       # Signed-in shell: +layout.ts, list and import at /, status at /status
-│       ├── (public)/sign-in/
-│       └── download-failed/[reason]/    # Prerendered with csr = false
+│       └── (public)/sign-in/
 └── tests/e2e/
 docs/OPERATIONS.md       # Operator guide (FR-030, FR-031)
 docs/adr/0005-*.md, 0006-*.md

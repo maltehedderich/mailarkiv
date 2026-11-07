@@ -2,7 +2,7 @@
 
 This guide says which token to use where, and why. Exact values live in [`src/lib/styles/tokens.css`](src/lib/styles/tokens.css), so change them there and nowhere else.
 
-It covers the Slice 1 screens: sign-in, the import list with the import box, file history, the failed-download page, and status. Behavior and failure wording come from [the Slice 1 spec](../specs/001-import-browse-retrieve/spec.md). If this file conflicts with the spec or [the constitution](../.specify/memory/constitution.md), they win.
+It covers the Slice 1 screens: sign-in, the import list with the import box, file history, and status, plus the toasts that report imports and downloads. Behavior and failure wording come from [the Slice 1 spec](../specs/001-import-browse-retrieve/spec.md). If this file conflicts with the spec or [the constitution](../.specify/memory/constitution.md), they win.
 
 ## Character
 
@@ -134,17 +134,18 @@ Space tokens are named for their pixel value: `--space-2` through `--space-32`. 
 | `--sidebar-width`        | 224 px | Sidebar                                |
 | `--content-width`        | 880 px | Centred content column                 |
 | `--drawer-width`         | 440 px | File history                           |
-| `--form-width`           | 300 px | Sign-in and the failed-download page   |
+| `--form-width`           | 300 px | Sign-in                                |
+| `--toast-width`          | 380 px | Toasts on the page                     |
 
 Radii: `--radius-small` for codes and small marks, `--radius-medium` for controls and rows, `--radius-large` for panels, the import box, and the drawer.
 
-A shadow means something sits above the page. The panel gets `--shadow-panel`, drawers and dialogs get `--shadow-pop`, and nothing else gets one.
+A shadow means something sits above the page. The panel gets `--shadow-panel`, drawers, dialogs, and toasts get `--shadow-pop`, and nothing else gets one.
 
 ## Layout
 
 Signed-in pages have a sidebar on `--canvas` and one `--panel` beside it, inset 8 px. The sidebar stays in view while the page scrolls, with Sign out at its foot. A view has a 52 px header with its title, then a scrolling body. Import and status centre their content in `--content-width`. The page itself never scrolls sideways.
 
-Sign-in and the failed-download page are standalone: a `--form-width` column, centred, on `--panel`, with no sidebar.
+Sign-in is standalone: a `--form-width` column, centred, on `--panel`, with no sidebar.
 
 | At 720 px and below | Change                                                                                                                                       |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -168,7 +169,7 @@ SC-008 requires the whole flow by keyboard and at 360 px with no sideways scroll
 | Default | `button`                 | 1 px `--line-strong` edge, `--text-2` label | Most actions                                     |
 | Primary | `button primary`         | `--text-1` fill, `--panel` label            | One per view, for the action the view exists for |
 | Ghost   | `button ghost`           | No edge                                     | Clear, Close, and icon buttons                   |
-| Icon    | add `icon-only`          | Square, ghost or default, with `aria-label` | Row download, Copy, Close                        |
+| Icon    | add `icon-only`          | Square, ghost or default, with `aria-label` | Row download, Copy, Close, Dismiss               |
 | Large   | add `large`              | `--control-height-large`                    | Form and drawer buttons                          |
 
 Default and ghost hover to `--fill-2` with `--text-1`, and press to `--fill-3`. Primary drops to 86% opacity on hover and 76% on press. Disabled is 45% opacity with no pointer events. Use `disabled` on a button and `aria-disabled="true"` on a link, or on a button that must keep focus while busy. Long work shows in the import box, so buttons don't spin.
@@ -195,20 +196,29 @@ Uses `--fill-1` with a `--line` edge, `--radius-large`, at least 76 px tall. It 
 | Storing                | A separate storing state with no percentage (FR-035)                                          |
 | Refused in the browser | A message, with nothing uploaded (FR-036)                                                     |
 
-### Import outcome
+### Toast
 
-The result sits under the import box in a `role="status"` element, so screen readers hear it (FR-041), and stays until the next import starts (FR-032). Slice 1 has no toasts, since a result that disappears breaks that rule.
+A toast reports a finished import, a download in progress, or a download that failed. Toasts sit in one region named "Notifications" at the bottom right, `--toast-width` wide and 24 px from the edges. At 720 px and below they fill the width above the bottom tab bar, with 16 px gutters. Each is on `--raised` with `--shadow-pop` and `--radius-large`, plus a transparent 1 px border so forced colours still draw an edge.
 
-| Outcome          | Dot            |
-| ---------------- | -------------- |
-| Archived         | `--state-ok`   |
-| Already archived | `--text-4`     |
-| Restored         | `--state-warn` |
-| Refused          | `--state-bad`  |
-| Failed           | `--state-bad`  |
-| Unconfirmed      | `--state-warn` |
+A toast reads like a problem on Status: a `--dot-size` dot and the state word, then the file name, then what happened in `--text-2` and the next step in `--text-3`. Use the spec's words.
 
-The dot is `--dot-size`. Use the spec's words for each outcome and its explanation.
+| Toast            | Dot            | Shows                                                                          |
+| ---------------- | -------------- | ------------------------------------------------------------------------------ |
+| Archived         | `--state-ok`   | Name, size, and "Open import history"                                          |
+| Already archived | `--text-4`     | Name, what happened, and "Open import history"                                 |
+| Restored         | `--state-warn` | Name, what happened, and "Open import history"                                 |
+| Refused          | `--state-bad`  | Name and the reason                                                            |
+| Failed           | `--state-bad`  | Name, the reason, and the next step                                            |
+| Unconfirmed      | `--state-warn` | Name and what happened                                                         |
+| Downloading      | `--text-4`     | Name and a progress bar with its percentage, and no Dismiss                    |
+| Download failed  | `--state-bad`  | Name, "This message wasn't downloaded." with the reason, and the next step     |
+
+- **No timer.** A toast stays until it's dismissed or replaced, because a result that disappears breaks FR-023 and FR-032. Starting an import removes the last import's toast. Trying a download again replaces that download's toast.
+- **Downloading** appears only after 400 ms, so a quick download shows nothing. A failure replaces it in place.
+- **In the drawer:** the drawer is a modal dialog, so the page behind it is inert. A toast raised while it's open shows inside it, above the footer, and moves to the page when it closes.
+- **Focus stays visible:** the region sets `--toast-room` to the space it covers. The page and the drawer body add that as bottom padding and `scroll-padding-bottom`, so the last row and a focused control scroll clear of the toasts (WCAG 2.4.11).
+- **Screen readers:** the list is `aria-live="polite"`. The bar is a `progressbar` named "Download", and its percentage text is hidden from them.
+- **Dismiss** is a ghost icon button labelled "Dismiss". It moves focus to the next toast's control, or to the region when none is left, so focus never drops to the page.
 
 ### Import list row
 
@@ -229,10 +239,6 @@ Sections stack with a `--line` above each: a 136 px label column, then content. 
 ### Sign-in
 
 Standalone. Email address, password, and a full-width primary Sign in. A standing note says "Accounts and passwords are managed on the server. Operator guide: docs/OPERATIONS.md", with the path as the link's text, pointing to the guide on GitHub. The path stays readable on a network that can't reach GitHub. When a session ended in this tab, a line above the form says "Your session ended. Sign in again to continue."
-
-### Failed download
-
-Standalone. A section heading, the reason, the next step in `--text-3`, and a default button back to the list.
 
 ### Loading
 
@@ -255,7 +261,7 @@ Data that didn't arrive leaves one block in place of the content: what happened 
 
 ## Motion
 
-Motion confirms a change and never decorates it. A hover fill appears at once and fades over `--motion-fade` (140 ms) when it leaves. The drawer slides in over `--motion-slide` (200 ms) with `--ease-enter`. With `prefers-reduced-motion: reduce`, remove animations and transitions.
+Motion confirms a change and never decorates it. A hover fill appears at once and fades over `--motion-fade` (140 ms) when it leaves. The drawer slides in over `--motion-slide` (200 ms) with `--ease-enter`. A toast rises 8 px and fades in over `--motion-enter` (160 ms) with `--ease-enter`. With `prefers-reduced-motion: reduce`, remove animations and transitions.
 
 ## Fonts and icons
 
@@ -325,7 +331,6 @@ Search, the message reader, and delete use these values. Add each to `tokens.css
 | `--sheet-dim`    | `1`                                 | `0.93`                               | Brightness of the white message preview |
 | `--bad-solid`    | `oklch(0.52 0.18 27)`               | `oklch(0.52 0.17 27)`                | Delete button fill, with white text     |
 | `--warn-text`    | `oklch(0.47 0.1 70)`                | `oklch(0.82 0.11 78)`                | Warning text                            |
-| `--motion-enter` | `160ms`                             | Same                                 | Dialog entrance, with `--ease-enter`    |
 | Title type       | 20/26, 590, −0.014em                | Same                                 | Message subject                         |
 
 From 1041 px up, the archive list has one-line rows. At 1040 px and below, rows take two lines at 54 px and the reader stacks over its details.

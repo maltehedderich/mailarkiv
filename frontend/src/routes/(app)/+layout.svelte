@@ -8,6 +8,7 @@
 
   import { signOut } from "#lib/api.js";
   import Logo from "#lib/components/Logo.svelte";
+  import Toasts from "#lib/components/Toasts.svelte";
   import { clearSignedIn } from "#lib/session.js";
 
   import type { LayoutProps } from "./$types";
@@ -98,6 +99,10 @@
     {@render children()}
   </div>
 </div>
+
+<!-- After the panel, so the toasts come last in the tab order. They stay
+     across pages, so a result isn't lost on the way to Status. -->
+<Toasts place="page" />
 
 <style>
   .shell {
@@ -193,9 +198,12 @@
     line-height: var(--leading-label);
   }
 
+  /* --toast-room is set by the toasts, so the end of the page can scroll
+     clear of them. */
   .panel {
     min-width: 0;
     margin: var(--space-8) var(--space-8) var(--space-8) 0;
+    padding-bottom: var(--toast-room, 0px);
     border-radius: var(--radius-large);
     background: var(--panel);
     box-shadow: var(--shadow-panel);
@@ -276,8 +284,10 @@
       box-shadow: var(--shadow-pop);
     }
 
+    /* The shell already keeps 44 px for the bar, which the room includes. */
     .panel {
       margin: 0;
+      padding-bottom: max(0px, calc(var(--toast-room, 0px) - 44px));
       border-radius: 0;
       box-shadow: none;
     }

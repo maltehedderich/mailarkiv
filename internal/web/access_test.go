@@ -187,7 +187,7 @@ func withHeader(name, value string) func(*http.Request) {
 	}
 }
 
-// Contract, Download: a plain link followed with no session lands on sign-in
+// Contract, Download: the address opened in a tab with no session lands on sign-in
 // with the session-ended message, and returns to the page it came from. Any
 // other request without a session gets 401.
 func TestDownloadWithoutSessionRedirectsANavigation(t *testing.T) {

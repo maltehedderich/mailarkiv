@@ -52,6 +52,7 @@
   --content-width: 880px;
   --drawer-width: 440px;
   --form-width: 300px;
+  --toast-width: 380px;
   --icon-size: 16px;
   --icon-size-small: 14px;
   --dot-size: 6px;
@@ -64,6 +65,7 @@
   /* Motion */
   --motion-fade: 140ms;
   --motion-slide: 200ms;
+  --motion-enter: 160ms;
   --ease-enter: cubic-bezier(0.2, 0.8, 0.2, 1);
 
   /* Surfaces */

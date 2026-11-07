@@ -178,13 +178,13 @@ test("a click opens the history, and Close returns to the row", async ({
   await expect(rowLink(page)).toBeFocused();
 });
 
-test("the row's download link saves the file and opens nothing", async ({
+test("the row's download button saves the file and opens nothing", async ({
   page,
 }) => {
   await signInWithOneMessage(page);
 
   const saved = page.waitForEvent("download");
-  await page.getByRole("link", { name: /download/i }).click();
+  await page.getByRole("button", { name: /download/i }).click();
   await saved;
 
   await expect(drawer(page)).toBeHidden();
@@ -198,7 +198,7 @@ test("the drawer's Download saves the file and stays open", async ({
   await rowLink(page).click();
 
   const saved = page.waitForEvent("download");
-  await drawer(page).getByRole("link", { name: "Download" }).click();
+  await drawer(page).getByRole("button", { name: "Download" }).click();
 
   expect((await saved).suggestedFilename()).toBe(`${HASH}.eml`);
   await expect(drawer(page)).toBeVisible();
@@ -335,6 +335,6 @@ test("at 360 px a long name fits, and Download stays in view", async ({
   await drawer(page).getByRole("listitem").last().scrollIntoViewIfNeeded();
   await expect(drawer(page).getByRole("listitem").last()).toBeInViewport();
   await expect(
-    drawer(page).getByRole("link", { name: "Download" }),
+    drawer(page).getByRole("button", { name: "Download" }),
   ).toBeInViewport();
 });

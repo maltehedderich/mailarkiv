@@ -8,15 +8,18 @@
   import FailedLoad from "#lib/components/FailedLoad.svelte";
   import HistoryDrawer from "#lib/components/HistoryDrawer.svelte";
   import ImportBox from "#lib/components/ImportBox.svelte";
-  import ImportOutcome, {
-    type Shown,
-  } from "#lib/components/ImportOutcome.svelte";
   import MessageRow from "#lib/components/MessageRow.svelte";
   import Pager from "#lib/components/Pager.svelte";
+  import { historyHref } from "#lib/history.js";
   import { choose } from "#lib/import/choose.js";
   import { isBusy, type ImportStep } from "#lib/import/step.js";
   import { upload } from "#lib/import/upload.js";
   import { signInPath } from "#lib/session.js";
+  import {
+    dismissToast,
+    IMPORT_KEY,
+    showToast,
+  } from "#lib/toasts/store.svelte.js";
 
   import type { PageProps } from "./$types";
 
@@ -25,10 +28,9 @@
   let box: ReturnType<typeof ImportBox>;
   let heading: HTMLHeadingElement;
 
-  // The page owns the import, so its result outlives a failed refresh.
+  // The page owns the import. Its result is a toast, so it outlives a failed
+  // refresh and a visit to another page.
   let step = $state<ImportStep>({ kind: "ready" });
-  // FR-032: the last result stays until the next import starts.
-  let shown = $state<Shown | null>(null);
   const busy = $derived(isBusy(step));
 
   const LEAVE =
@@ -89,7 +91,8 @@
   async function startImport() {
     if (step.kind !== "chosen") return;
     const { file } = step;
-    shown = null;
+    // FR-032: the last result stays until the next import starts.
+    dismissToast(IMPORT_KEY);
     step = { kind: "uploading", file, fraction: 0 };
     // FR-040: a session that ended opens sign-in before any byte is sent.
     // Only a marked 401 changes anything. After any other result the upload
@@ -115,7 +118,7 @@
       return;
     }
     step = { kind: "ready" };
-    shown = { fileName: file.name, result };
+    showToast({ kind: "import", fileName: file.name, result });
     // Import goes away with the chosen file, so focus moves on purpose.
     await tick();
     box.focus();
@@ -136,12 +139,6 @@
 
   function warnBeforeUnload(event: BeforeUnloadEvent) {
     if (busy) event.preventDefault();
-  }
-
-  function historyHref(id: number): string {
-    const url = new URL(page.url.href);
-    url.searchParams.set("message", String(id));
-    return url.pathname + url.search;
   }
 
   // The dialog has closed, by Escape, Close, or Back.
@@ -179,7 +176,6 @@
       onchoose={chooseFiles}
       onimport={startImport}
     />
-    <ImportOutcome {shown} {historyHref} />
 
     {#if data.session.kind !== "ok" || list?.kind === "unavailable"}
       <FailedLoad />
@@ -196,7 +192,10 @@
         {#if list?.kind === "ok" && list.value.items.length > 0}
           <ul aria-label="Messages">
             {#each list.value.items as message (message.id)}
-              <MessageRow {message} historyHref={historyHref(message.id)} />
+              <MessageRow
+                {message}
+                historyHref={historyHref(page.url, message.id)}
+              />
             {/each}
           </ul>
         {:else}

@@ -75,7 +75,6 @@ type Deps struct {
 
 type server struct {
 	logger   *slog.Logger
-	files    fs.FS
 	static   http.Handler
 	identity *identity.Identity
 	archive  *archive.Archive
@@ -90,7 +89,6 @@ func New(deps Deps) http.Handler {
 func newHandler(deps Deps, routes []Route) http.Handler {
 	s := &server{
 		logger:   deps.Logger,
-		files:    deps.Files,
 		static:   Static(deps.Files),
 		identity: deps.Identity,
 		archive:  deps.Archive,

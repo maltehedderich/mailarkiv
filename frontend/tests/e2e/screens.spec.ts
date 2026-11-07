@@ -53,7 +53,7 @@ async function importFile(page: Page, name: string, buffer = CONTENT) {
     .setInputFiles({ name, mimeType: "message/rfc822", buffer });
   await page.getByRole("button", { name: "Import", exact: true }).click();
   await expect(
-    page.getByRole("status", { name: "Import result" }),
+    page.getByRole("region", { name: "Notifications" }),
   ).toContainText(/Archived|Already archived/);
 }
 
@@ -105,7 +105,7 @@ test("the whole flow works by keyboard", async ({ page }) => {
   await tabTo(page, importButton);
   await page.keyboard.press("Enter");
   await expect(
-    page.getByRole("status", { name: "Import result" }),
+    page.getByRole("region", { name: "Notifications" }),
   ).toContainText("Archived");
   // Focus moved on purpose when the Import button went away.
   expect(
@@ -125,7 +125,7 @@ test("the whole flow works by keyboard", async ({ page }) => {
   // The row's second stop is its download.
   await page.keyboard.press("Tab");
   await expect(
-    page.getByRole("link", { name: "Download keyboard.eml" }),
+    page.getByRole("button", { name: "Download keyboard.eml" }),
   ).toBeFocused();
   const download = page.waitForEvent("download");
   await page.keyboard.press("Enter");
@@ -136,7 +136,7 @@ test("the whole flow works by keyboard", async ({ page }) => {
  * Opens every screen in turn and runs check on each: sign-in and its error,
  * the list with an import result, the import box with a choice and with a
  * refusal, the history, status with a failure and an unreferenced original,
- * the failed download, and the failed-load state.
+ * the failed-download toast, and the failed-load state.
  */
 async function visitEveryScreen(
   page: Page,
@@ -204,13 +204,13 @@ async function visitEveryScreen(
     join(server.dataDir, "blobs", HASH.slice(0, 2), HASH.slice(2, 4), HASH),
     "Subject: damaged\r\n\r\n",
   );
-  await page.getByRole("link", { name: "Download short.eml" }).click();
+  await page.getByRole("button", { name: "Download short.eml" }).click();
   await expect(
-    page.getByRole("heading", { name: "This message wasn't downloaded" }),
+    page
+      .getByRole("region", { name: "Notifications" })
+      .getByText(/This message wasn't downloaded/),
   ).toBeVisible();
-  await check("the failed download");
-  await page.getByRole("link", { name: "Back to the list" }).click();
-  await expect(page.getByRole("heading", { name: "Messages" })).toBeVisible();
+  await check("the failed-download toast");
 
   await page
     .getByRole("navigation", { name: "Main" })
@@ -235,6 +235,14 @@ async function visitEveryScreen(
 }
 
 async function expectNoAxeViolations(page: Page, screen: string) {
+  // A toast fades in and the drawer slides in. Mid-way, colours are lighter
+  // than they rest at, so measure once they've arrived. A cancelled animation
+  // belongs to an element that has gone, so it has nothing to wait for.
+  await page.evaluate(() =>
+    Promise.allSettled(
+      document.getAnimations().map((animation) => animation.finished),
+    ),
+  );
   const { violations } = await new AxeBuilder({ page })
     .withTags(WCAG_22_AA)
     .analyze();
@@ -315,7 +323,7 @@ for (const [failure, answer] of Object.entries(FAILURES)) {
 
       await page.goto(`${server.origin}/status`);
       await expect(page.getByText(FAILED_LOAD)).toBeVisible();
-      await expect(page.getByRole("region")).toHaveCount(0);
+      await expect(page.getByRole("main").getByRole("region")).toHaveCount(0);
 
       await page.unroute("**/api/status");
       await page.getByRole("button", { name: "Try again" }).click();

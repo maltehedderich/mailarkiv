@@ -6,8 +6,11 @@
   import FailedLoad from "#lib/components/FailedLoad.svelte";
   import FileName from "#lib/components/FileName.svelte";
   import FullHash from "#lib/components/FullHash.svelte";
+  import Toasts from "#lib/components/Toasts.svelte";
+  import { startDownload } from "#lib/download/start.js";
   import { formatBytes } from "#lib/format/size.js";
   import { formatTime } from "#lib/format/time.js";
+  import { setDrawerOpen } from "#lib/toasts/store.svelte.js";
 
   let {
     history,
@@ -29,15 +32,27 @@
   // work. showModal() moves focus in, and close() gives it back. Try again goes
   // away when the data arrives, so focus moves on purpose to stay in the drawer.
   $effect(() => {
-    if (history !== null && !dialog.open) dialog.showModal();
+    if (history !== null && !dialog.open) {
+      dialog.showModal();
+      setDrawerOpen(true);
+    }
     if (history === null && dialog.open) dialog.close();
     if (dialog.open && document.activeElement === document.body) {
       closeButton.focus();
     }
   });
+
+  // Leaving the page with the drawer open fires no close event.
+  $effect(() => () => setDrawerOpen(false));
+
+  // Escape, Close, and Back all end here.
+  function closed() {
+    setDrawerOpen(false);
+    onclose();
+  }
 </script>
 
-<dialog bind:this={dialog} aria-labelledby="history-title" {onclose}>
+<dialog bind:this={dialog} aria-labelledby="history-title" onclose={closed}>
   <header>
     <h2 id="history-title">Import history</h2>
     <button
@@ -51,55 +66,65 @@
     </button>
   </header>
 
-  <div class="body">
-    {#if history?.kind === "ok"}
-      {@const { contentHash, size, observations } = history.value}
-      <section>
-        <h3>Content hash</h3>
-        <FullHash hash={contentHash} />
-      </section>
+  <div class="main">
+    <div class="body">
+      {#if history?.kind === "ok"}
+        {@const { contentHash, size, observations } = history.value}
+        <section>
+          <h3>Content hash</h3>
+          <FullHash hash={contentHash} />
+        </section>
 
-      <section>
-        <h3>Size</h3>
-        <p class="size">{formatBytes(size)}</p>
-      </section>
+        <section>
+          <h3>Size</h3>
+          <p class="size">{formatBytes(size)}</p>
+        </section>
 
-      <section>
-        <h3>Imports</h3>
-        <ol>
-          {#each observations as observation, index (index)}
-            <li>
-              <p class="when">
-                <time datetime={observation.observedAt}>
-                  {formatTime(observation.observedAt)}
-                </time>
-                <span>{SOURCES[observation.sourceType]}</span>
-              </p>
-              <p class="name">
-                <FileName name={observation.fileName} full />
-              </p>
-              <p class="account"><bdi>{observation.accountEmail}</bdi></p>
-            </li>
-          {/each}
-        </ol>
-      </section>
-    {:else if history !== null}
-      <FailedLoad />
-    {/if}
+        <section>
+          <h3>Imports</h3>
+          <ol>
+            {#each observations as observation, index (index)}
+              <li>
+                <p class="when">
+                  <time datetime={observation.observedAt}>
+                    {formatTime(observation.observedAt)}
+                  </time>
+                  <span>{SOURCES[observation.sourceType]}</span>
+                </p>
+                <p class="name">
+                  <FileName name={observation.fileName} full />
+                </p>
+                <p class="account"><bdi>{observation.accountEmail}</bdi></p>
+              </li>
+            {/each}
+          </ol>
+        </section>
+      {:else if history !== null}
+        <FailedLoad />
+      {/if}
+    </div>
+    <!-- The page's toasts are inert behind this modal, so the drawer has its
+         own. -->
+    <Toasts place="drawer" />
   </div>
 
   {#if history?.kind === "ok"}
+    {@const { id, contentHash, observations } = history.value}
     <footer>
-      <!-- A plain link, as on the row: the server's Content-Disposition makes it
-           a download, and the router must not handle it. -->
-      <a
+      <!-- The newest import's name, as the row shows it. -->
+      <button
         class="button large"
-        href="/api/messages/{history.value.id}/original"
-        data-sveltekit-reload
+        type="button"
+        onclick={() =>
+          startDownload({
+            id,
+            contentHash,
+            fileName: observations[0]?.fileName ?? null,
+          })}
       >
         <DownloadIcon />
         Download
-      </a>
+      </button>
     </footer>
   {/if}
 </dialog>
@@ -152,13 +177,24 @@
     letter-spacing: var(--tracking-section);
   }
 
+  /* Holds the scrolling body and the toasts over its end. */
+  .main {
+    position: relative;
+    display: grid;
+    min-height: 0;
+  }
+
+  /* --toast-room is set by the toasts, so their stack never hides the end of
+     the history or a focused control in it. */
   .body {
     display: grid;
     align-content: start;
     gap: var(--space-20);
     padding: var(--space-16);
+    padding-bottom: calc(var(--space-16) + var(--toast-room, 0px));
     overflow-y: auto;
     overscroll-behavior: contain;
+    scroll-padding-bottom: var(--toast-room, 0px);
   }
 
   h3 {

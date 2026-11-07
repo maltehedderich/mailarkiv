@@ -102,7 +102,7 @@ test("an import from a later page shows the newest message on page 1", async ({
   await page.getByRole("button", { name: "Import", exact: true }).click();
 
   await expect(
-    page.getByRole("status", { name: "Import result" }),
+    page.getByRole("region", { name: "Notifications" }),
   ).toContainText("Archived");
   await expect(page).toHaveURL(`${server.origin}/`);
   await expect(rows(page).first()).toContainText("newest.eml");

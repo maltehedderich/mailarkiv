@@ -140,7 +140,7 @@ Every import ends in one of six results:
 
 The guarantee behind Archived and Restored holds only on a filesystem that honors flush requests.
 
-Before a download starts, the server checks the stored original against its content hash. If the file is missing or damaged, the browser shows "This message wasn't downloaded" instead of saving anything, and the failure appears on the status screen and in the log. Importing the same file again restores the original.
+Before a download starts, the server checks the stored original against its content hash. If the file is missing or damaged, the page shows "This message wasn't downloaded" in a notification instead of saving anything, and the failure appears on the status screen and in the log. Importing the same file again restores the original.
 
 ## Storage
 

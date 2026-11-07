@@ -7,8 +7,8 @@ export default defineConfig({
   plugins: [
     sveltekit({
       adapter: adapter({ fallback: "app.html" }),
-      // The failed-download pages need an absolute stylesheet link, so
-      // MailArkiv must be served at the root of its host name.
+      // Absolute asset links, so app.html works at every path the server
+      // sends it for. MailArkiv must be served at the root of its host name.
       paths: { relative: false },
       // Kit writes this policy to a <meta> tag, which can't carry
       // frame-ancestors. The server sends that one as a response header.

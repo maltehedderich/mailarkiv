@@ -70,10 +70,9 @@ test("an administrator imports one file and downloads the same bytes", async ({
     buffer: CONTENT,
   });
   await page.getByRole("button", { name: "Import" }).click();
-  // Scoped to main: the sidebar's sign-out line is a status element too.
-  await expect(page.getByRole("main").getByRole("status")).toContainText(
-    "Archived",
-  );
+  await expect(
+    page.getByRole("region", { name: "Notifications" }),
+  ).toContainText("Archived");
 
   // The new message is first, with its name, size, short hash, and a time
   // that ends in its UTC offset (scenario 12, FR-043).
@@ -87,13 +86,10 @@ test("an administrator imports one file and downloads the same bytes", async ({
   await expect(row.locator("time")).toHaveText(/[+-]\d\d:\d\d$/);
   await expect(page.getByText("No mail yet")).toHaveCount(0);
 
-  // A plain link with no download attribute. The server's Content-Disposition
-  // makes it a download, so the page stays where it is.
-  const link = row.getByRole("link", { name: /download/i });
-  expect(await link.getAttribute("download")).toBeNull();
+  // The page fetches the file and saves it, so the page stays where it is.
   const before = page.url();
   const downloading = page.waitForEvent("download");
-  await link.click();
+  await row.getByRole("button", { name: /download/i }).click();
   const download = await downloading;
   expect(download.suggestedFilename()).toBe(`${CONTENT_HASH}.eml`);
 

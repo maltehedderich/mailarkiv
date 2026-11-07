@@ -107,7 +107,7 @@ hash=<full content hash>
 printf 'x' >> ".data/demo/blobs/${hash:0:2}/${hash:2:2}/$hash"
 ```
 
-Download the message. Expected: the "This message wasn't downloaded" page with a way back to the list, and nothing saved. Status and the server log both show Stored original damaged with the message's ID, and the problem count on every signed-in page has risen by 1.
+Download the message. Expected: a notification that says "This message wasn't downloaded" with the reason, the list still in place, and nothing saved. Status and the server log both show Stored original damaged with the message's ID, and the problem count on every signed-in page has risen by 1.
 
 Import the original file again. Expected: the result reads Restored, and the download matches byte for byte again.
 
@@ -129,7 +129,7 @@ Covers FR-041, FR-042, and SC-008. `mise run test:e2e` automates the keyboard pa
 
 ## Scenario 8: other browsers
 
-Repeat scenario 1 and the failed download in scenario 5 in Firefox and Safari. Plan research tested them only in Chromium. Record any difference in `docs/OPERATIONS.md`. Over plain HTTP on localhost, Safari may refuse the session cookie, and the guide should state the result.
+Repeat scenario 1, the failed download in scenario 5, and a download of a file near 150 MB in Firefox and Safari. Plan research tested them only in Chromium. Record any difference in `docs/OPERATIONS.md`. Over plain HTTP on localhost, Safari may refuse the session cookie, and the guide should state the result.
 
 ## Issue #1 acceptance
 

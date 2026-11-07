@@ -11,11 +11,10 @@ import (
 
 // FR-023, risk 10, and the contract's download table: the server hashes the
 // stored file before it sends any header, so a damaged copy is never saved as
-// the message.
+// the message, and the interface learns why from the error code.
 func TestDownloadVerifies(t *testing.T) {
 	type wanted struct {
 		status   int
-		page     string
 		category string
 	}
 	const (
@@ -34,7 +33,7 @@ func TestDownloadVerifies(t *testing.T) {
 					t.Fatal(err)
 				}
 			},
-			want: wanted{http.StatusNotFound, missingPage, missing},
+			want: wanted{http.StatusNotFound, missing},
 		},
 		{
 			name: "a file with one byte added",
@@ -48,7 +47,7 @@ func TestDownloadVerifies(t *testing.T) {
 					t.Fatal(err)
 				}
 			},
-			want: wanted{http.StatusInternalServerError, damagedPage, damaged},
+			want: wanted{http.StatusInternalServerError, damaged},
 		},
 		{
 			name: "a file with one byte changed and the same size",
@@ -60,14 +59,14 @@ func TestDownloadVerifies(t *testing.T) {
 				body[len(body)-1] ^= 0xff
 				h.writeBlob(t, hash, body)
 			},
-			want: wanted{http.StatusInternalServerError, damagedPage, damaged},
+			want: wanted{http.StatusInternalServerError, damaged},
 		},
 		{
 			name: "an unreadable file",
 			change: func(t *testing.T, h *harness, hash string) {
 				h.makeBlobUnreadable(t, hash)
 			},
-			want: wanted{http.StatusInternalServerError, damagedPage, damaged},
+			want: wanted{http.StatusInternalServerError, damaged},
 		},
 	}
 	for _, tt := range tests {
@@ -86,7 +85,7 @@ func TestDownloadVerifies(t *testing.T) {
 
 			response, body = h.do(t, http.MethodGet, fmt.Sprintf("/api/messages/%d/original", id), session)
 
-			assertFailedDownload(t, response, body, tt.want.status, tt.want.page)
+			assertFailedDownload(t, response, body, tt.want.status, tt.want.category)
 			failures := h.status.Snapshot().Failures
 			if len(failures) != 1 {
 				t.Fatalf("failures = %+v, want 1", failures)
@@ -129,7 +128,7 @@ func TestDownloadOfAMatchingFile(t *testing.T) {
 	}
 }
 
-// Contract: an unknown ID shows the missing page, with no failure event, because
+// Contract: an unknown ID answers not_found, with no failure event, because
 // nothing went wrong in the archive.
 func TestDownloadUnknownMessage(t *testing.T) {
 	h := newHarness(t, Routes())
@@ -140,7 +139,7 @@ func TestDownloadUnknownMessage(t *testing.T) {
 		t.Run(id, func(t *testing.T) {
 			response, body := h.do(t, http.MethodGet, "/api/messages/"+id+"/original", session)
 
-			assertFailedDownload(t, response, body, http.StatusNotFound, missingPage)
+			assertFailedDownload(t, response, body, http.StatusNotFound, "not_found")
 			if failures := h.status.Snapshot().Failures; len(failures) != 0 {
 				t.Errorf("failures = %+v, want none", failures)
 			}
@@ -171,22 +170,12 @@ func TestDownloadWhenTheCatalogCantBeRead(t *testing.T) {
 	}
 }
 
-// assertFailedDownload checks the page a browser shows in place of a download.
-func assertFailedDownload(t *testing.T, response *http.Response, body string, status int, page string) {
+// assertFailedDownload checks the error answer the interface reads in place of
+// a download. It must have no Content-Disposition, so nothing is saved.
+func assertFailedDownload(t *testing.T, response *http.Response, body string, status int, code string) {
 	t.Helper()
-	if response.StatusCode != status {
-		t.Fatalf("status = %d, want %d; body %q", response.StatusCode, status, body)
-	}
-	if body != page {
-		t.Errorf("body = %q, want %q", body, page)
-	}
-	if got := response.Header.Get("Content-Type"); got != "text/html; charset=utf-8" {
-		t.Errorf("Content-Type = %q, want text/html", got)
-	}
+	assertJSONResponse(t, response, body, status, `{"error":"`+code+`"}`)
 	if got := response.Header.Get("Content-Disposition"); got != "" {
 		t.Errorf("Content-Disposition = %q, want none, so nothing is saved", got)
-	}
-	if got := response.Header.Get("MailArkiv-Response"); got != "1" {
-		t.Errorf("MailArkiv-Response = %q, want 1", got)
 	}
 }
