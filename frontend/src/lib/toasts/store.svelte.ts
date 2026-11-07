@@ -15,6 +15,18 @@ export type Toast =
       fileName: string | null;
       /** The share received so far, from 0 to 1. */
       fraction: number;
+      cancel: () => void;
+    }
+  | {
+      kind: "download_waiting";
+      messageId: number;
+      fileName: string | null;
+      cancel: () => void;
+    }
+  | {
+      kind: "download_busy" | "download_canceled";
+      messageId: number;
+      fileName: string | null;
     }
   /** FR-023: a download that saved nothing. */
   | {

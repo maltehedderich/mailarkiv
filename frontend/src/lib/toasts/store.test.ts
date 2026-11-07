@@ -37,6 +37,7 @@ describe("toasts", () => {
       messageId: 1,
       fileName: "a.eml",
       fraction: 0.5,
+      cancel: () => {},
     });
 
     expect(toastsIn("page").map(({ key }) => key)).toEqual([

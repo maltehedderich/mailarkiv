@@ -210,11 +210,15 @@ A toast reads like a problem on Status: a `--dot-size` dot and the state word, t
 | Refused          | `--state-bad`  | Name and the reason                                                            |
 | Failed           | `--state-bad`  | Name, the reason, and the next step                                            |
 | Unconfirmed      | `--state-warn` | Name and what happened                                                         |
-| Downloading      | `--text-4`     | Name and a progress bar with its percentage, and no Dismiss                    |
+| Downloading      | `--text-4`     | Name, a progress bar with its percentage, and Cancel                           |
+| Download waiting | `--text-4`     | Name, "Waiting for the previous download to finish.", and Cancel              |
+| Download not started | `--text-4` | Name, "Another download is already waiting.", and how to try again            |
+| Download canceled | `--text-4`    | Name and "Nothing was saved."                                                 |
 | Download failed  | `--state-bad`  | Name, "This message wasn't downloaded." with the reason, and the next step     |
 
 - **No timer.** A toast stays until it's dismissed or replaced, because a result that disappears breaks FR-023 and FR-032. Starting an import removes the last import's toast. Trying a download again replaces that download's toast.
-- **Downloading** appears only after 400 ms, so a quick download shows nothing. A failure replaces it in place.
+- **Downloading** appears only after 400 ms, so a quick download shows nothing. A waiting download appears immediately and keeps its notification when its transfer starts. A failure replaces progress in place.
+- **Download limits:** one transfer and one waiter per tab. Both offer Cancel. Keep focus on the notification's control when Cancel becomes Dismiss, and move it to another notification or the region when a focused notification disappears.
 - **In the drawer:** the drawer is a modal dialog, so the page behind it is inert. A toast raised while it's open shows inside it, above the footer, and moves to the page when it closes.
 - **Focus stays visible:** the region sets `--toast-room` to the space it covers. The page and the drawer body add that as bottom padding and `scroll-padding-bottom`, so the last row and a focused control scroll clear of the toasts (WCAG 2.4.11).
 - **Screen readers:** the list is `aria-live="polite"`. The bar is a `progressbar` named "Download", and its percentage text is hidden from them.

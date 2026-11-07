@@ -225,6 +225,10 @@ Success headers: `Content-Type: application/octet-stream`, `Content-Disposition:
 
 The client tests this table as one pure function and one stream reader in `frontend/src/lib/download/original.ts`.
 
+Each tab runs one buffered download and admits one waiting request. A repeat request for either message does nothing; another message shows "Download not started" and asks the administrator to wait or cancel. The waiting notification says "Waiting for the previous download to finish." Active and waiting notifications offer Cancel. Cancellation stops the fetch or removes the waiter, saves nothing, and shows "Download canceled" with "Nothing was saved."
+
+The client releases the reader and its queued chunks when a transfer ends. It retains at most one completed object URL alongside the active transfer, revoking the previous URL on the next save or the latest URL after 40 seconds. The transfer limit bounds payload retention without delaying a second download for that handoff timer.
+
 ## Status
 
 ### `GET /api/status`

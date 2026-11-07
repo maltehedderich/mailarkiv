@@ -100,6 +100,28 @@ export function toastWords(toast: Toast): ToastWords {
         name: toast.fileName,
         fraction: toast.fraction,
       };
+    case "download_waiting":
+      return {
+        tone: "neutral",
+        word: "Download waiting",
+        name: toast.fileName,
+        what: "Waiting for the previous download to finish.",
+      };
+    case "download_busy":
+      return {
+        tone: "neutral",
+        word: "Download not started",
+        name: toast.fileName,
+        what: "Another download is already waiting.",
+        next: "Wait for it to finish, or cancel it and try again.",
+      };
+    case "download_canceled":
+      return {
+        tone: "neutral",
+        word: "Download canceled",
+        name: toast.fileName,
+        what: "Nothing was saved.",
+      };
     case "download_failed": {
       const { meaning, nextStep } = DOWNLOAD_FAILED[toast.reason];
       return {

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { MARKER } from "#lib/api.js";
 
@@ -116,5 +116,67 @@ describe("fetchOriginal", () => {
         answer(200, "Subject: short", { ...MARKED, "Content-Length": "40" }),
     );
     expect(result).toEqual({ kind: "failed", reason: "interrupted" });
+  });
+});
+
+describe("buffered transfer limits", () => {
+  it("cancels a pending read and releases the stream without returning a file", async () => {
+    const canceled = vi.fn();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([1, 2, 3]));
+      },
+      cancel: canceled,
+    });
+    const controller = new AbortController();
+    let received!: () => void;
+    const progress = new Promise<void>((resolve) => {
+      received = resolve;
+    });
+    const result = fetchOriginal(
+      7,
+      received,
+      async () =>
+        new Response(body, {
+          headers: { ...MARKED, "Content-Length": "10" },
+        }),
+      controller.signal,
+    );
+    await progress;
+    controller.abort();
+    expect(await result).toEqual({ kind: "canceled" });
+    expect(canceled).toHaveBeenCalledOnce();
+    expect(body.locked).toBe(false);
+  });
+
+  it("accepts the maximum 150 MB original", async () => {
+    const size = 150_000_000;
+    let remaining = size;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (remaining === 0) {
+          controller.close();
+          return;
+        }
+        const length = Math.min(1_000_000, remaining);
+        controller.enqueue(new Uint8Array(length).fill(37));
+        remaining -= length;
+      },
+    });
+    const result = await fetchOriginal(
+      7,
+      () => {},
+      async () =>
+        new Response(body, {
+          headers: { ...MARKED, "Content-Length": String(size) },
+        }),
+    );
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") return;
+    expect(result.file.size).toBe(size);
+    expect(new Uint8Array(await result.file.slice(-1).arrayBuffer())).toEqual(
+      new Uint8Array([37]),
+    );
+    expect(body.locked).toBe(false);
   });
 });

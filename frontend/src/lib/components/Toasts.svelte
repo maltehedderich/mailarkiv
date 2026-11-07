@@ -23,6 +23,21 @@
   let region: HTMLElement;
   let list: HTMLOListElement;
 
+  // A completed transfer can remove its Cancel control without a click.
+  // Move focus before that DOM node leaves.
+  $effect.pre(() => {
+    const visible = toasts;
+    if (!list || !(document.activeElement instanceof HTMLElement)) return;
+    const item =
+      document.activeElement.closest<HTMLElement>("li[data-toast-key]");
+    if (
+      item?.parentElement === list &&
+      !visible.some(({ key }) => key === item.dataset.toastKey)
+    ) {
+      region.focus();
+    }
+  });
+
   function dismiss(key: string, button: HTMLElement) {
     // Focus would fall to the page with the toast, so it moves on purpose: to
     // the toast below, the one above, or the region.
@@ -74,7 +89,9 @@
   <ol bind:this={list} aria-live="polite">
     {#each toasts as { key, toast } (key)}
       {@const words = toastWords(toast)}
-      <li class="toast">
+      {@const cancellable =
+        toast.kind === "downloading" || toast.kind === "download_waiting"}
+      <li class="toast" data-toast-key={key}>
         <span class="dot {words.tone}"></span>
         <div class="text">
           <p class="state">
@@ -116,17 +133,24 @@
             >
           {/if}
         </div>
-        <!-- A running download ends by itself, in a save or a failure. -->
-        {#if toast.kind !== "downloading"}
-          <button
-            class="button ghost icon-only dismiss"
-            type="button"
-            aria-label="Dismiss"
-            onclick={(event) => dismiss(key, event.currentTarget)}
-          >
-            <CloseIcon />
-          </button>
-        {/if}
+        <!-- Keep the control mounted when Cancel becomes Dismiss, so keyboard
+             focus stays with this result. -->
+        <button
+          class="button ghost dismiss"
+          class:icon-only={!cancellable}
+          type="button"
+          aria-label={cancellable ? "Cancel" : "Dismiss"}
+          onclick={(event) => {
+            if (
+              toast.kind === "downloading" ||
+              toast.kind === "download_waiting"
+            )
+              toast.cancel();
+            else dismiss(key, event.currentTarget);
+          }}
+        >
+          {#if cancellable}Cancel{:else}<CloseIcon />{/if}
+        </button>
       </li>
     {/each}
   </ol>

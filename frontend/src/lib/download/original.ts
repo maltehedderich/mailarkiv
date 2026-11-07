@@ -23,6 +23,7 @@ export type DownloadFailure =
 export type Fetched =
   | { kind: "ok"; file: Blob }
   | { kind: "session_ended" }
+  | { kind: "canceled" }
   | { kind: "failed"; reason: DownloadFailure };
 
 /** Reads an answer that isn't a marked 200, from the contract's table. */
@@ -55,8 +56,12 @@ export async function fetchOriginal(
   id: number,
   onProgress: (fraction: number) => void,
   fetch: Fetch = globalThis.fetch,
+  signal?: AbortSignal,
 ): Promise<Fetched> {
   const controller = new AbortController();
+  const cancel = () => controller.abort();
+  signal?.addEventListener("abort", cancel, { once: true });
+  if (signal?.aborted) controller.abort();
   let timer = setTimeout(() => controller.abort(), STALL_MS);
   const wait = () => {
     clearTimeout(timer);
@@ -64,12 +69,14 @@ export async function fetchOriginal(
   };
 
   try {
+    if (signal?.aborted) return { kind: "canceled" };
     let response: Response;
     try {
       response = await fetch(`/api/messages/${id}/original`, {
         signal: controller.signal,
       });
     } catch {
+      if (signal?.aborted) return { kind: "canceled" };
       return { kind: "failed", reason: "unavailable" };
     }
 
@@ -80,6 +87,7 @@ export async function fetchOriginal(
       } catch {
         // Not JSON, so the status and the marker decide.
       }
+      if (signal?.aborted) return { kind: "canceled" };
       return classifyRefusal(response.status, isMarked(response), body);
     }
 
@@ -88,12 +96,20 @@ export async function fetchOriginal(
     const reader = response.body?.getReader();
     if (reader === undefined) return { kind: "failed", reason: "unavailable" };
 
+    const stopReading = () => {
+      void reader.cancel().catch(() => {});
+    };
+    controller.signal.addEventListener("abort", stopReading, { once: true });
+    if (controller.signal.aborted) stopReading();
     const pieces: Uint8Array<ArrayBuffer>[] = [];
     let received = 0;
     try {
       for (;;) {
         wait();
         const { done, value } = await reader.read();
+        if (signal?.aborted) return { kind: "canceled" };
+        if (controller.signal.aborted)
+          return { kind: "failed", reason: "interrupted" };
         if (done) break;
         pieces.push(value);
         received += value.byteLength;
@@ -101,7 +117,14 @@ export async function fetchOriginal(
       }
     } catch {
       // The server ended the connection, the network dropped, or it stalled.
+      if (signal?.aborted) return { kind: "canceled" };
       return { kind: "failed", reason: "interrupted" };
+    } finally {
+      // Canceling a reader drops any queued chunks. An errored stream can
+      // reject cancellation; the failed result above already reports it.
+      await reader.cancel().catch(() => {});
+      reader.releaseLock();
+      controller.signal.removeEventListener("abort", stopReading);
     }
     // Browsers already fail a body shorter than its length. This also catches
     // one that is longer.
@@ -114,17 +137,28 @@ export async function fetchOriginal(
     };
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener("abort", cancel);
   }
 }
 
+let savedURL: string | null = null;
+let savedTimer: ReturnType<typeof setTimeout> | undefined;
+
 /** Hands a file to the browser to save under `name`, never to display. */
 export function saveFile(file: Blob, name: string): void {
+  // Keep at most one completed payload alive alongside the active transfer.
+  if (savedURL !== null) URL.revokeObjectURL(savedURL);
+  clearTimeout(savedTimer);
   const url = URL.createObjectURL(file);
+  savedURL = url;
   const link = document.createElement("a");
   link.href = url;
   link.download = name;
   link.click();
   // Some browsers read the file only after the click returns. FileSaver.js
   // waits 40 seconds before it lets the file go, for the same reason.
-  setTimeout(() => URL.revokeObjectURL(url), 40_000);
+  savedTimer = setTimeout(() => {
+    URL.revokeObjectURL(url);
+    savedURL = null;
+  }, 40_000);
 }

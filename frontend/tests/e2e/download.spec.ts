@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { rm, writeFile } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { expect, test, type Download, type Page } from "@playwright/test";
@@ -179,4 +179,126 @@ test("an unmarked answer shows a failure with no reason", async ({ page }) => {
     "Try again. If this repeats, check the server log.",
   );
   await expect(toast).not.toContainText(NEXT_STEP);
+});
+
+test("a second download waits and Cancel releases the active transfer", async ({
+  page,
+}) => {
+  await archiveOneFile(page);
+  await page.getByLabel("Choose a file").setInputFiles({
+    name: "second.eml",
+    mimeType: "message/rfc822",
+    buffer: Buffer.from("Subject: Second\r\n\r\nSecond.\r\n"),
+  });
+  await page.getByRole("button", { name: "Import", exact: true }).click();
+  await expect(toasts(page)).toContainText("Archived");
+  await toasts(page).getByRole("button", { name: "Dismiss" }).click();
+
+  const requests: string[] = [];
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/original", async (route) => {
+    requests.push(route.request().url());
+    await held;
+    await route.abort();
+  });
+  const buttons = downloadButton(page);
+  await buttons.first().click();
+  const active = toasts(page)
+    .getByRole("listitem")
+    .filter({ hasText: "Downloading" });
+  await expect(active).toBeVisible();
+  await buttons.last().click();
+  const waiting = toasts(page)
+    .getByRole("listitem")
+    .filter({ hasText: "Download waiting" });
+  await expect(waiting).toContainText(
+    "Waiting for the previous download to finish.",
+  );
+  expect(requests).toHaveLength(1);
+  await waiting.getByRole("button", { name: "Cancel", exact: true }).focus();
+  const saved: Download[] = [];
+  page.on("download", (download) => saved.push(download));
+
+  await active.getByRole("button", { name: "Cancel", exact: true }).focus();
+  await page.keyboard.press("Enter");
+  await expect(toasts(page)).toContainText("Download canceled");
+  await expect(
+    toasts(page)
+      .getByRole("listitem")
+      .filter({ hasText: "Download canceled" })
+      .getByRole("button", { name: "Dismiss" }),
+  ).toBeFocused();
+  await expect.poll(() => requests.length).toBe(2);
+  await expect(waiting).toHaveCount(0);
+  await expect(active).toBeVisible();
+  await active.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(
+    toasts(page).getByRole("listitem").filter({ hasText: "Download canceled" }),
+  ).toHaveCount(2);
+  release();
+  expect(saved).toEqual([]);
+});
+
+test("successive saves retain the exact bytes after the previous URL is released", async ({
+  page,
+}) => {
+  await archiveOneFile(page);
+  const completed: Download[] = [];
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const saved = page.waitForEvent("download");
+    await downloadButton(page).click();
+    completed.push(await saved);
+  }
+  for (const download of completed) {
+    expect(download.suggestedFilename()).toBe(`${HASH}.eml`);
+    const path = await download.path();
+    expect(await readFile(path)).toEqual(CONTENT);
+  }
+});
+
+test("a focused waiting Cancel survives admission and completion moves focus to notifications", async ({
+  page,
+}) => {
+  await archiveOneFile(page);
+  await page
+    .getByLabel("Choose a file")
+    .setInputFiles({
+      name: "second.eml",
+      mimeType: "message/rfc822",
+      buffer: Buffer.from("Subject: Second\r\n\r\nSecond.\r\n"),
+    });
+  await page.getByRole("button", { name: "Import", exact: true }).click();
+  await expect(toasts(page)).toContainText("Archived");
+  await toasts(page).getByRole("button", { name: "Dismiss" }).click();
+  let releaseFirst!: () => void;
+  let releaseSecond!: () => void;
+  const first = new Promise<void>((resolve) => {
+    releaseFirst = resolve;
+  });
+  const second = new Promise<void>((resolve) => {
+    releaseSecond = resolve;
+  });
+  let count = 0;
+  await page.route("**/original", async (route) => {
+    const body = await route.fetch();
+    await (++count === 1 ? first : second);
+    await route.fulfill({ response: body });
+  });
+  await downloadButton(page).first().click();
+  await downloadButton(page).last().click();
+  // The original synthetic message is last in the list.
+  const waiting = toasts(page)
+    .getByRole("listitem")
+    .filter({ hasText: "synthetic.eml" });
+  await expect(waiting).toContainText("Download waiting");
+  await waiting.getByRole("button", { name: "Cancel" }).focus();
+  releaseFirst();
+  await expect(waiting).toContainText("Downloading");
+  await expect(waiting.getByRole("button", { name: "Cancel" })).toBeFocused();
+  releaseSecond();
+  await expect(waiting).toHaveCount(0);
+  await expect(toasts(page)).toBeFocused();
 });
