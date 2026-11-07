@@ -41,13 +41,25 @@
   >
     <FileName name={message.fileName} />
   </a>
+  <!-- The column heads are hidden from screen readers, so values that don't
+       name themselves carry their head. -->
   <time class="time" datetime={message.importedAt}
-    >{formatTime(message.importedAt)}</time
+    ><span class="visually-hidden">Imported </span>{formatTime(
+      message.importedAt,
+    )}</time
   >
   <span class="size">{formatSize(message.size)}</span>
-  <span class="hash">{message.contentHash.slice(0, 8)}</span>
+  <span class="hash"
+    ><span class="visually-hidden">Hash </span>{message.contentHash.slice(
+      0,
+      8,
+    )}</span
+  >
   <span class="count">
-    {message.importCount > 1 ? `${message.importCount}×` : ""}
+    {#if message.importCount > 1}
+      <span aria-hidden="true">{message.importCount}×</span>
+      <span class="visually-hidden">{message.importCount} imports</span>
+    {/if}
   </span>
   <!-- The page fetches the file, so a failure shows as a toast here. -->
   <button
@@ -128,6 +140,51 @@
     font-family: var(--font-mono);
     font-size: var(--size-label);
     font-variant-ligatures: none;
+  }
+
+  /* DESIGN.md: beside the sidebar, one line leaves the name too little room,
+     so it takes the first line. Time, size, and hash keep their columns on
+     the second, and the count and download sit across both. The parent sets
+     the columns. */
+  @media (720px < width <= 1040px) {
+    li {
+      row-gap: var(--space-2);
+      padding-block: var(--space-8);
+    }
+
+    .name {
+      grid-row: 1;
+      grid-column: 1 / 4;
+    }
+
+    .time,
+    .size,
+    .hash {
+      grid-row: 2;
+      line-height: var(--leading-label);
+    }
+
+    .time {
+      grid-column: 1;
+    }
+
+    .size {
+      grid-column: 2;
+    }
+
+    .hash {
+      grid-column: 3;
+    }
+
+    .count {
+      grid-row: 1 / 3;
+      grid-column: 4;
+    }
+
+    .download {
+      grid-row: 1 / 3;
+      grid-column: 5;
+    }
   }
 
   /* DESIGN.md: each row stacks as name and count, then time and size, then

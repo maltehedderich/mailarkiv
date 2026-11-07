@@ -63,8 +63,11 @@
     overflow-wrap: anywhere;
   }
 
-  /* A neutralized character, such as U+202E. */
+  /* A neutralized character, such as U+202E. The label leading keeps the
+     mono font's line box inside the line around it, so a name with a code is
+     as tall as one without. */
   .code {
+    line-height: var(--leading-label);
     margin: 0 1px;
     padding: 0 var(--space-2);
     border-radius: var(--radius-small);

@@ -76,13 +76,27 @@
     };
   });
 
-  /** A page past the end, from an old link or a typed address, moves back. */
+  /**
+   * A page past the end, from an old link or a typed address, moves back.
+   * Page 1 has no parameter, as in the pager's links.
+   */
   async function movePastTheEnd({ items, total, pageSize }: MessagePage) {
     if (items.length > 0 || total === 0) return;
     const url = new URL(page.url.href);
-    url.searchParams.set("page", String(Math.ceil(total / pageSize)));
+    const last = Math.ceil(total / pageSize);
+    if (last === 1) url.searchParams.delete("page");
+    else url.searchParams.set("page", String(last));
     await goto(url.pathname + url.search, { replace: true });
   }
+
+  // SvelteKit announces the title after each navigation, and only when it
+  // changes, so the page number makes Previous and Next heard. It comes from
+  // the address, because the list may still be loading when the title is read.
+  const title = $derived(
+    /^[1-9]\d*$/.test(data.pageParam ?? "") && data.pageParam !== "1"
+      ? `Messages, page ${data.pageParam}`
+      : "Messages",
+  );
 
   function chooseFiles(files: File[]) {
     const choice = choose(files);
@@ -167,7 +181,7 @@
 </script>
 
 <svelte:head>
-  <title>Messages · MailArkiv</title>
+  <title>{title} · MailArkiv</title>
 </svelte:head>
 
 <svelte:window onbeforeunload={warnBeforeUnload} />
@@ -264,12 +278,15 @@
   }
 
   /* The columns from DESIGN.md. 185 px fits the widest time, such as
-     "22 May 2026, 09:14:55 +05:30", in Inter at 12 px with tabular numerals. */
+     "22 May 2026, 09:14:55 +05:30", in Inter at 12 px with tabular numerals.
+     A subgrid's padding doesn't shrink a fixed column, so an edge column
+     includes the rows' padding: 4 px after the download, which then ends
+     where the pager's Next does. */
   .table {
     display: grid;
     grid-template-columns:
       minmax(0, 1fr) 185px 62px 72px 40px
-      var(--control-height);
+      calc(var(--control-height) + var(--space-4));
     column-gap: var(--space-12);
   }
 
@@ -316,7 +333,49 @@
     width: 60%;
   }
 
-  /* DESIGN.md: the header row goes, and rows stack. */
+  /* DESIGN.md: beside the sidebar, one line would leave the name no room: at
+     721 px the table is 441 px wide and the fixed columns take 451. So rows
+     take two lines. The name spans the first three columns, and time, size,
+     and hash keep their order below it. Time comes first here, so its column
+     includes the rows' 10 px left padding. The hash, 58 px wide, takes the
+     flexible column, which is 64 px at 721 px. MessageRow places its cells,
+     and the skeleton matches its height. */
+  @media (720px < width <= 1040px) {
+    .table {
+      grid-template-columns:
+        calc(185px + var(--space-10)) 62px minmax(0, 1fr) 40px
+        calc(var(--control-height) + var(--space-4));
+    }
+
+    .heads {
+      display: none;
+    }
+
+    .skeleton li {
+      grid-template-rows: var(--leading-body) var(--leading-label);
+      row-gap: var(--space-2);
+      height: auto;
+      padding-block: var(--space-8);
+    }
+
+    .bone.name {
+      grid-row: 1;
+      grid-column: 1 / 4;
+    }
+
+    .bone.time,
+    .bone.size,
+    .bone.hash {
+      grid-row: 2;
+    }
+
+    .bone.hash {
+      width: 56px;
+    }
+  }
+
+  /* DESIGN.md: the header row goes, and rows stack. The skeleton keeps the
+     stacked row's three lines, so the list doesn't jump when it arrives. */
   @media (max-width: 720px) {
     header {
       padding: 0 var(--space-16);
@@ -339,19 +398,40 @@
     }
 
     .skeleton li {
-      grid-template-columns: minmax(0, 1fr);
-      gap: var(--space-8);
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-rows:
+        var(--leading-body) var(--leading-body)
+        var(--control-height-touch);
+      grid-template-areas:
+        "name ."
+        "time size"
+        "hash .";
+      gap: var(--space-2) var(--space-12);
       height: auto;
-      padding: var(--space-12) var(--space-8);
+      padding: var(--space-8) var(--space-4) var(--space-8) var(--space-8);
     }
 
-    .bone.size,
-    .bone.hash {
-      display: none;
+    .skeleton li:not(:last-child) {
+      border-bottom: 1px solid var(--line);
+    }
+
+    .bone.name {
+      grid-area: name;
     }
 
     .bone.time {
-      width: 40%;
+      grid-area: time;
+      width: 50%;
+    }
+
+    .bone.size {
+      grid-area: size;
+      width: 40px;
+    }
+
+    .bone.hash {
+      grid-area: hash;
+      width: 64px;
     }
   }
 </style>

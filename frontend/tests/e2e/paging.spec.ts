@@ -60,8 +60,12 @@ test("51 messages take two pages, newest first", async ({ page }) => {
     pages(page).getByRole("link", { name: "Previous" }),
   ).toHaveAttribute("aria-disabled", "true");
 
+  // SvelteKit announces the title after a navigation only when it changes,
+  // so the page number in it is what screen readers hear.
+  await expect(page).toHaveTitle("Messages · MailArkiv");
   await pages(page).getByRole("link", { name: "Next" }).click();
   await expect(page).toHaveURL(`${server.origin}/?page=2`);
+  await expect(page).toHaveTitle("Messages, page 2 · MailArkiv");
   await expect(pages(page)).toContainText("51–51 of 51");
   await expect(rows(page)).toHaveCount(1);
   await expect(rows(page)).toContainText("message-01.eml");
@@ -72,7 +76,20 @@ test("51 messages take two pages, newest first", async ({ page }) => {
 
   await pages(page).getByRole("link", { name: "Previous" }).click();
   await expect(page).toHaveURL(`${server.origin}/`);
+  await expect(page).toHaveTitle("Messages · MailArkiv");
   await expect(rows(page)).toHaveCount(50);
+});
+
+// Page 1 has no parameter, as in the pager's links.
+test("a page past the end of one page moves to the list", async ({ page }) => {
+  await signIn(page);
+  await importMany(page, 1);
+
+  await page.goto(`${server.origin}/?page=3`);
+
+  await expect(page).toHaveURL(`${server.origin}/`);
+  await expect(rows(page)).toHaveCount(1);
+  await expect(pages(page)).toContainText("1–1 of 1");
 });
 
 test("a page past the end moves to the last page", async ({ page }) => {

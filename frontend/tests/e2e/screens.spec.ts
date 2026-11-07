@@ -278,6 +278,50 @@ for (const colorScheme of ["light", "dark"] as const) {
   }
 }
 
+// DESIGN.md: beside the sidebar, rows take two lines up to 1040 px, so the
+// name has room. At 721 px one line used to leave the name no width at all.
+for (const width of [721, 1041]) {
+  test(`at ${width} px beside the sidebar, a row shows its whole name`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 800 });
+    await signIn(page);
+    await importFile(page, "statement-29.eml");
+
+    const row = page
+      .getByRole("list", { name: "Messages" })
+      .getByRole("listitem")
+      .first();
+    const boxes = await row.evaluate((item) => {
+      const link = item.querySelector("a") as HTMLElement;
+      const text = document.createRange();
+      text.selectNodeContents(link);
+      const box = (rect: DOMRect) => ({
+        left: rect.left,
+        right: rect.right,
+        top: rect.top,
+        bottom: rect.bottom,
+      });
+      return {
+        name: box(text.getBoundingClientRect()),
+        link: box(link.getBoundingClientRect()),
+        time: box(item.querySelector("time")!.getBoundingClientRect()),
+      };
+    });
+    // The whole name is inside its link, and the time is clear of it.
+    expect(boxes.name.right - boxes.name.left).toBeGreaterThan(0);
+    expect(boxes.name.left).toBeGreaterThanOrEqual(boxes.link.left);
+    expect(boxes.name.right).toBeLessThanOrEqual(boxes.link.right);
+    const overlap =
+      boxes.link.left < boxes.time.right &&
+      boxes.time.left < boxes.link.right &&
+      boxes.link.top < boxes.time.bottom &&
+      boxes.time.top < boxes.link.bottom;
+    expect(overlap).toBe(false);
+    await expectNoSidewaysScroll(page, `the list at ${width} px`);
+  });
+}
+
 // FR-045: data that didn't arrive shows the failed-load state, never an empty
 // list or screen, and Try again loads it once the failure is gone.
 const FAILURES = {

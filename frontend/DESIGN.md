@@ -151,7 +151,7 @@ Sign-in is standalone: a `--form-width` column on `--panel` with no sidebar, cen
 | At 720 px and below | Change                                                                                                                                       |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | Sidebar             | Becomes a bottom bar of `--tab-bar-height` tabs, icon over label, with all icons on one line. The problem count sits beside the Status icon. Sign out becomes an icon tab with an `aria-label`, and its error line shows above the bar and any toasts. `scroll-padding-bottom` keeps a focused control clear of the bar |
-| Import list         | The header row goes. Each row stacks as name and count, then time and size, then hash and download, with a line between rows                 |
+| Import list         | The header row goes. Each row stacks as name and count, then time and size, then hash and download, with a line between rows. From 721 to 1040 px rows take two lines, as [Import list row](#import-list-row) says |
 | Import box          | The button moves below the text and fills the width. The file icon goes                                                                      |
 | View header         | Title and count stay on one line. The update time moves to its own line below                                                                |
 | Status sections     | Label moves above content. Values move below their label and align left                                                                      |
@@ -227,11 +227,15 @@ A toast reads like a problem on Status: a `--dot-size` dot and the state word, t
 
 ### Import list row
 
-Columns: file name, latest time (185 px), size (62 px), short hash (72 px), count (40 px), download (28 px). 185 px fits the widest time, `22 May 2026, 09:14:55 +05:30`, measured in Chromium in Inter at 12 px with tabular numerals. Measure again if the date form or the font changes. The count shows as `3×`, only above 1 (FR-019). Rows are `--row-height`, `--radius-medium`, with no separators. Hover is `--fill-1`.
+Columns: file name, latest time (185 px), size (62 px), short hash (72 px), count (40 px), download (28 px). 185 px fits the widest time, `22 May 2026, 09:14:55 +05:30`, which measured 182 px in Chromium in Inter at 12 px with tabular numerals. Measure again if the date form or the font changes. The count shows as `3×`, only above 1 (FR-019). Rows are `--row-height`, `--radius-medium`, with no separators. Hover is `--fill-1`. Rows are inset 10 px on the left and 4 px on the right. The rows share the list's columns through `subgrid`, and a subgrid's padding doesn't shrink a fixed column, so the edge columns include the inset. The download then ends where the pager's Next does.
+
+From 721 to 1040 px the list sits beside the sidebar, and one line would leave the name no room: at 721 px the list is 441 px wide and the fixed columns take 451. So rows take two lines at 54 px: the name, then time, size, and hash in their columns. The count and download sit across both lines, and the header row goes. From 1041 px the name column is at least 300 px wide.
+
+The column heads are hidden from screen readers, because the list isn't a table. Values that don't name themselves carry their head in hidden text: "Imported" before the time, "Hash" before the hash, and "3 imports" in place of `3×`.
 
 Every row has two keyboard stops: the row opens its history on Enter, and its download button saves the file. The row's accessible name must include the file name. Clicking the download button must not also open the history.
 
-Show "1–7 of 7" and Previous and Next under the list. A fresh install shows the import box above "No mail yet" and has no tour or sample mail.
+Show "1–7 of 7" and Previous and Next under the list. Past page 1 the title carries the page number, as in "Messages, page 2 · MailArkiv". SvelteKit announces the title after a navigation only when it changes, so this is what a screen reader hears after Previous or Next. A page past the end moves to the last page, and page 1 has no `?page`. A fresh install shows the import box above "No mail yet" and has no tour or sample mail.
 
 ### File history drawer
 
@@ -257,7 +261,7 @@ A notice is a `--fill-1` box with `--radius-medium` and a transparent border for
 
 ### Loading
 
-Skeleton rows keep the real columns. They don't animate, so a slow archive doesn't look busy.
+Skeleton rows keep the real columns, and the real row's lines and height at each width, so the list doesn't jump when it arrives. They don't animate, so a slow archive doesn't look busy.
 
 ### Failed load
 
