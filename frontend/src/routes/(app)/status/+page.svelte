@@ -1,12 +1,18 @@
 <script lang="ts">
+  import { page } from "$app/state";
+
   import FailedLoad from "#lib/components/FailedLoad.svelte";
   import FullHash from "#lib/components/FullHash.svelte";
   import { formatBytes } from "#lib/format/size.js";
   import { formatTime } from "#lib/format/time.js";
+  import { historyHref } from "#lib/history.js";
   import {
     CATEGORIES,
+    RESTORED_NOTE,
+    UNREFERENCED_MEANING,
     UNREFERENCED_NEXT_STEP,
   } from "#lib/status/categories.js";
+  import { groupFailures } from "#lib/status/groups.js";
 
   import type { PageProps } from "./$types";
 
@@ -14,6 +20,24 @@
 
   // FR-027: this screen states what the server recorded and offers no action
   // that changes the archive. It never sums the facts up as healthy.
+
+  // Separators, as the Status item's count shows them.
+  const numbers = new Intl.NumberFormat("en-US");
+
+  const loaded = $derived(
+    data.session.kind === "ok" && data.status.kind === "ok",
+  );
+
+  // Try again went away with the failed-load block, so focus moves on purpose
+  // instead of falling to the page.
+  let heading: HTMLHeadingElement;
+  let wasLoaded: boolean | null = null;
+  $effect(() => {
+    if (wasLoaded === false && loaded) {
+      if (document.activeElement === document.body) heading.focus();
+    }
+    wasLoaded = loaded;
+  });
 </script>
 
 <svelte:head>
@@ -22,24 +46,105 @@
 
 <main>
   <header>
-    <h1>Status</h1>
+    <h1 bind:this={heading} tabindex="-1">Status</h1>
   </header>
 
   <div class="body">
     {#if data.session.kind === "ok" && data.status.kind === "ok"}
       {@const { startedAt, recovery, unreferenced, failures } =
         data.status.value}
-      <p class="covers">
-        This screen covers only the time since the server's latest start. Older
-        failures are in the server log.
-      </p>
-
-      <section aria-labelledby="started">
-        <h2 id="started">Started</h2>
+      {@const groups = groupFailures(failures)}
+      <!-- What the Status item counts comes first, because that count is why
+           most people open this screen (FR-039). -->
+      <section aria-labelledby="problems">
+        <h2 id="problems">Problems</h2>
         <div class="content">
-          <p class="value">
-            <time datetime={startedAt}>{formatTime(startedAt)}</time>
-          </p>
+          {#if groups.length === 0 && unreferenced.length === 0}
+            <p class="value">
+              No failures and no unreferenced originals since the latest start.
+            </p>
+          {:else}
+            <ul class="groups">
+              {#each groups as group (group.key)}
+                {@const words = CATEGORIES[group.category]}
+                <li class="group">
+                  <h3 class="state">
+                    <span class="dot" class:warn={group.restored}></span>
+                    <span class="name">
+                      {words.name}{group.restored ? ", restored" : ""}
+                    </span>
+                    {#if group.events.length > 1}
+                      <span class="count">
+                        {numbers.format(group.events.length)} times
+                      </span>
+                    {/if}
+                  </h3>
+                  <p class="what">{words.meaning}</p>
+                  <p class="next">
+                    {group.restored ? RESTORED_NOTE : words.nextStep}
+                  </p>
+                  <!-- A failure that names a message links to its history,
+                       which has the file name and the full hash. A hash that
+                       names nothing else shows in full. -->
+                  <ol class="events">
+                    {#each group.events as event, index (index)}
+                      {@const full =
+                        event.messageId === null && event.contentHash !== null}
+                      <li class:full>
+                        <p class="when">
+                          <time datetime={event.at}>{formatTime(event.at)}</time
+                          >
+                          {#if event.messageId !== null}
+                            <!-- The short hash has a fixed width, so it goes
+                                 first and the links line up. -->
+                            {#if event.contentHash !== null}
+                              <span class="hash"
+                                ><span class="visually-hidden">{"Hash "}</span
+                                >{event.contentHash.slice(0, 8)}</span
+                              >
+                            {/if}
+                            <a href={historyHref(page.url, event.messageId)}>
+                              Message {event.messageId}
+                            </a>
+                          {/if}
+                        </p>
+                        {#if full && event.contentHash !== null}
+                          <FullHash hash={event.contentHash} />
+                        {/if}
+                      </li>
+                    {/each}
+                  </ol>
+                </li>
+              {/each}
+              {#if unreferenced.length > 0}
+                <li class="group">
+                  <h3 class="state">
+                    <span class="dot warn"></span>
+                    <span class="name">
+                      {unreferenced.length === 1
+                        ? "Unreferenced original"
+                        : "Unreferenced originals"}
+                    </span>
+                    {#if unreferenced.length > 1}
+                      <span class="count">
+                        {numbers.format(unreferenced.length)}
+                      </span>
+                    {/if}
+                  </h3>
+                  <p class="what">{UNREFERENCED_MEANING}</p>
+                  <p class="next">{UNREFERENCED_NEXT_STEP}</p>
+                  <ul class="events">
+                    {#each unreferenced as original (original.contentHash)}
+                      <li class="full">
+                        <p class="when">{formatBytes(original.size)}</p>
+                        <FullHash hash={original.contentHash} />
+                      </li>
+                    {/each}
+                  </ul>
+                </li>
+              {/if}
+            </ul>
+          {/if}
         </div>
       </section>
 
@@ -54,15 +159,15 @@
             <dl class="counts">
               <div>
                 <dt>Temporary files removed</dt>
-                <dd>{recovery.tempFilesRemoved}</dd>
+                <dd>{numbers.format(recovery.tempFilesRemoved)}</dd>
               </div>
               <div>
                 <dt>Temporary files not removed</dt>
-                <dd>{recovery.tempFilesNotRemoved}</dd>
+                <dd>{numbers.format(recovery.tempFilesNotRemoved)}</dd>
               </div>
               <div>
                 <dt>Unreferenced originals found</dt>
-                <dd>{recovery.unreferencedFound}</dd>
+                <dd>{numbers.format(recovery.unreferencedFound)}</dd>
               </div>
             </dl>
           {/if}
@@ -75,72 +180,13 @@
         </div>
       </section>
 
-      <section aria-labelledby="unreferenced">
-        <h2 id="unreferenced">Unreferenced originals</h2>
-        <div class="content">
-          {#if unreferenced.length === 0}
-            <p class="value">None since the latest start.</p>
-          {:else}
-            <ul>
-              {#each unreferenced as original (original.contentHash)}
-                <li>
-                  <p class="state">
-                    <span class="dot warn"></span>
-                    <strong>Unreferenced original</strong>
-                  </p>
-                  <FullHash hash={original.contentHash} />
-                  <p class="what">{formatBytes(original.size)}</p>
-                  <p class="next">{UNREFERENCED_NEXT_STEP}</p>
-                </li>
-              {/each}
-            </ul>
-          {/if}
-        </div>
-      </section>
-
-      <section aria-labelledby="failures">
-        <h2 id="failures">Failures</h2>
-        <div class="content">
-          {#if failures.length === 0}
-            <p class="value">No failures since the latest start.</p>
-          {:else}
-            <ul>
-              {#each failures as failure, index (index)}
-                {@const words = CATEGORIES[failure.category]}
-                <li>
-                  <p class="state">
-                    <span class="dot" class:warn={failure.restored}></span>
-                    <strong>{words.name}</strong>
-                    <time datetime={failure.at}>{formatTime(failure.at)}</time>
-                  </p>
-                  <p class="what">{words.meaning}</p>
-                  {#if failure.messageId !== null || failure.contentHash !== null}
-                    <dl class="ids">
-                      {#if failure.messageId !== null}
-                        <div>
-                          <dt>Message ID</dt>
-                          <dd class="number">{failure.messageId}</dd>
-                        </div>
-                      {/if}
-                      {#if failure.contentHash !== null}
-                        <div>
-                          <dt>Content hash</dt>
-                          <dd><FullHash hash={failure.contentHash} /></dd>
-                        </div>
-                      {/if}
-                    </dl>
-                  {/if}
-                  <p class="next">
-                    {failure.restored
-                      ? "The stored copy was restored from an imported file."
-                      : words.nextStep}
-                  </p>
-                </li>
-              {/each}
-            </ul>
-          {/if}
-        </div>
-      </section>
+      <!-- FR-027's scope and the start time, as a footnote: it qualifies
+           everything above rather than leading it. -->
+      <p class="scope">
+        This screen covers only the time since the server started at
+        <time datetime={startedAt}>{formatTime(startedAt)}</time>. Older
+        failures are in the server log.
+      </p>
     {:else}
       <FailedLoad />
     {/if}
@@ -168,17 +214,20 @@
     padding: var(--space-24);
   }
 
-  .covers {
-    padding-bottom: var(--space-16);
-    color: var(--text-2);
-  }
-
-  /* A 136 px label column, then the content, with a line above each section. */
+  /* A 136 px label column, then the content, with a line between sections. */
   section {
     display: grid;
     grid-template-columns: 136px minmax(0, 1fr);
     gap: var(--space-8) var(--space-16);
     padding: var(--space-16) 0;
+  }
+
+  /* The view header's line already sits above the first section. */
+  section:first-child {
+    padding-top: 0;
+  }
+
+  section + section {
     border-top: 1px solid var(--line);
   }
 
@@ -199,8 +248,8 @@
   }
 
   time,
-  .number,
-  dd {
+  dd,
+  .count {
     font-variant-numeric: tabular-nums;
   }
 
@@ -210,53 +259,24 @@
     line-height: var(--leading-label);
   }
 
-  dl {
+  ul,
+  ol {
     display: grid;
-    gap: var(--space-4);
-    margin: 0;
-  }
-
-  dl > div {
-    display: grid;
-    grid-template-columns: max-content minmax(0, 1fr);
-    column-gap: var(--space-16);
-  }
-
-  dt {
-    color: var(--text-3);
-  }
-
-  dd {
-    margin: 0;
-    color: var(--text-1);
-  }
-
-  .counts > div {
-    grid-template-columns: 200px 40px;
-  }
-
-  .counts dd {
-    text-align: right;
-  }
-
-  .ids > div {
-    grid-template-columns: 96px minmax(0, 1fr);
-  }
-
-  ul {
-    display: grid;
-    gap: var(--space-20);
     margin: 0;
     padding: 0;
     list-style: none;
   }
 
-  li {
-    display: grid;
-    gap: var(--space-6);
+  .groups {
+    gap: var(--space-24);
   }
 
-  /* The state word and its dot, with the time. */
+  .group {
+    display: grid;
+    gap: var(--space-4);
+  }
+
+  /* The state word and its dot, with how many times it happened. */
   .state {
     display: flex;
     flex-wrap: wrap;
@@ -264,11 +284,11 @@
     gap: 0 var(--space-8);
   }
 
-  .state strong {
+  .name {
     font-weight: var(--weight-medium);
   }
 
-  .state time {
+  .count {
     color: var(--text-3);
     font-size: var(--size-label);
     line-height: var(--leading-label);
@@ -292,6 +312,69 @@
 
   .next {
     color: var(--text-3);
+  }
+
+  /* Each time it happened, one line each, so a long run of the same failure
+     stays short. A full hash takes more room, so it gets some around it. */
+  .events {
+    gap: var(--space-4);
+    margin-top: var(--space-8);
+  }
+
+  .events li {
+    display: grid;
+    gap: var(--space-4);
+  }
+
+  .events li.full:not(:first-child),
+  .events li.full + li {
+    margin-top: var(--space-8);
+  }
+
+  .hash {
+    font-family: var(--font-mono);
+    font-variant-ligatures: none;
+  }
+
+  .when {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 var(--space-12);
+    color: var(--text-3);
+    font-size: var(--size-label);
+    font-variant-numeric: tabular-nums;
+    line-height: var(--leading-label);
+  }
+
+  dl {
+    display: grid;
+    gap: var(--space-4);
+    margin: 0;
+  }
+
+  .counts > div {
+    display: grid;
+    grid-template-columns: 200px 40px;
+    column-gap: var(--space-16);
+  }
+
+  dt {
+    color: var(--text-3);
+  }
+
+  dd {
+    margin: 0;
+    color: var(--text-1);
+    text-align: right;
+  }
+
+  /* Small, under a line, because it qualifies the sections above. */
+  .scope {
+    padding-top: var(--space-16);
+    border-top: 1px solid var(--line);
+    color: var(--text-3);
+    font-size: var(--size-label);
+    line-height: var(--leading-label);
   }
 
   /* DESIGN.md: 16 px gutters, and each label moves above its content. */

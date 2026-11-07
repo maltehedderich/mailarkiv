@@ -219,7 +219,14 @@ async function visitEveryScreen(
   await expect(page.getByText("Stored original damaged")).toBeVisible();
   await expect(
     page
-      .getByRole("region", { name: "Unreferenced originals" })
+      .getByRole("region", { name: "Problems" })
+      .getByRole("listitem")
+      .filter({
+        has: page.getByRole("heading", {
+          name: "Unreferenced original",
+          exact: true,
+        }),
+      })
       .getByRole("listitem"),
   ).toHaveCount(1);
   await check("status");
@@ -372,9 +379,13 @@ for (const [failure, answer] of Object.entries(FAILURES)) {
       await page.unroute("**/api/status");
       await page.getByRole("button", { name: "Try again" }).click();
       await expect(
-        page.getByRole("region", { name: "Failures" }),
+        page.getByRole("region", { name: "Problems" }),
       ).toBeVisible();
       await expect(page.getByText(FAILED_LOAD)).toHaveCount(0);
+      // Try again went away, so focus moved to the heading on purpose.
+      await expect(
+        page.getByRole("heading", { name: "Status", level: 1 }),
+      ).toBeFocused();
     });
 
     test("the history shows the failed-load state and loads again", async ({

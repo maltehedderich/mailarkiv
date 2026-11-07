@@ -51,6 +51,14 @@ export const CATEGORIES: Record<FailureCategory, CategoryWords> = {
   },
 };
 
+/** The spec's definition of an unreferenced original, from its glossary. */
+export const UNREFERENCED_MEANING =
+  "A stored original with no catalog entry, usually left by a crash between storage and catalog writes.";
+
 /** FR-038's next step for an unreferenced original, which isn't a failure. */
 export const UNREFERENCED_NEXT_STEP =
   "Importing the same file again puts it back in the list, and nothing is deleted.";
+
+/** Shown in place of the next step once an import replaced the original. */
+export const RESTORED_NOTE =
+  "The stored copy was restored from an imported file.";

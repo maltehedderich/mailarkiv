@@ -17,11 +17,14 @@ const CONTENT = Buffer.from(
 );
 const HASH = createHash("sha256").update(CONTENT).digest("hex");
 
-// FR-027: what the screen covers, and where older failures are.
-const COVERS =
-  "This screen covers only the time since the server's latest start. Older failures are in the server log.";
+// FR-027: what the screen covers, with the start time, and where older
+// failures are.
+const COVERS = "This screen covers only the time since the server started at";
+const OLDER = "Older failures are in the server log.";
 const NOTHING_FOUND =
   "Found no leftover temporary files and no unreferenced originals.";
+const NO_PROBLEMS =
+  "No failures and no unreferenced originals since the latest start.";
 // FR-038's Stored original damaged row.
 const DAMAGED = "Stored original damaged";
 const DAMAGED_MEANING =
@@ -71,6 +74,13 @@ function section(page: Page, name: string) {
   return page.getByRole("region", { name });
 }
 
+/** One group in Problems: a failure category, or the unreferenced originals. */
+function problem(page: Page, name: string) {
+  return section(page, "Problems")
+    .getByRole("listitem")
+    .filter({ has: page.getByRole("heading", { name, exact: true }) });
+}
+
 /** The status the server answers, read with the browser's session cookie. */
 async function readStatus(page: Page) {
   const response = await page.request.get(`${server.origin}/api/status`);
@@ -88,15 +98,12 @@ test("a clean start shows the start time and that recovery found nothing", async
   await expect(statusItem(page, "Status")).toBeVisible();
   await openStatus(page);
 
-  await expect(page.getByText(COVERS)).toBeVisible();
   const { started_at } = await readStatus(page);
-  await expect(
-    section(page, "Started").locator(`time[datetime="${started_at}"]`),
-  ).toBeVisible();
+  const scope = page.getByText(COVERS);
+  await expect(scope).toContainText(OLDER);
+  await expect(scope.locator(`time[datetime="${started_at}"]`)).toBeVisible();
+  await expect(section(page, "Problems")).toContainText(NO_PROBLEMS);
   await expect(section(page, "Recovery")).toContainText(NOTHING_FOUND);
-  await expect(section(page, "Failures")).toContainText(
-    "No failures since the latest start.",
-  );
   await expect(page.locator("body")).not.toContainText(/healthy/i);
   await expect(statusItem(page, "Status")).toHaveAttribute(
     "aria-current",
@@ -140,21 +147,24 @@ test("a damaged original is counted on every page, and a restart clears it", asy
 
   await openStatus(page);
   await expect(statusItem(page, "Status 1 problem")).toBeVisible();
-  const failures = section(page, "Failures");
-  const failure = failures.getByRole("listitem");
+  const failure = problem(page, DAMAGED);
   await expect(failure).toHaveCount(1);
-  await expect(failure).toContainText(DAMAGED);
   await expect(failure).toContainText(DAMAGED_MEANING);
   await expect(failure).toContainText(DAMAGED_NEXT_STEP);
-  await expect(failure).toContainText(new RegExp(`Message ID\\s*${id}(?!\\d)`));
   const [{ at }] = (await readStatus(page)).failures;
-  await expect(failure.locator(`time[datetime="${at}"]`)).toBeVisible();
+  const occurrence = failure.getByRole("listitem");
+  await expect(occurrence).toHaveCount(1);
+  await expect(occurrence.locator(`time[datetime="${at}"]`)).toBeVisible();
+  await expect(occurrence).toContainText(`Hash ${HASH.slice(0, 8)}`);
   await expect(page.locator("body")).not.toContainText(/healthy/i);
 
-  await page
-    .getByRole("navigation", { name: "Main" })
-    .getByRole("link", { name: "Messages" })
-    .click();
+  // The message ID opens its history, which names the file to import again.
+  await occurrence.getByRole("link", { name: `Message ${id}` }).click();
+  await expect(page).toHaveURL(`${server.origin}/?message=${id}`);
+  const drawer = page.getByRole("dialog", { name: "Import history" });
+  await expect(drawer).toContainText("synthetic.eml");
+  await page.keyboard.press("Escape");
+  await expect(drawer).toBeHidden();
   await expect(page.getByRole("heading", { name: "Messages" })).toBeVisible();
   await expect(statusItem(page, "Status 1 problem")).toBeVisible();
 
@@ -162,10 +172,8 @@ test("a damaged original is counted on every page, and a restart clears it", asy
   await page.goto(`${server.origin}/status`);
 
   await expect(page.getByRole("heading", { name: "Status" })).toBeVisible();
-  await expect(page.getByText(COVERS)).toBeVisible();
-  await expect(section(page, "Failures")).toContainText(
-    "No failures since the latest start.",
-  );
+  await expect(page.getByText(COVERS)).toContainText(OLDER);
+  await expect(section(page, "Problems")).toContainText(NO_PROBLEMS);
   await expect(page.getByText(DAMAGED)).toHaveCount(0);
   await expect(statusItem(page, "Status")).toBeVisible();
 });
@@ -198,15 +206,14 @@ test("a restart after a crash lists the temp files removed and the unreferenced 
     /Unreferenced originals found\s*1(?!\d)/,
   );
 
-  const original = section(page, "Unreferenced originals").getByRole(
-    "listitem",
-  );
+  const unreferenced = problem(page, "Unreferenced original");
+  await expect(unreferenced).toContainText(UNREFERENCED_NEXT_STEP);
+  const original = unreferenced.getByRole("listitem");
   await expect(original).toHaveCount(1);
   const groups = original.locator("code span");
   await expect(groups).toHaveCount(16);
   expect((await groups.allTextContents()).join("")).toBe(HASH);
   await expect(original).toContainText(`${CONTENT.length} bytes`);
-  await expect(original).toContainText(UNREFERENCED_NEXT_STEP);
 
   // Recovery never deletes a stored original (FR-024).
   expect(await readdir(dirname(blob))).toEqual([HASH]);

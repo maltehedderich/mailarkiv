@@ -243,7 +243,13 @@ A native modal `<dialog>` on `--raised`, `--drawer-width` wide, attached to the 
 
 ### Status
 
-Sections stack with a `--line` above each: a 136 px label column, then content. A problem has its state word and dot with the time, then what happened in `--text-2`, then the next step in `--text-3`. Use the category names and next steps from FR-038. The first line says the screen covers the time since the latest start and that older failures are in the server log (FR-027). No action here changes the archive in Slice 1.
+Sections stack with a `--line` between them: a 136 px label column, then content. Problems comes first, because the Status item's count is why most people open the screen. Recovery follows. A footnote under a line ends the page: the screen covers only the time since the server started, with that time, and older failures are in the server log (FR-027). It qualifies everything above it, so it doesn't lead.
+
+Problems has one group per failure category, then one for the unreferenced originals. A group has its dot and state word, with "3 times" when it happened more than once, then what happened in `--text-2`, then the next step in `--text-3`. Use the category names and next steps from FR-038. So 40 failures of two kinds show two explanations, not 40.
+
+Under that, each time it happened takes one line: the time, the short hash, and a link to that message's import history. The screen can't show file names (FR-029), so the link is how an administrator finds the file to import again. A hash that names nothing else, as after a catalog write failure or for an unreferenced original, shows in full with Copy. Restored events get their own group, such as "Stored original damaged, restored", with a `--state-warn` dot and the restored note in place of the next step.
+
+With nothing recorded, Problems says "No failures and no unreferenced originals since the latest start." It never says the archive is healthy, and no action here changes the archive in Slice 1.
 
 ### Sign-in
 
