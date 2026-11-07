@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick } from "svelte";
+  import { onDestroy, tick } from "svelte";
 
   import { beforeNavigate, goto } from "$app/navigation";
   import { page } from "$app/state";
@@ -27,6 +27,10 @@
 
   let box: ReturnType<typeof ImportBox>;
   let heading: HTMLHeadingElement;
+  let mounted = true;
+  onDestroy(() => {
+    mounted = false;
+  });
 
   // The page owns the import. Its result is a toast, so it outlives a failed
   // refresh and a visit to another page.
@@ -97,7 +101,9 @@
     // FR-040: a session that ended opens sign-in before any byte is sent.
     // Only a marked 401 changes anything. After any other result the upload
     // goes ahead, and its own answer decides the outcome.
-    if ((await getSession()).kind === "session_ended") {
+    const session = await getSession();
+    if (!mounted) return;
+    if (session.kind === "session_ended") {
       step = { kind: "chosen", file };
       await goto(signInPath(page.url));
       return;
@@ -113,6 +119,7 @@
       },
     });
     if (result.outcome === "session_ended") {
+      if (!mounted) return;
       step = { kind: "chosen", file };
       await goto(signInPath(page.url));
       return;
@@ -121,6 +128,7 @@
     showToast({ kind: "import", fileName: file.name, result });
     // Import goes away with the chosen file, so focus moves on purpose.
     await tick();
+    if (!mounted) return;
     box.focus();
     // The newest message is first, so the list goes back to page 1. An open
     // history stays open.
@@ -129,8 +137,8 @@
     await goto(url.pathname + url.search, { refreshAll: true, reset: false });
   }
 
-  // FR-037: leaving would lose the import's result, and closing the tab may
-  // stop the upload. The history opens on this page, so it doesn't ask.
+  // FR-037: closing the tab may stop the upload. In-app navigation lets an
+  // upload finish and report through the shared toast store.
   beforeNavigate((navigation) => {
     if (!busy || navigation.type === "leave") return;
     if (navigation.to?.url.pathname === page.url.pathname) return;

@@ -239,7 +239,7 @@ Administrators and operators can tell when capture, recovery, or retrieval went 
 - **FR-034**: Import MUST take two steps: choose a file and see its name and size, then press Import. Until Slice 6 ships, the import screen MUST say that imported mail can't be removed in this version.
 - **FR-035**: During an import, the web interface MUST show upload progress, then a separate state while the file is being stored, and MUST prevent a second submission.
 - **FR-036**: The web interface MUST refuse an empty or oversized file before uploading it, and MUST refuse several files chosen or dropped at once with a message. The server still enforces FR-010.
-- **FR-037**: The web interface MUST warn an administrator who tries to leave the page during an import.
+- **FR-037**: The web interface MUST warn an administrator who tries to leave the page during an import. After accepted in-app navigation, the client MUST let a started upload finish and report any import result through the shared notification store. Its completion, including an expired-session response, MUST NOT move focus, refresh, or navigate the destination page. Leaving before the session check finishes starts no upload; closing the tab may interrupt an upload.
 
 **Failure reporting**
 

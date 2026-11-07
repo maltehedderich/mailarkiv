@@ -211,6 +211,44 @@ test("leaving during an import asks first", async ({ page }) => {
   await expect(page).toHaveURL(`${gate.origin}/status`);
 });
 
+test("an import finishes after leaving without changing the destination page", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await signIn(page);
+  gate.hold();
+  await page.getByLabel("Choose a file").setInputFiles(FILE);
+  await importButton(page).click();
+  gate.sendBody();
+  await expect(importBox(page)).toContainText("Storing");
+
+  page.once("dialog", (dialog) => dialog.accept());
+  const navigation = page.getByRole("navigation", { name: "Main" });
+  await navigation.getByRole("link", { name: /^Status/ }).click();
+  await expect(page).toHaveURL(`${gate.origin}/status`);
+  await expect(page.getByRole("heading", { name: "Status" })).toBeVisible();
+  const messagesLink = navigation.getByRole("link", { name: "Messages" });
+  await messagesLink.focus();
+  let refreshes = 0;
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/api/status") refreshes += 1;
+  });
+
+  gate.answer();
+
+  await expect(result(page)).toContainText("Archived");
+  await expect(result(page)).toContainText(FILE.name);
+  await expect(messagesLink).toBeFocused();
+  await expect(page).toHaveURL(`${gate.origin}/status`);
+  expect(errors).toEqual([]);
+  expect(refreshes).toBe(0);
+  await messagesLink.click();
+  await expect(
+    page.getByRole("link", { name: /history of synthetic.eml/i }),
+  ).toBeVisible();
+});
+
 // FR-036.
 test.describe("the browser refuses before uploading", () => {
   test("several files", async ({ page }) => {

@@ -75,6 +75,10 @@ Ranked by harm first, then likelihood. Expected values come from the spec.
 
 Cosmetic rules in the design guide rely on review. Writing a test for each token would cost more than the bugs it could catch.
 
+### Review fixes
+
+- **R5, import completion after navigation**: Keep a started upload's result in the shared notification store. Guard page work after asynchronous boundaries with the component's lifetime. The credible failure is an exception or an unexpected focus change, refresh, or redirect on the destination page. A delayed-response browser regression accepts navigation, releases the import, and checks the result and destination. Run `mise run lint` and `mise run typecheck` (static), `mise run frontend:test` (unit), and `mise run test:e2e` (end to end). This uses the existing page and notification owners and needs no constitutional exception.
+
 ### Crash matrix
 
 `TestCrashMatrix` starts the `faults` binary with one point set to `kill`, imports a file over HTTP, restarts with the default binary, and checks the result. A client that gets no answer shows Unconfirmed. `after-commit`, `after-response`, and `recovery-after-temp-removal` only mean something as a kill, so they ignore an injected error: no error path is left at those points.
