@@ -63,6 +63,25 @@ describe("signInPath", () => {
     expect(signInPath(at("/?page=3"))).toBe("/sign-in?next=%2F%3Fpage%3D3");
   });
 
+  test.each([
+    ["/", "/sign-in"],
+    ["/status", "/sign-in?next=%2Fstatus"],
+    ["/?page=3#top", "/sign-in?next=%2F%3Fpage%3D3%23top"],
+  ])(
+    "redirects from a load URL at %s without reading its hash",
+    (path, want) => {
+      const url = at(path);
+      // SvelteKit forbids reading load's url.hash in development.
+      Object.defineProperty(url, "hash", {
+        get() {
+          throw new Error("Cannot access event.url.hash");
+        },
+      });
+
+      expect(signInPath(url)).toBe(want);
+    },
+  );
+
   test("an ended session on the list says it ended", () => {
     markSignedIn();
     expect(signInPath(at("/"))).toBe("/sign-in?ended=1");

@@ -40,12 +40,13 @@ function wasSignedIn(): boolean {
  * The sign-in page for a signed-in page whose session read answered a marked
  * 401. A first visit to `/` gets exactly `/sign-in`.
  */
-export function signInPath(
-  current: Pick<URL, "pathname" | "search" | "hash">,
-): string {
+export function signInPath(current: Pick<URL, "href">): string {
   const params = new URLSearchParams();
   if (wasSignedIn()) params.set("ended", "1");
-  const next = current.pathname + current.search + current.hash;
+  // SvelteKit load URLs forbid reading hash. Parse href to preserve the
+  // fragment when these client-only pages redirect to sign-in.
+  const url = new URL(current.href);
+  const next = url.pathname + url.search + url.hash;
   if (next !== "/") params.set("next", next);
   const query = params.toString();
   return query === "" ? "/sign-in" : `/sign-in?${query}`;
