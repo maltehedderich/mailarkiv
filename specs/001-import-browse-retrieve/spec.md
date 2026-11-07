@@ -178,14 +178,14 @@ Administrators and operators can tell when capture, recovery, or retrieval went 
 **Accounts and access**
 
 - **FR-001**: An operator on the server host MUST be able to create an administrator account for an email address and set a new password for an existing account. The web interface MUST NOT offer a way to create an account. The sign-in page MUST always say that accounts and passwords are managed on the server and point to the operator documentation, with the same note whether or not any account exists.
-- **FR-002**: Passwords MUST have at least 12 characters and MUST be stored only in a form that cannot be reversed.
+- **FR-002**: Passwords MUST contain valid UTF-8 text, have at least 12 characters, fit within 4,096 bytes, and be stored only in a form that cannot be reversed. Unsupported password replacements MUST leave the old password and sessions unchanged.
 - **FR-003**: Administrators MUST be able to sign in with an email address and password, and to sign out. A failed sign-in MUST NOT reveal whether the account exists, so a wrong password, an unknown address, and a malformed address MUST all show "That email address and password don't match."
 - **FR-004**: After 10 failed sign-ins for one submitted email address within 15 minutes, the system MUST refuse sign-in for that address for the next 15 minutes. The limit and its message MUST be the same whether or not the account exists. Setting a new password MUST lift the block. Sign-in MUST admit at most two attempts at once, with no waiting queue. Excess attempts MUST return an unavailable response immediately and MUST NOT count as address failures; admitted attempts still enforce the address block.
 - **FR-005**: A session MUST end at sign-out, 12 hours after sign-in, or when the account's password is set, whichever comes first.
 - **FR-006**: The server MUST check access on every operation and deny by default. Only sign-in and the static application files, which contain no mail data, may be reached without a session.
 - **FR-007**: The system MUST reject state-changing requests forged from another website and MUST NOT let other websites embed its pages.
 - **FR-008**: Every account MUST see the whole archive. This slice has no roles.
-- **FR-044**: Every account MUST have one email address, which identifies it. The address MUST have one `@` with text on both sides and no spaces. The system MUST store the address in lowercase, whatever capital letters were typed, and MUST ignore capital letters when comparing addresses, including for the sign-in limit. It MUST refuse a second account for the same address. The system MUST NOT send email to the address or check that it receives mail.
+- **FR-044**: Every account MUST have one email address, which identifies it. The address MUST contain valid UTF-8 text, have one `@` with text on both sides and no spaces, and fit within 1,024 bytes both before and after lowercasing. The system MUST store the address in lowercase, whatever capital letters were typed, and MUST ignore capital letters when comparing addresses, including for the sign-in limit. It MUST refuse a second account for the same address. The system MUST NOT send email to the address or check that it receives mail.
 
 **Import**
 

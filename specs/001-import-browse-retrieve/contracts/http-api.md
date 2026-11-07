@@ -41,7 +41,7 @@ Without a valid session, a SignedIn route answers 401 `no_session`. The one exce
 
 ### `POST /api/session`
 
-Request, at most 16 KiB:
+Request, at most 32 KiB:
 
 ```json
 { "email": "admin@example.test", "password": "correct horse battery" }
@@ -55,6 +55,8 @@ Request, at most 16 KiB:
 | 503 | `sign_in_unavailable` | Both password slots are occupied. The client shows sign-in as unavailable |
 
 Sign-in admits at most two attempts at once, including catalog work and password hashing. Further attempts return 503 immediately, without joining a queue or counting as an address failure. Admitted attempts check the address block before hashing and hold their slot until their failure is recorded or their session is created.
+
+Passwords are valid UTF-8 and at most 4,096 bytes. Addresses fit 1,024 UTF-8 bytes before and after lowercasing. The request limit fits accepted credentials even when JSON uses six bytes to escape each credential byte. Credentials outside these limits answer 401 `invalid_credentials`; account creation and password replacement reject them before storing changes.
 
 Cookie: `__Host-mailarkiv_session=<token>; Path=/; Max-Age=43200; HttpOnly; Secure; SameSite=Strict`.
 

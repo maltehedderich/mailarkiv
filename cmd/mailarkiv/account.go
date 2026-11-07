@@ -22,12 +22,15 @@ import (
 
 // The contract's lines for each refusal, written to stderr.
 const (
-	msgInvalidAddress = "That email address isn't valid."
-	msgAccountExists  = "An account with that email address already exists."
-	msgNoAccount      = "No account has that email address."
-	msgPasswordShort  = "Passwords must have at least 12 characters."
-	msgNoMatch        = "The passwords don't match."
-	msgNotOwner       = "Run this as the user that owns the data directory."
+	msgInvalidAddress   = "That email address isn't valid."
+	msgAddressLong      = "Email addresses must be at most 1024 bytes."
+	msgAccountExists    = "An account with that email address already exists."
+	msgNoAccount        = "No account has that email address."
+	msgPasswordShort    = "Passwords must have at least 12 characters."
+	msgPasswordLong     = "Passwords must be at most 4096 bytes."
+	msgPasswordEncoding = "Passwords must contain valid UTF-8 text."
+	msgNoMatch          = "The passwords don't match."
+	msgNotOwner         = "Run this as the user that owns the data directory."
 )
 
 var (
@@ -87,6 +90,9 @@ func runAccountCommand(args []string, command accountCommand) int {
 		return badArgs()
 	}
 	address, err := identity.ParseAddress(flags.Arg(0))
+	if errors.Is(err, identity.ErrAddressTooLong) {
+		return refuse(msgAddressLong)
+	}
 	if err != nil {
 		return refuse(msgInvalidAddress)
 	}
@@ -131,6 +137,10 @@ func runAccountCommand(args []string, command accountCommand) int {
 		return refuse(msgNoAccount)
 	case errors.Is(err, identity.ErrPasswordTooShort):
 		return refuse(msgPasswordShort)
+	case errors.Is(err, identity.ErrPasswordTooLong):
+		return refuse(msgPasswordLong)
+	case errors.Is(err, identity.ErrPasswordEncoding):
+		return refuse(msgPasswordEncoding)
 	case err != nil:
 		return refuse(fmt.Sprintf("%s: %v", command.failed, err))
 	}

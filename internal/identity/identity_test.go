@@ -152,6 +152,11 @@ func TestCreateAccountPasswords(t *testing.T) {
 		// 11 code points in 22 bytes: counting bytes would let this through.
 		{"11 two-byte characters", strings.Repeat("ä", 11), ErrPasswordTooShort},
 		{"12 two-byte characters", strings.Repeat("ä", 12), nil},
+		{"4096 ASCII bytes", strings.Repeat("a", 4096), nil},
+		{"4096 UTF-8 bytes", strings.Repeat("ä", 2048), nil},
+		{"4097 ASCII bytes", strings.Repeat("a", 4097), ErrPasswordTooLong},
+		{"4098 UTF-8 bytes", strings.Repeat("ä", 2049), ErrPasswordTooLong},
+		{"invalid UTF-8", goodPassword + "\xff", ErrPasswordEncoding},
 		{"empty", "", ErrPasswordTooShort},
 	}
 	for _, tt := range tests {

@@ -11,8 +11,9 @@ import (
 )
 
 const (
-	// maxSignInBody is the contract's limit on a sign-in request.
-	maxSignInBody = 16 << 10
+	// Even six-byte JSON escapes for every credential byte fit, including
+	// the email/password keys, quotes, and punctuation (at most 30,746 bytes).
+	maxSignInBody = 32 << 10
 
 	// sessionMaxAge matches the session's 12 hours in the catalog (FR-005).
 	sessionMaxAge = 12 * 60 * 60

@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/maltehedderich/mailarkiv/internal/sqlitedb"
 )
@@ -25,7 +24,10 @@ func (id *Identity) SignOut(ctx context.Context, token string) error {
 // all of that account's sessions and lifts the address's sign-in block and
 // failures (FR-004, FR-005).
 func (id *Identity) SetPassword(ctx context.Context, address, password string) error {
-	email := strings.ToLower(address)
+	email, err := ParseAddress(address)
+	if err != nil {
+		return err
+	}
 	if err := checkPassword(password); err != nil {
 		return err
 	}

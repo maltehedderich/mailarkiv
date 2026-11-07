@@ -51,6 +51,8 @@ It doesn't create a missing data directory, so a mistyped path can't start a sec
 
 Both commands lowercase `EMAIL` before using it, so `Admin@example.test` creates or finds `admin@example.test`.
 
+The address must fit 1,024 UTF-8 bytes before and after lowercasing. Passwords must be valid UTF-8, contain at least 12 characters, and fit 4,096 bytes. Both commands reject unsupported credentials before changing an account or ending its sessions. Every accepted credential fits the HTTP sign-in body limit, including JSON escaping.
+
 The password is never an argument. On a terminal, the command asks twice with echo off. Otherwise it reads one line from stdin, so scripts and tests can drive it.
 
 Both commands refuse to run when the current user doesn't own the data directory. Without that check, `sudo mailarkiv account create` could leave root-owned `catalog.db-wal` and `catalog.db-shm` files behind, and the service user could then no longer open its catalog.
@@ -59,9 +61,12 @@ Both commands refuse to run when the current user doesn't own the data directory
 | ---- | ----------------- | ---- |
 | 0 | None. Prints one confirmation line on stdout, such as `Created the account admin@example.test.` or `Set a new password for admin@example.test.` | Done |
 | 1 | That email address isn't valid. | FR-044 |
+| 1 | Email addresses must be at most 1024 bytes. | The submitted or lowercase address exceeds the limit |
 | 1 | An account with that email address already exists. | `create`, whatever the capital letters. The existing account doesn't change |
 | 1 | No account has that email address. | `set-password` |
 | 1 | Passwords must have at least 12 characters. | FR-002 |
+| 1 | Passwords must be at most 4096 bytes. | The UTF-8 password exceeds the limit |
+| 1 | Passwords must contain valid UTF-8 text. | Invalid password encoding |
 | 1 | The passwords don't match. | Terminal only |
 | 1 | Run this as the user that owns the data directory. | Ownership check |
 | 2 | Usage text | Bad arguments |

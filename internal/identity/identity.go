@@ -23,6 +23,11 @@ const (
 	// minPasswordLength is counted in Unicode code points (FR-002).
 	minPasswordLength = 12
 
+	// MaxAddressBytes bounds both the submitted address and its lowercase form.
+	MaxAddressBytes = 1024
+	// MaxPasswordBytes bounds the UTF-8 password, before JSON escaping.
+	MaxPasswordBytes = 4096
+
 	// sessionLifetime runs from sign-in and is never extended (FR-005).
 	sessionLifetime = 12 * time.Hour
 
@@ -31,7 +36,10 @@ const (
 
 var (
 	ErrInvalidAddress   = errors.New("that email address isn't valid")
+	ErrAddressTooLong   = errors.New("email addresses must be at most 1024 bytes")
 	ErrPasswordTooShort = errors.New("passwords must have at least 12 characters")
+	ErrPasswordTooLong  = errors.New("passwords must be at most 4096 bytes")
+	ErrPasswordEncoding = errors.New("passwords must contain valid UTF-8 text")
 	ErrAccountExists    = errors.New("an account with that email address already exists")
 
 	// ErrInvalidCredentials is the one answer to a wrong password, an unknown
@@ -77,16 +85,29 @@ func New(db *sqlitedb.DB, now func() time.Time) *Identity {
 // sides, and no whitespace. It returns the stored form, which is
 // strings.ToLower of the address given, and the only form ever stored.
 func ParseAddress(address string) (string, error) {
+	if len(address) > MaxAddressBytes {
+		return "", ErrAddressTooLong
+	}
 	local, domain, found := strings.Cut(address, "@")
 	if !found || local == "" || domain == "" || strings.Contains(domain, "@") ||
 		strings.ContainsFunc(address, unicode.IsSpace) || !utf8.ValidString(address) {
 		return "", ErrInvalidAddress
 	}
-	return strings.ToLower(address), nil
+	email := strings.ToLower(address)
+	if len(email) > MaxAddressBytes {
+		return "", ErrAddressTooLong
+	}
+	return email, nil
 }
 
 // checkPassword applies the password rule (FR-002).
 func checkPassword(password string) error {
+	if len(password) > MaxPasswordBytes {
+		return ErrPasswordTooLong
+	}
+	if !utf8.ValidString(password) {
+		return ErrPasswordEncoding
+	}
 	if utf8.RuneCountInString(password) < minPasswordLength {
 		return ErrPasswordTooShort
 	}
@@ -126,10 +147,18 @@ func (id *Identity) CreateAccount(ctx context.Context, address, password string)
 }
 
 // SignIn checks the password and starts a session. It returns the session
-// token, which only the caller's cookie holds. Every address, valid or not,
-// takes the same steps (FR-003, FR-004).
+// token, which only the caller's cookie holds. Within the credential size and
+// encoding limits, every address takes the same steps (FR-003, FR-004).
 func (id *Identity) SignIn(ctx context.Context, address, password string) (string, error) {
+	// No supported account has credentials outside these byte/encoding bounds.
+	// Reject them before allocating the lowercase address or hashing a password.
+	if len(address) > MaxAddressBytes || len(password) > MaxPasswordBytes || !utf8.ValidString(password) {
+		return "", ErrInvalidCredentials
+	}
 	email := strings.ToLower(address)
+	if len(email) > MaxAddressBytes {
+		return "", ErrInvalidCredentials
+	}
 	key := addressKey(email)
 
 	// Refuse excess work before any catalog access. Keep the slot until a

@@ -106,6 +106,9 @@ func TestAccountCreate(t *testing.T) {
 		{"invalid address", accountPassword + "\n", "admin.example.test", "That email address isn't valid.\n"},
 		{"existing address with other capital letters", "another password here\n", "ADMIN@Example.TEST", "An account with that email address already exists.\n"},
 		{"11-character password", "elevenchars\n", "new@example.test", "Passwords must have at least 12 characters.\n"},
+		{"oversize password", strings.Repeat("a", 4097) + "\n", "new@example.test", "Passwords must be at most 4096 bytes.\n"},
+		{"invalid UTF-8 password", accountPassword + "\xff\n", "new@example.test", "Passwords must contain valid UTF-8 text.\n"},
+		{"oversize address", accountPassword + "\n", strings.Repeat("a", 1012) + "@example.test", "Email addresses must be at most 1024 bytes.\n"},
 		{"no password", "", "new@example.test", "Passwords must have at least 12 characters.\n"},
 	}
 	for _, tt := range refusals {
@@ -282,6 +285,9 @@ func TestAccountSetPassword(t *testing.T) {
 	}{
 		{"no account", "a valid long password\n", "nobody@example.test", "No account has that email address.\n"},
 		{"11-character password", "elevenchars\n", "admin@example.test", "Passwords must have at least 12 characters.\n"},
+		{"oversize password", strings.Repeat("a", 4097) + "\n", "admin@example.test", "Passwords must be at most 4096 bytes.\n"},
+		{"invalid UTF-8 password", accountPassword + "\xff\n", "admin@example.test", "Passwords must contain valid UTF-8 text.\n"},
+		{"oversize address", accountPassword + "\n", strings.Repeat("a", 1012) + "@example.test", "Email addresses must be at most 1024 bytes.\n"},
 		{"no password", "", "admin@example.test", "Passwords must have at least 12 characters.\n"},
 		{"invalid address", "a valid long password\n", "admin.example.test", "That email address isn't valid.\n"},
 	}

@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -129,7 +130,7 @@ func TestSignInOverload(t *testing.T) {
 	assertJSONResponse(t, response, result, http.StatusUnauthorized, invalidCredentials)
 }
 
-// Contract: the request is at most 16 KiB. A body that can't be read as
+// Contract: the request is at most 32 KiB. A body that can't be read as
 // credentials answers like wrong credentials and names no address.
 func TestSignInBodyLimits(t *testing.T) {
 	h := newHarness(t, Routes())
@@ -148,8 +149,8 @@ func TestSignInBodyLimits(t *testing.T) {
 		{"cut-off JSON", credentials[:len(credentials)-1], http.StatusUnauthorized},
 		{"wrong types", `{"email":["admin@example.test"],"password":"correct horse battery"}`, http.StatusUnauthorized},
 		{"empty", ``, http.StatusUnauthorized},
-		{"correct credentials padded to 16 KiB and 1 byte", padTo(16<<10 + 1), http.StatusUnauthorized},
-		{"correct credentials padded to exactly 16 KiB", padTo(16 << 10), http.StatusNoContent},
+		{"correct credentials padded to 32 KiB and 1 byte", padTo(32<<10 + 1), http.StatusUnauthorized},
+		{"correct credentials padded to exactly 32 KiB", padTo(32 << 10), http.StatusNoContent},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -171,6 +172,49 @@ func TestSignInBodyLimits(t *testing.T) {
 	}
 	if failures != 0 {
 		t.Errorf("sign_in_failure has %d rows, want 0: no address was read", failures)
+	}
+}
+
+// Credentials accepted by the identity module fit the HTTP envelope even
+// when JSON escapes each byte. Both creation and replacement remain usable.
+func TestSupportedCredentialsSignInOverHTTP(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		address  string
+		password string
+	}{
+		{"ASCII limits", strings.Repeat("a", 1011) + "@example.test", strings.Repeat("a", 4096)},
+		{"JSON escape limits", strings.Repeat("\x01", 1011) + "@example.test", strings.Repeat("\x01", 4096)},
+		{"UTF-8 limits", strings.Repeat("ä", 505) + "a@example.test", strings.Repeat("ä", 2048)},
+		{"lowercase expands to limit", strings.Repeat("Ⱥ", 337) + "@example.test", strings.Repeat("ä", 2048)},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHarness(t, Routes())
+			if err := h.identity.CreateAccount(context.Background(), tt.address, tt.password); err != nil {
+				t.Fatalf("create supported credentials: %v", err)
+			}
+			for _, password := range []string{tt.password, strings.Repeat("\x02", 4096)} {
+				if password != tt.password {
+					if err := h.identity.SetPassword(context.Background(), tt.address, password); err != nil {
+						t.Fatalf("replace supported password: %v", err)
+					}
+				}
+				body, err := json.Marshal(struct {
+					Email    string `json:"email"`
+					Password string `json:"password"`
+				}{tt.address, password})
+				if err != nil {
+					t.Fatal(err)
+				}
+				response, read := h.send(t, http.MethodPost, "/api/session", strings.NewReader(string(body)), nil)
+				if response.StatusCode != http.StatusNoContent {
+					t.Fatalf("supported credentials: status %d, body %s", response.StatusCode, read)
+				}
+				if !sessionCookie.MatchString(response.Header.Get("Set-Cookie")) {
+					t.Fatal("sign-in did not start a session")
+				}
+			}
+		})
 	}
 }
 
