@@ -6,7 +6,7 @@
   import { page } from "$app/state";
 
   import { signOut } from "#lib/api.js";
-  import Mark from "#lib/components/Mark.svelte";
+  import Logo from "#lib/components/Logo.svelte";
   import { clearSignedIn } from "#lib/session.js";
 
   import type { LayoutProps } from "./$types";
@@ -39,7 +39,7 @@
 
 <div class="shell">
   <nav aria-label="Main">
-    <p class="brand"><Mark /> MailArkiv</p>
+    <p class="brand"><Logo /></p>
     <a
       class="item"
       href="/"
@@ -91,11 +91,9 @@
   .brand {
     display: flex;
     align-items: center;
-    gap: var(--space-8);
     height: var(--control-height);
     margin-bottom: var(--space-12);
     padding: 0 var(--space-8);
-    font-weight: var(--weight-strong);
   }
 
   .item {

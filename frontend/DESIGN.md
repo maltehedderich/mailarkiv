@@ -282,15 +282,11 @@ Use Lucide for every icon, imported as `~icons/lucide/download`, at `--icon-size
 
 Slice 1 uses `archive`, `upload`, `activity`, `file-up`, `file-text`, `download`, `x`, `arrow-left`, `log-out`, and `copy`.
 
-The MailArkiv mark is the one drawing that isn't from Lucide. It sits beside the name in the sidebar and on standalone pages:
+The MailArkiv logo is the one drawing that isn't from Lucide: a solid tile with a drawer grip cut out of it, and the name in outlined Archivo. [`Logo.svelte`](src/lib/components/Logo.svelte) holds the 18 px version, used in the sidebar and on sign-in. It fills with `currentColor` and the grip is a real hole, so both themes use the same drawing.
 
-```svg
-<svg viewBox="0 0 18 18" aria-hidden="true">
-  <rect width="18" height="18" rx="5" fill="currentColor" />
-  <path d="m4.2 6 4.8 3.4L13.8 6M4.2 12.8h9.6" fill="none" stroke="var(--canvas)"
-    stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
-</svg>
-```
+Don't type the name beside the mark in Inter. Archivo appears only as these outlines, so the app ships no extra font.
+
+The browser tab uses `static/favicon.svg`, which follows the theme, and `static/favicon.ico` where SVG isn't supported. [The brand guide](../docs/brand/README.md) has the other sizes and layouts, clear space, and minimum sizes.
 
 ## Writing
 

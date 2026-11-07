@@ -7,7 +7,7 @@
 
 Use these files as they are: a solid tile with a drawer grip cut out of it, next to the name set in Archivo. The SVGs in `logo/` are the masters. Everything else here is exported from them, so re-export after any change to the drawing.
 
-The app doesn't use these yet. `frontend/src/lib/components/Mark.svelte` and the mark section of `frontend/DESIGN.md` still describe the old inbox mark.
+The app uses copies of these: the 18 px lockup in `frontend/src/lib/components/Logo.svelte` and the favicons in `frontend/static/`. Update the copies when a drawing here changes.
 
 ## Pick a logo file
 
@@ -17,8 +17,8 @@ The app doesn't use these yet. `frontend/src/lib/components/Mark.svelte` and the
 | The same, small | `logo/lockup-horizontal-small.svg` | 18 to 23 px tall |
 | Name under the mark | `logo/lockup-stacked.svg` | Tile 40 px and up |
 | Mark alone | `logo/mark.svg` | 20 px and up |
-| Mark in the sidebar | `logo/mark-18.svg` | 18 to 19 px |
-| Mark in a browser tab | `logo/mark-16.svg` | 16 to 17 px |
+| Mark alone, small | `logo/mark-18.svg` | 18 to 19 px |
+| Mark alone, tab size | `logo/mark-16.svg` | 16 to 17 px |
 | Name alone | `logo/wordmark.svg` | Caps 9 px and up |
 
 The small drawings are not reductions. They are redrawn so the grip is 3 px tall on whole pixels, where a plain reduction of the master would give 2.5 px at 16 px and blur.

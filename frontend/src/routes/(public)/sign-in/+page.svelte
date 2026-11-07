@@ -3,7 +3,7 @@
   import { page } from "$app/state";
 
   import { signIn, type SignInResult } from "#lib/api.js";
-  import Mark from "#lib/components/Mark.svelte";
+  import Logo from "#lib/components/Logo.svelte";
   import { safeNext, showsSessionEnded } from "#lib/session.js";
 
   type Problem = Exclude<SignInResult["kind"], "ok">;
@@ -53,7 +53,7 @@
 
 <main>
   <div class="column">
-    <p class="brand"><Mark /> MailArkiv</p>
+    <p><Logo /></p>
     <h1>Sign in</h1>
 
     {#if ended}
@@ -111,13 +111,6 @@
     gap: var(--space-16);
     width: 100%;
     max-width: var(--form-width);
-  }
-
-  .brand {
-    display: flex;
-    align-items: center;
-    gap: var(--space-8);
-    font-weight: var(--weight-strong);
   }
 
   h1 {
