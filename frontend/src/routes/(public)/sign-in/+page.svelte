@@ -3,7 +3,7 @@
   import { page } from "$app/state";
 
   import { signIn, type SignInResult } from "#lib/api.js";
-  import Logo from "#lib/components/Logo.svelte";
+  import Standalone from "#lib/components/Standalone.svelte";
   import { safeNext, showsSessionEnded } from "#lib/session.js";
 
   type Problem = Exclude<SignInResult["kind"], "ok">;
@@ -51,74 +51,48 @@
   <title>Sign in · MailArkiv</title>
 </svelte:head>
 
-<main>
-  <div class="column">
-    <p><Logo /></p>
-    <h1>Sign in</h1>
+<Standalone title="Sign in">
+  {#if ended}
+    <p class="ended">Your session ended. Sign in again to continue.</p>
+  {/if}
 
-    {#if ended}
-      <p class="ended">Your session ended. Sign in again to continue.</p>
-    {/if}
+  {#if !secure}
+    <p class="problem">
+      This address uses plain HTTP, so the browser won't keep the sign-in. Open
+      MailArkiv over HTTPS, or on this machine at localhost.
+    </p>
+  {/if}
 
-    {#if !secure}
-      <p class="problem">
-        This address uses plain HTTP, so the browser won't keep the sign-in.
-        Open MailArkiv over HTTPS, or on this machine at localhost.
-      </p>
-    {/if}
+  <form onsubmit={submit} novalidate>
+    <label class="field">
+      <span>Email address</span>
+      <input
+        type="email"
+        name="email"
+        autocomplete="username"
+        spellcheck="false"
+        bind:value={email}
+      />
+    </label>
+    <label class="field">
+      <span>Password</span>
+      <input
+        type="password"
+        name="password"
+        autocomplete="current-password"
+        bind:value={password}
+      />
+    </label>
+    <button class="button large primary" type="submit">Sign in</button>
+    <p class="problem" role="status">
+      {problem === null ? "" : PROBLEMS[problem]}
+    </p>
+  </form>
 
-    <form onsubmit={submit} novalidate>
-      <label class="field">
-        <span>Email address</span>
-        <input
-          type="email"
-          name="email"
-          autocomplete="username"
-          spellcheck="false"
-          bind:value={email}
-        />
-      </label>
-      <label class="field">
-        <span>Password</span>
-        <input
-          type="password"
-          name="password"
-          autocomplete="current-password"
-          bind:value={password}
-        />
-      </label>
-      <button class="button large primary" type="submit">Sign in</button>
-      <p class="problem" role="status">
-        {problem === null ? "" : PROBLEMS[problem]}
-      </p>
-    </form>
-
-    <p class="note">Accounts and passwords are managed on the server.</p>
-  </div>
-</main>
+  <p class="note">Accounts and passwords are managed on the server.</p>
+</Standalone>
 
 <style>
-  main {
-    display: grid;
-    place-items: center;
-    min-height: 100dvh;
-    padding: var(--space-32) var(--space-16);
-    background: var(--panel);
-  }
-
-  .column {
-    display: grid;
-    gap: var(--space-16);
-    width: 100%;
-    max-width: var(--form-width);
-  }
-
-  h1 {
-    font-size: var(--size-section);
-    font-weight: var(--weight-strong);
-    letter-spacing: var(--tracking-section);
-  }
-
   .ended {
     color: var(--text-2);
   }
