@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/maltehedderich/mailarkiv/internal/archive"
@@ -56,6 +57,7 @@ func Routes() []Route {
 		{Method: http.MethodPost, Path: "/api/imports", Access: SignedIn, Handler: importFile},
 		{Method: http.MethodGet, Path: "/api/messages", Access: SignedIn, Handler: listMessages},
 		{Method: http.MethodGet, Path: "/api/messages/{id}/original", Access: SignedIn, Handler: downloadOriginal, NoSession: redirectToSignIn},
+		{Method: http.MethodGet, Path: "/api/status", Access: SignedIn, Handler: readStatus},
 		{Path: "/", Access: Public, Handler: serveStatic},
 	}
 }
@@ -197,6 +199,9 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 		panic(err)
 	}
 	w.Header().Set("Content-Type", "application/json")
+	// Without a length, a flush before the handler returns would send the answer
+	// chunked, and a client couldn't tell it was complete until the handler ended.
+	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
 	w.WriteHeader(status)
 	// A failed write means the client left. There's no one to tell.
 	_, _ = w.Write(body)

@@ -5,14 +5,17 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"io/fs"
 	"net/http"
+	"os"
 	"path/filepath"
 	"reflect"
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 const goodPassword = "correct horse battery"
@@ -171,4 +174,60 @@ func (g *generated) Read(p []byte) (int, error) {
 	}
 	g.offset += n
 	return int(n), nil
+}
+
+// blobFile is where the stored original with this hash lives.
+func (h *harness) blobFile(hash string) string {
+	return filepath.Join(h.dataDir, "blobs", hash[0:2], hash[2:4], hash)
+}
+
+// writeBlob puts bytes at the hash's blob path, the way an earlier crash or a
+// damaged disk would leave them.
+func (h *harness) writeBlob(t *testing.T, hash string, body []byte) {
+	t.Helper()
+	path := h.blobFile(hash)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// makeBlobUnreadable leaves a link to itself at the hash's blob path. Opening it
+// fails for every user, root included, and a rename replaces it.
+func (h *harness) makeBlobUnreadable(t *testing.T, hash string) {
+	t.Helper()
+	path := h.blobFile(hash)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(path, path); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// tempFileCount counts what's in tmp/.
+func (h *harness) tempFileCount(t *testing.T) int {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Join(h.dataDir, "tmp"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return len(entries)
+}
+
+// waitFor polls until the condition holds, and fails the test at the deadline.
+func waitFor(t *testing.T, what string, condition func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for !condition() {
+		if time.Now().After(deadline) {
+			t.Fatalf("%s didn't happen within 10 seconds", what)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 }

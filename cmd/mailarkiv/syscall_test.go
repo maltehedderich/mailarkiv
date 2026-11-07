@@ -2,8 +2,6 @@ package main
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -55,9 +53,20 @@ func parseTrace(trace string) []traceCall {
 func isSync(c traceCall) bool   { return c.name == "fsync" || c.name == "fdatasync" }
 func isRename(c traceCall) bool { return strings.HasPrefix(c.name, "rename") }
 
-// ARCHITECTURE.md rule 3, FR-012: the 201 leaves only after the bytes, their
-// directory entries, and the catalog commit are on disk.
-func TestCaptureSyscallOrder(t *testing.T) {
+// traceStep is one call the trace must hold, in order.
+type traceStep struct {
+	name string
+	is   func(traceCall) bool
+	// once is set for calls that only this import makes. The first one in the
+	// whole trace must be the one in order, so a stray early call fails.
+	once bool
+}
+
+// traceImport runs the server under strace and imports content. seed, if any,
+// changes the data directory before the server starts. It returns the data
+// directory and the calls the import traced, with the server stopped.
+func traceImport(t *testing.T, content []byte, seed func(dataDir string)) (string, []traceCall) {
+	t.Helper()
 	stracePath, err := exec.LookPath("strace")
 	if err != nil {
 		t.Fatalf("this test needs strace: %v", err)
@@ -68,8 +77,9 @@ func TestCaptureSyscallOrder(t *testing.T) {
 	}
 	dataDir := filepath.Join(root, "data")
 	traceFile := filepath.Join(root, "trace")
-	if code, _, stderr := runAccount(t, accountPassword+"\n", "account", "create", "--data-dir", dataDir, "admin@example.test"); code != 0 {
-		t.Fatalf("account create = %d: %s", code, stderr)
+	createAdmin(t, dataDir)
+	if seed != nil {
+		seed(dataDir)
 	}
 
 	// -s 256 prints the rename's whole blob path and the response's status line.
@@ -80,8 +90,7 @@ func TestCaptureSyscallOrder(t *testing.T) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	server := startProcess(t, cmd)
 
-	cookie := signInOverHTTP(t, server.baseURL, "admin@example.test")
-	content := []byte("From: sender@example.test\r\nTo: admin@example.test\r\nSubject: Traced\r\n\r\nBody.\r\n")
+	cookie := signInOverHTTP(t, server.baseURL, adminAddress)
 	response, body := postImport(t, server.baseURL, cookie, content)
 	if response.StatusCode != http.StatusCreated {
 		t.Fatalf("import = %d %s, want 201", response.StatusCode, body)
@@ -94,37 +103,12 @@ func TestCaptureSyscallOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	calls := parseTrace(string(read))
+	return dataDir, parseTrace(string(read))
+}
 
-	sum := sha256.Sum256(content)
-	hash := hex.EncodeToString(sum[:])
-	leaf := filepath.Join(dataDir, "blobs", hash[0:2], hash[2:4])
-	syncOf := func(path string) func(traceCall) bool {
-		return func(c traceCall) bool { return isSync(c) && c.path == path }
-	}
-	steps := []struct {
-		name string
-		is   func(traceCall) bool
-		// once is set for calls that only this import makes. The first one in
-		// the whole trace must be the one in order, so a stray early call fails.
-		once bool
-	}{
-		{"fsync of tmp/up-…", func(c traceCall) bool {
-			return isSync(c) && strings.HasPrefix(c.path, filepath.Join(dataDir, "tmp", "up-"))
-		}, true},
-		{"rename to blobs/ab/cd/<hash>", func(c traceCall) bool { return isRename(c) && c.path == filepath.Join(leaf, hash) }, true},
-		{"fsync of blobs/ab/cd", syncOf(leaf), true},
-		{"fsync of blobs/ab", syncOf(filepath.Dir(leaf)), true},
-		{"fsync of blobs", syncOf(filepath.Join(dataDir, "blobs")), true},
-		{"fsync of the data dir", syncOf(dataDir), false},
-		// Sign-in committed a session earlier, so this one isn't the first.
-		{"fsync of catalog.db-wal", syncOf(filepath.Join(dataDir, "catalog.db-wal")), false},
-		{"write of HTTP/1.1 201 on the socket", func(c traceCall) bool {
-			return c.name == "write" && (strings.HasPrefix(c.path, "socket:") || strings.HasPrefix(c.path, "TCP")) &&
-				strings.HasPrefix(c.data, "HTTP/1.1 201 ")
-		}, true},
-	}
-
+// assertTraceOrder checks that the calls hold every step, in the steps' order.
+func assertTraceOrder(t *testing.T, calls []traceCall, steps []traceStep) {
+	t.Helper()
 	after := -1
 	for _, step := range steps {
 		found := -1
@@ -146,6 +130,74 @@ func TestCaptureSyscallOrder(t *testing.T) {
 		}
 		after = found
 	}
+}
+
+func syncOf(path string) func(traceCall) bool {
+	return func(c traceCall) bool { return isSync(c) && c.path == path }
+}
+
+// tempFileSync is the fsync of the upload's temp file.
+func tempFileSync(dataDir string) traceStep {
+	return traceStep{"fsync of tmp/up-…", func(c traceCall) bool {
+		return isSync(c) && strings.HasPrefix(c.path, filepath.Join(dataDir, "tmp", "up-"))
+	}, true}
+}
+
+// durableAfterBlob is what every path shares once the blob is in place: its
+// directories, then the catalog, then the answer.
+func durableAfterBlob(dataDir, hash string) []traceStep {
+	leaf := filepath.Dir(blobPath(dataDir, hash))
+	return []traceStep{
+		{"fsync of blobs/ab/cd", syncOf(leaf), true},
+		{"fsync of blobs/ab", syncOf(filepath.Dir(leaf)), true},
+		{"fsync of blobs", syncOf(filepath.Join(dataDir, "blobs")), true},
+		{"fsync of the data dir", syncOf(dataDir), false},
+		// Sign-in committed a session earlier, so this one isn't the first.
+		{"fsync of catalog.db-wal", syncOf(filepath.Join(dataDir, "catalog.db-wal")), false},
+		{"write of HTTP/1.1 201 on the socket", func(c traceCall) bool {
+			return c.name == "write" && (strings.HasPrefix(c.path, "socket:") || strings.HasPrefix(c.path, "TCP")) &&
+				strings.HasPrefix(c.data, "HTTP/1.1 201 ")
+		}, true},
+	}
+}
+
+// ARCHITECTURE.md rule 3, FR-012: the 201 leaves only after the bytes, their
+// directory entries, and the catalog commit are on disk.
+func TestCaptureSyscallOrder(t *testing.T) {
+	t.Run("new bytes", func(t *testing.T) {
+		content := []byte("From: sender@example.test\r\nTo: admin@example.test\r\nSubject: Traced\r\n\r\nBody.\r\n")
+		hash := contentHash(content)
+
+		dataDir, calls := traceImport(t, content, nil)
+
+		blob := blobPath(dataDir, hash)
+		steps := []traceStep{
+			tempFileSync(dataDir),
+			{"rename to blobs/ab/cd/<hash>", func(c traceCall) bool { return isRename(c) && c.path == blob }, true},
+		}
+		assertTraceOrder(t, calls, append(steps, durableAfterBlob(dataDir, hash)...))
+	})
+
+	// A crash can leave a blob visible but not yet durable. Before the catalog
+	// entry that depends on it commits, capture must make it durable.
+	t.Run("reused blob", func(t *testing.T) {
+		content := []byte("From: sender@example.test\r\nTo: admin@example.test\r\nSubject: Reused\r\n\r\nBody.\r\n")
+		hash := contentHash(content)
+
+		dataDir, calls := traceImport(t, content, func(dataDir string) { seedBlob(t, dataDir, content) })
+
+		blob := blobPath(dataDir, hash)
+		steps := []traceStep{
+			tempFileSync(dataDir),
+			{"fsync of the stored blob", syncOf(blob), true},
+		}
+		assertTraceOrder(t, calls, append(steps, durableAfterBlob(dataDir, hash)...))
+		for _, c := range calls {
+			if isRename(c) && c.path == blob {
+				t.Errorf("trace line %d renames over a blob that already matched", c.line)
+			}
+		}
+	})
 }
 
 func lineOf(calls []traceCall, index int) int {

@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/maltehedderich/mailarkiv/internal/fault"
 	"github.com/maltehedderich/mailarkiv/internal/opstatus"
 	"github.com/maltehedderich/mailarkiv/internal/sqlitedb"
 )
@@ -26,8 +27,8 @@ const copyBufferSize = 256 << 10
 // result only after all of these finish, so the result survives a power loss
 // (FR-012). Every other result leaves no list entry and no partial file (FR-013).
 //
-// An error means the server failed in a way no result covers. The caller
-// answers 500.
+// An error means the server failed in a way no result covers, with nothing
+// stored. The caller answers 500, and the client shows Unconfirmed.
 func (a *Archive) Import(ctx context.Context, body io.Reader, meta ImportMeta) (Result, error) {
 	head := make([]byte, headSize)
 	n, err := io.ReadFull(body, head)
@@ -47,13 +48,13 @@ func (a *Archive) Import(ctx context.Context, body io.Reader, meta ImportMeta) (
 
 	// Once the bytes are in, capture finishes even if the client leaves, so the
 	// archive matches whatever the client might later learn.
-	return a.capture(context.WithoutCancel(ctx), head, body, meta), nil
+	return a.capture(context.WithoutCancel(ctx), head, body, meta)
 }
 
-func (a *Archive) capture(ctx context.Context, head []byte, rest io.Reader, meta ImportMeta) Result {
-	temp, err := os.CreateTemp(a.tmpDir, "up-*")
+func (a *Archive) capture(ctx context.Context, head []byte, rest io.Reader, meta ImportMeta) (Result, error) {
+	temp, err := a.createTemp()
 	if err != nil {
-		return a.fail(storageCategory(err), "", fmt.Errorf("create a temp file: %w", err))
+		return a.fail(storageCategory(err), "", fmt.Errorf("create a temp file: %w", err)), nil
 	}
 
 	size, contentHash, result := a.receive(temp, head, rest)
@@ -63,20 +64,54 @@ func (a *Archive) capture(ctx context.Context, head []byte, rest io.Reader, meta
 	}
 	if result != nil {
 		a.removeTemp(temp.Name())
-		return result
+		return result, nil
 	}
 
-	if err := a.storeBlob(temp.Name(), contentHash); err != nil {
+	// Read the row before checking the blob. Two imports of the same new bytes
+	// can both find no blob, and this separates that race from a blob that really
+	// went missing. This isn't Catalog write failed, because FR-038 says that one
+	// means the original was stored.
+	rowBefore, err := a.messageExists(ctx, contentHash)
+	if err != nil {
 		a.removeTemp(temp.Name())
-		return a.fail(opstatus.StorageWriteFailed, contentHash, err)
+		return nil, fmt.Errorf("read whether the message exists: %w", err)
 	}
 
-	outcome, message, err := a.commit(ctx, contentHash, size, meta)
+	blob, err := a.ensureBlob(temp.Name(), contentHash)
+	if err != nil {
+		a.removeTemp(temp.Name())
+		return a.fail(opstatus.StorageWriteFailed, contentHash, err), nil
+	}
+
+	message, rowAtCommit, err := a.commit(ctx, contentHash, size, meta)
 	if err != nil {
 		// The blob stays. Recovery lists it as unreferenced at the next start.
-		return a.fail(opstatus.CatalogWriteFailed, contentHash, err)
+		return a.fail(opstatus.CatalogWriteFailed, contentHash, err), nil
 	}
-	return Stored{Outcome: outcome, Message: message}
+	// Only a kill means anything here. The commit is done, so no error path is left.
+	_ = fault.At("after-commit")
+
+	outcome, event := decideOutcome(rowBefore, rowAtCommit, blob)
+	if event != noEvent {
+		a.status.RecordFailure(opstatus.FailureEvent{
+			Category:    event,
+			MessageID:   &message.ID,
+			ContentHash: &contentHash,
+			Restored:    true,
+		})
+	}
+	a.status.RemoveUnreferenced(contentHash)
+	return Stored{Outcome: outcome, Message: message}, nil
+}
+
+func (a *Archive) createTemp() (*os.File, error) {
+	if err := fault.At("before-temp-create"); err != nil {
+		return nil, err
+	}
+	if err := fault.At("temp-create"); err != nil {
+		return nil, err
+	}
+	return os.CreateTemp(a.tmpDir, "up-*")
 }
 
 // receive streams the file into temp, hashing it on the way, and fsyncs it. A
@@ -85,12 +120,15 @@ func (a *Archive) capture(ctx context.Context, head []byte, rest io.Reader, meta
 func (a *Archive) receive(temp *os.File, head []byte, rest io.Reader) (int64, string, Result) {
 	hash := sha256.New()
 	write := func(p []byte) error {
+		if err := fault.At("temp-write"); err != nil {
+			return err
+		}
 		if _, err := temp.Write(p); err != nil {
 			return err
 		}
 		// A hash.Hash never returns an error from Write.
 		_, _ = hash.Write(p)
-		return nil
+		return fault.At("mid-temp-write")
 	}
 
 	if err := write(head); err != nil {
@@ -117,36 +155,140 @@ func (a *Archive) receive(temp *os.File, head []byte, rest io.Reader) (int64, st
 		}
 	}
 
-	if err := temp.Sync(); err != nil {
+	if err := syncTemp(temp); err != nil {
 		return 0, "", a.fail(storageCategory(err), "", fmt.Errorf("sync the temp file: %w", err))
 	}
 	return size, hex.EncodeToString(hash.Sum(nil)), nil
 }
 
-// storeBlob renames the temp file to its blob path, then fsyncs every directory
-// from the blob's up to the data directory. MkdirAll may have just created
-// blobs/ab and blobs/ab/cd, and their entries must be durable too.
-func (a *Archive) storeBlob(tempPath, contentHash string) error {
+func syncTemp(temp *os.File) error {
+	if err := fault.At("temp-fsync"); err != nil {
+		return err
+	}
+	if err := temp.Sync(); err != nil {
+		return err
+	}
+	return fault.At("after-temp-fsync")
+}
+
+// messageExists reads whether a message row holds this hash.
+func (a *Archive) messageExists(ctx context.Context, contentHash string) (bool, error) {
+	if err := fault.At("row-read"); err != nil {
+		return false, err
+	}
+	var exists bool
+	err := a.db.Reader.QueryRowContext(ctx,
+		"SELECT EXISTS (SELECT 1 FROM message WHERE content_hash = ?)", contentHash).Scan(&exists)
+	return exists, err
+}
+
+// ensureBlob leaves a durable, matching blob at the hash's path and returns what
+// it found there. A blob that already matches is reused and the temp file goes.
+// It may be visible only because of an earlier crash, so the blob and every
+// directory up to the data directory get an fsync before the commit that makes
+// them part of a confirmation. Anything else is replaced by the temp file.
+func (a *Archive) ensureBlob(tempPath, contentHash string) (blobState, error) {
 	blob := a.blobPath(contentHash)
 	leaf := filepath.Dir(blob)
-	if err := os.MkdirAll(leaf, 0o700); err != nil {
+
+	found := inspectBlob(blob, contentHash)
+	if found == blobMatching {
+		a.removeTemp(tempPath)
+		if err := syncFile(blob); err != nil {
+			return found, err
+		}
+	} else if err := moveIntoPlace(tempPath, blob); err != nil {
+		return found, err
+	}
+
+	if err := fault.At("dir-fsync"); err != nil {
+		return found, fmt.Errorf("sync a directory: %w", err)
+	}
+	for _, dir := range []string{leaf, filepath.Dir(leaf), a.blobsDir, a.dataDir} {
+		if err := syncDir(dir); err != nil {
+			return found, err
+		}
+	}
+	if err := fault.At("after-dir-fsync"); err != nil {
+		return found, fmt.Errorf("sync a directory: %w", err)
+	}
+	return found, nil
+}
+
+// inspectBlob hashes the whole file. A file that can't be read counts as not
+// matching, because FR-038's Stored original damaged covers both.
+func inspectBlob(path, contentHash string) blobState {
+	file, err := os.Open(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return blobAbsent
+	}
+	if err != nil {
+		return blobNotMatching
+	}
+	// Opened for reading only, so closing it can't lose anything.
+	defer file.Close()
+
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return blobNotMatching
+	}
+	if hex.EncodeToString(hash.Sum(nil)) != contentHash {
+		return blobNotMatching
+	}
+	return blobMatching
+}
+
+// moveIntoPlace renames the temp file to its blob path. MkdirAll may create
+// blobs/ab and blobs/ab/cd, which ensureBlob's directory fsyncs then cover.
+func moveIntoPlace(tempPath, blob string) error {
+	if err := os.MkdirAll(filepath.Dir(blob), 0o700); err != nil {
 		return fmt.Errorf("create the blob directory: %w", err)
+	}
+	if err := fault.At("rename"); err != nil {
+		return fmt.Errorf("move the temp file into place: %w", err)
 	}
 	if err := os.Rename(tempPath, blob); err != nil {
 		return fmt.Errorf("move the temp file into place: %w", err)
 	}
-	for _, dir := range []string{leaf, filepath.Dir(leaf), a.blobsDir, a.dataDir} {
-		if err := syncDir(dir); err != nil {
-			return err
-		}
+	if err := fault.At("after-rename"); err != nil {
+		return fmt.Errorf("move the temp file into place: %w", err)
 	}
 	return nil
 }
 
+// decideOutcome is the data model's outcome table. The second result is the
+// failure event to record, or noEvent. A row that was there before and is gone
+// at commit can't happen, because nothing deletes rows in this slice.
+func decideOutcome(rowBefore, rowAtCommit bool, blob blobState) (Outcome, opstatus.Category) {
+	switch {
+	case !rowAtCommit && blob == blobNotMatching:
+		return Archived, opstatus.StoredOriginalDamaged
+	case !rowAtCommit:
+		return Archived, noEvent
+	case blob == blobMatching:
+		return AlreadyArchived, noEvent
+	case blob == blobNotMatching:
+		return Restored, opstatus.StoredOriginalDamaged
+	case rowBefore:
+		return Restored, opstatus.StoredOriginalMissing
+	default:
+		// Another import of the same new bytes committed first.
+		return AlreadyArchived, noEvent
+	}
+}
+
 // commit records the import in one transaction. The message row and its
 // latest_observation_id are set together, so a committed row is never NULL
-// there, and the list's join can't hide it.
-func (a *Archive) commit(ctx context.Context, contentHash string, size int64, meta ImportMeta) (Outcome, Message, error) {
+// there, and the list's join can't hide it. The bool reports whether the row
+// already existed at commit.
+func (a *Archive) commit(ctx context.Context, contentHash string, size int64, meta ImportMeta) (Message, bool, error) {
+	if err := fault.At("before-commit"); err != nil {
+		return Message{}, false, fmt.Errorf("record the import: %w", err)
+	}
+	if err := fault.At("commit"); err != nil {
+		return Message{}, false, fmt.Errorf("record the import: %w", err)
+	}
+
 	observedAt := a.now().UnixMilli()
 	message := Message{
 		ContentHash: contentHash,
@@ -154,7 +296,7 @@ func (a *Archive) commit(ctx context.Context, contentHash string, size int64, me
 		FileName:    meta.FileName,
 		ImportedAt:  time.UnixMilli(observedAt).UTC(),
 	}
-	outcome := AlreadyArchived
+	var rowAtCommit bool
 
 	err := sqlitedb.InTx(ctx, a.db.Writer, func(tx *sql.Tx) error {
 		inserted, err := tx.ExecContext(ctx,
@@ -167,9 +309,7 @@ func (a *Archive) commit(ctx context.Context, contentHash string, size int64, me
 		if err != nil {
 			return err
 		}
-		if added == 1 {
-			outcome = Archived
-		}
+		rowAtCommit = added == 0
 
 		if err := tx.QueryRowContext(ctx,
 			"SELECT id FROM message WHERE content_hash = ?", contentHash).Scan(&message.ID); err != nil {
@@ -194,9 +334,9 @@ func (a *Archive) commit(ctx context.Context, contentHash string, size int64, me
 			"SELECT COUNT(*) FROM source_observation WHERE message_id = ?", message.ID).Scan(&message.ImportCount)
 	})
 	if err != nil {
-		return Outcome{}, Message{}, fmt.Errorf("record the import: %w", err)
+		return Message{}, false, fmt.Errorf("record the import: %w", err)
 	}
-	return outcome, message, nil
+	return message, rowAtCommit, nil
 }
 
 // fail records a failure event, which opstatus also logs (FR-028), and logs the
@@ -229,6 +369,23 @@ func storageCategory(err error) opstatus.Category {
 	return opstatus.StorageWriteFailed
 }
 
+// syncFile fsyncs a file that's already in place.
+func syncFile(path string) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("open a stored original to sync it: %w", err)
+	}
+	syncErr := file.Sync()
+	closeErr := file.Close()
+	if syncErr != nil {
+		return fmt.Errorf("sync a stored original: %w", syncErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("close a synced stored original: %w", closeErr)
+	}
+	return nil
+}
+
 func syncDir(path string) error {
 	dir, err := os.Open(path)
 	if err != nil {
@@ -252,3 +409,15 @@ func nullable(s *string) sql.NullString {
 	}
 	return sql.NullString{String: *s, Valid: true}
 }
+
+// blobState is what inspecting a blob's path found.
+type blobState struct{ name string }
+
+var (
+	blobAbsent      = blobState{"absent"}
+	blobMatching    = blobState{"matching"}
+	blobNotMatching = blobState{"not_matching"}
+)
+
+// noEvent means an import's outcome records no failure event.
+var noEvent = opstatus.Category{}

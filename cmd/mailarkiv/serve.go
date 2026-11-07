@@ -37,6 +37,7 @@ const (
 // Startup causes, logged in the "cause" field when the server refuses to start,
 // so the log names what failed (FR-026).
 const (
+	causeLock    = "lock"
 	causeStorage = "storage"
 	causeCatalog = "catalog"
 	causePort    = "port"
@@ -65,6 +66,17 @@ func serve(args []string) int {
 		return startupFailed(logger, causeStorage, err)
 	}
 
+	lock, err := takeLock(*dataDir)
+	if err != nil {
+		return startupFailed(logger, causeLock, err)
+	}
+	// Closing it releases the lock, and exiting would too. It has nothing to flush.
+	defer lock.Close()
+
+	if err := archive.CheckStorage(*dataDir); err != nil {
+		return startupFailed(logger, causeStorage, err)
+	}
+
 	db, err := sqlitedb.Open(filepath.Join(*dataDir, "catalog.db"))
 	if err != nil {
 		return startupFailed(logger, causeCatalog, err)
@@ -77,7 +89,22 @@ func serve(args []string) int {
 	return code
 }
 
-// serveCatalog builds the modules on the open catalog and serves them.
+// takeLock holds <data-dir>/lock for as long as the returned file stays open, so
+// a second server can't delete this one's temp files during recovery. The kernel
+// releases it when the process ends, however it ends. The account commands don't
+// take it, because they only touch the catalog, which SQLite protects.
+func takeLock(dataDir string) (*os.File, error) {
+	file, err := os.OpenFile(filepath.Join(dataDir, "lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("open the lock file: %w", err)
+	}
+	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		return nil, errors.Join(fmt.Errorf("take the data directory's lock, which another server may hold: %w", err), file.Close())
+	}
+	return file, nil
+}
+
+// serveCatalog builds the modules on the open catalog, runs recovery, and serves.
 func serveCatalog(logger *slog.Logger, dataDir string, db *sqlitedb.DB, listen string) int {
 	files, err := fs.Sub(frontend.Build, "build")
 	if err != nil {
@@ -87,6 +114,12 @@ func serveCatalog(logger *slog.Logger, dataDir string, db *sqlitedb.DB, listen s
 	status := opstatus.New(logger, time.Now)
 	originals, err := archive.Open(dataDir, db, status, logger, time.Now)
 	if err != nil {
+		return startupFailed(logger, causeStorage, err)
+	}
+	if err := originals.Recover(context.Background()); err != nil {
+		if errors.Is(err, archive.ErrCatalogUnusable) {
+			return startupFailed(logger, causeCatalog, err)
+		}
 		return startupFailed(logger, causeStorage, err)
 	}
 	return listenAndServe(logger, listen, web.New(web.Deps{

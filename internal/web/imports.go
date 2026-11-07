@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/maltehedderich/mailarkiv/internal/archive"
+	"github.com/maltehedderich/mailarkiv/internal/fault"
 	"github.com/maltehedderich/mailarkiv/internal/opstatus"
 )
 
@@ -47,11 +48,7 @@ func importFile(s *server, w http.ResponseWriter, r *http.Request) {
 	}
 	body := &stallReader{body: r.Body, controller: controller}
 	meta := archive.ImportMeta{AccountEmail: signedInAccount(r).Email, FileName: fileName}
-	result, err := s.archive.Import(r.Context(), body, meta)
-	if err != nil {
-		s.writeInternalError(w, r, err)
-		return
-	}
+	result, importErr := s.archive.Import(r.Context(), body, meta)
 	if _, dropped := result.(archive.Dropped); dropped {
 		// The body ended early, so no one is waiting for an answer. This ends the
 		// connection without writing anything.
@@ -59,9 +56,13 @@ func importFile(s *server, w http.ResponseWriter, r *http.Request) {
 	}
 
 	// The server's 30 second WriteTimeout started when the headers were read, so
-	// after a long upload the answer would never leave.
+	// after a long upload no answer would leave, including the 500 below.
 	if err := controller.SetWriteDeadline(time.Now().Add(transferStall)); err != nil {
 		s.writeInternalError(w, r, fmt.Errorf("set the write deadline: %w", err))
+		return
+	}
+	if importErr != nil {
+		s.writeInternalError(w, r, importErr)
 		return
 	}
 	switch result := result.(type) {
@@ -86,7 +87,13 @@ func importFile(s *server, w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, status, importAnswer{Outcome: "failed", Reason: result.Category.String()})
 	default:
 		s.writeInternalError(w, r, fmt.Errorf("unknown import result %T", result))
+		return
 	}
+
+	// A failed flush means the client left, and the import stands whatever it saw.
+	_ = controller.Flush()
+	// Only a kill means anything here. The answer is out, so no error path is left.
+	_ = fault.At("after-response")
 }
 
 // decodeFileName reads the optional name header. It returns false when the

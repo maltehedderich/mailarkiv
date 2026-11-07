@@ -79,6 +79,7 @@ type Outcome struct{ name string }
 var (
 	Archived        = Outcome{"archived"}
 	AlreadyArchived = Outcome{"already_archived"}
+	Restored        = Outcome{"restored"}
 )
 
 // String returns the outcome's name, which the API shares.

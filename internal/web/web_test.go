@@ -71,6 +71,8 @@ type harness struct {
 	dataDir  string
 	db       *sqlitedb.DB
 	identity *identity.Identity
+	archive  *archive.Archive
+	status   *opstatus.Status
 	clock    *fakeClock
 }
 
@@ -111,6 +113,8 @@ func (h *harness) deps(t *testing.T) Deps {
 	if err != nil {
 		t.Fatal(err)
 	}
+	h.archive = files
+	h.status = status
 	return Deps{
 		Files:    staticFiles(),
 		Logger:   logger,

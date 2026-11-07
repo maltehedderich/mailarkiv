@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -504,4 +505,40 @@ func TestCatalogWriteFailure(t *testing.T) {
 	}
 	f.assertTempEmpty(t)
 	f.assertNothingListed(t)
+}
+
+// Every line of the data model's Import outcome table, with each "Either" as
+// both values. A test can reach the "No, Yes" lines only by timing two imports,
+// so this is where they are pinned down.
+func TestDecideOutcome(t *testing.T) {
+	tests := []struct {
+		rowBefore   bool
+		rowAtCommit bool
+		blob        blobState
+		outcome     Outcome
+		event       opstatus.Category
+	}{
+		{false, false, blobAbsent, Archived, noEvent},
+		{false, false, blobMatching, Archived, noEvent},
+		{false, false, blobNotMatching, Archived, opstatus.StoredOriginalDamaged},
+		// Two imports of new bytes both found no blob, and the other committed
+		// first. Nothing went missing.
+		{false, true, blobAbsent, AlreadyArchived, noEvent},
+		{false, true, blobMatching, AlreadyArchived, noEvent},
+		{true, true, blobMatching, AlreadyArchived, noEvent},
+		{true, true, blobAbsent, Restored, opstatus.StoredOriginalMissing},
+		{false, true, blobNotMatching, Restored, opstatus.StoredOriginalDamaged},
+		{true, true, blobNotMatching, Restored, opstatus.StoredOriginalDamaged},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("before=%t commit=%t blob=%s", tt.rowBefore, tt.rowAtCommit, tt.blob.name), func(t *testing.T) {
+			outcome, event := decideOutcome(tt.rowBefore, tt.rowAtCommit, tt.blob)
+			if outcome != tt.outcome {
+				t.Errorf("outcome = %q, want %q", outcome, tt.outcome)
+			}
+			if event != tt.event {
+				t.Errorf("event = %q, want %q", event, tt.event)
+			}
+		})
+	}
 }
