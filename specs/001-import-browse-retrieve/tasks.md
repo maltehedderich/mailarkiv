@@ -414,19 +414,19 @@ Quickstart scenario 6 also moves from Slice 7 to Phase 9, because it uses the ng
 
 **Purpose**: Plan Slice 8. The operator guide, the README, the manual scenarios, and the last review.
 
-- [ ] T122 [P] Write `docs/OPERATIONS.md` for an operator who has never seen the project (FR-030, FR-031)
+- [X] T122 [P] Write `docs/OPERATIONS.md` for an operator who has never seen the project (FR-030, FR-031)
   - How to run the server, including `--data-dir`, `--listen`, and its default, where data lives, how to create an account and set a password, which user runs account commands, the 150 MB limit, and what a confirmation guarantees
   - What this slice doesn't promise: no tamper-proof storage, no encryption by the application, no backup until Slice 7, no deletion until Slice 6, no splitting of mbox files, and no email from the application, so no password reset by email
   - The operator provides HTTPS and a local filesystem that honors flush requests
   - An nginx block with `client_max_body_size 150m` and `proxy_request_buffering off`, served at the host's root
   - Safari over plain HTTP on localhost may refuse the session cookie. T127 confirms the result
-- [ ] T123 [P] Update the sign-in note in `frontend/src/routes/(public)/sign-in/+page.svelte` to point to the operator guide (FR-001), with a link to `docs/OPERATIONS.md` on GitHub and the path as visible text, so it still helps on a closed network. Update the Sign-in section of `frontend/DESIGN.md` to match
-- [ ] T124 [P] Update `README.md`: replace the planning status and "Start here" text with the current status and setup, and link to `docs/OPERATIONS.md`
-- [ ] T125 Run quickstart scenario 6 from `specs/001-import-browse-retrieve/quickstart.md` through nginx in Docker with the block from `docs/OPERATIONS.md`: a file over 1 MiB imports and moves from progress to storing, the default limit gives Failed naming the proxy, and a stopped server gives Unconfirmed (US3 scenarios 8 and 9). Correct the guide if the block doesn't work
+- [X] T123 [P] Update the sign-in note in `frontend/src/routes/(public)/sign-in/+page.svelte` to point to the operator guide (FR-001), with a link to `docs/OPERATIONS.md` on GitHub and the path as visible text, so it still helps on a closed network. Update the Sign-in section of `frontend/DESIGN.md` to match
+- [X] T124 [P] Update `README.md`: replace the planning status and "Start here" text with the current status and setup, and link to `docs/OPERATIONS.md`
+- [X] T125 Run quickstart scenario 6 from `specs/001-import-browse-retrieve/quickstart.md` through nginx in Docker with the block from `docs/OPERATIONS.md`: a file over 1 MiB imports and moves from progress to storing, the default limit gives Failed naming the proxy, and a stopped server gives Unconfirmed (US3 scenarios 8 and 9). Correct the guide if the block doesn't work
 - [ ] T126 Manual, needs a person. Follow quickstart scenario 1 from `specs/001-import-browse-retrieve/quickstart.md`, using only `docs/OPERATIONS.md`. Time it from the sign-in page opening to the saved file. It must take under 2 minutes (SC-001). Fix whatever caused the delay if it doesn't, and record the time in the pull request
 - [ ] T127 Manual, needs a person. Run quickstart scenario 8 from `specs/001-import-browse-retrieve/quickstart.md` in Firefox and Safari: scenario 1 and the failed download. Record any difference, and the Safari cookie result, in `docs/OPERATIONS.md`
-- [ ] T128 Run quickstart scenarios 2 to 5 as written in `specs/001-import-browse-retrieve/quickstart.md`, then walk its Issue #1 acceptance table and confirm that each criterion's named test exists and passes
-- [ ] T129 Run `mise run check`, then review against the constitution and `specs/001-import-browse-retrieve/plan.md`. Confirm by reading the code that the dummy hash runs for unknown addresses (risk 13). Search `frontend/src` for `{@html}` and "healthy". Check `frontend/DESIGN.md`'s cosmetic rules on each screen in both themes. See whether `deepmerge` has a fixed version or the plugin has dropped it, which would end the exception. Report every check run and any that couldn't run, as `AGENTS.md` requires
+- [X] T128 Run quickstart scenarios 2 to 5 as written in `specs/001-import-browse-retrieve/quickstart.md`, then walk its Issue #1 acceptance table and confirm that each criterion's named test exists and passes
+- [X] T129 Run `mise run check`, then review against the constitution and `specs/001-import-browse-retrieve/plan.md`. Confirm by reading the code that the dummy hash runs for unknown addresses (risk 13). Search `frontend/src` for `{@html}` and "healthy". Check `frontend/DESIGN.md`'s cosmetic rules on each screen in both themes. See whether `deepmerge` has a fixed version or the plugin has dropped it, which would end the exception. Report every check run and any that couldn't run, as `AGENTS.md` requires
 
 ---
 

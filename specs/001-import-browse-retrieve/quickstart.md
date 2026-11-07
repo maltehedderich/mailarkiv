@@ -2,7 +2,7 @@
 
 Use this guide to show that Slice 1 works once it is built. Automated checks cover most of it, and the manual scenarios cover what a script can't judge. All mail here is synthetic.
 
-Commands and test names below describe the planned implementation. They don't exist yet, so don't report any of them as passing until the tasks add them. [The API](contracts/http-api.md), [the command line](contracts/cli.md), and [the data model](data-model.md) hold the details.
+Every command and test named below exists. [The API](contracts/http-api.md), [the command line](contracts/cli.md), and [the data model](data-model.md) hold the details.
 
 ## Prerequisites
 
