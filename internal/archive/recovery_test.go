@@ -244,6 +244,8 @@ func TestRecovery(t *testing.T) {
 	const marker = "MARKERINVALIDNAME"
 	hash := hashOf([]byte("Subject: misplaced\n"))
 	upper := strings.ToUpper(hash)
+	// Distinct hashes keep these fixtures separate on case-insensitive disks.
+	upperDirectories := strings.ToUpper(hashOf([]byte("Subject: uppercase directories\n")))
 	invalid := []struct {
 		name string
 		path string
@@ -251,7 +253,7 @@ func TestRecovery(t *testing.T) {
 		{"wrong first prefix directory", "blobs/" + otherPair(hash[0:2]) + "/" + hash[2:4] + "/" + hash},
 		{"wrong second prefix directory", "blobs/" + hash[0:2] + "/" + otherPair(hash[2:4]) + "/" + hash},
 		{"uppercase hex", "blobs/" + hash[0:2] + "/" + hash[2:4] + "/" + upper},
-		{"uppercase hex in the directories too", "blobs/" + upper[0:2] + "/" + upper[2:4] + "/" + upper},
+		{"uppercase hex in the directories too", "blobs/" + upperDirectories[0:2] + "/" + upperDirectories[2:4] + "/" + upperDirectories},
 		{"short name", "blobs/" + hash[0:2] + "/" + hash[2:4] + "/" + hash[:63]},
 		{"long name", "blobs/" + hash[0:2] + "/" + hash[2:4] + "/" + hash + "0"},
 		{"not hex", "blobs/gg/gg/" + strings.Repeat("g", 64)},
