@@ -17,6 +17,11 @@
       "Sign-in didn't finish. Try again. If this repeats, check the server log.",
   };
 
+  // FR-001. The path is the link's text, so the note still helps on a network
+  // that can't reach GitHub.
+  const GUIDE =
+    "https://github.com/maltehedderich/mailarkiv/blob/main/docs/OPERATIONS.md";
+
   // The session cookie is Secure, so a browser on plain HTTP drops it without
   // saying so. localhost counts as secure.
   const secure = window.isSecureContext;
@@ -89,7 +94,10 @@
     </p>
   </form>
 
-  <p class="note">Accounts and passwords are managed on the server.</p>
+  <p class="note">
+    Accounts and passwords are managed on the server. Operator guide:
+    <a href={GUIDE}>docs/OPERATIONS.md</a>
+  </p>
 </Standalone>
 
 <style>
@@ -111,5 +119,9 @@
     color: var(--text-3);
     font-size: var(--size-label);
     line-height: var(--leading-label);
+  }
+
+  .note a {
+    color: var(--accent);
   }
 </style>

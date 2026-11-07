@@ -14,6 +14,8 @@ const PASSWORD = "correct horse battery";
 const NEW_PASSWORD = "a different horse battery";
 const ENDED = "Your session ended. Sign in again to continue.";
 const NOTE = "Accounts and passwords are managed on the server.";
+const GUIDE =
+  "https://github.com/maltehedderich/mailarkiv/blob/main/docs/OPERATIONS.md";
 const CONTENT = Buffer.from(
   "From: sender@example.test\r\nTo: admin@example.test\r\nSubject: Synthetic\r\n\r\nHello.\r\n",
 );
@@ -75,6 +77,11 @@ test("a fresh install offers only sign-in, with no way to create an account", as
   await expect(page).toHaveURL(`${server.origin}/sign-in`);
   await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
   await expect(page.getByText(NOTE)).toBeVisible();
+  // FR-001: the note points to the operator guide. The path is the link's
+  // text, so it still helps where GitHub can't be reached.
+  await expect(
+    page.getByRole("link", { name: "docs/OPERATIONS.md" }),
+  ).toHaveAttribute("href", GUIDE);
   // The only action on the page is signing in.
   await expect(page.getByRole("button")).toHaveText(["Sign in"]);
   await expect(

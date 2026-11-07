@@ -214,7 +214,7 @@ Sections stack with a `--line` above each: a 136 px label column, then content. 
 
 ### Sign-in
 
-Standalone. Email address, password, and a full-width primary Sign in. A standing note says "Accounts and passwords are managed on the server." When a session ended in this tab, a line above the form says "Your session ended. Sign in again to continue."
+Standalone. Email address, password, and a full-width primary Sign in. A standing note says "Accounts and passwords are managed on the server. Operator guide: docs/OPERATIONS.md", with the path as the link's text, pointing to the guide on GitHub. The path stays readable on a network that can't reach GitHub. When a session ended in this tab, a line above the form says "Your session ended. Sign in again to continue."
 
 ### Failed download
 
