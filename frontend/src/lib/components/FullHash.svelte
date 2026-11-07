@@ -27,7 +27,7 @@
     {/each}
   </code>
   <button
-    class="button icon-only"
+    class="button ghost icon-only"
     type="button"
     aria-label="Copy the content hash"
     onclick={copy}

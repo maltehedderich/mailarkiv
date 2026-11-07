@@ -171,8 +171,4 @@
   .next {
     color: var(--text-3);
   }
-
-  a {
-    color: var(--accent);
-  }
 </style>

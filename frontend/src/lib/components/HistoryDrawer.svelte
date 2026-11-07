@@ -42,7 +42,7 @@
     <h2 id="history-title">Import history</h2>
     <button
       bind:this={closeButton}
-      class="button icon-only"
+      class="button ghost icon-only"
       type="button"
       aria-label="Close"
       onclick={() => dialog.close()}

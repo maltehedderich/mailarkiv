@@ -51,7 +51,7 @@
   <!-- A plain link. The server's Content-Disposition makes it a download, and
        the router must not handle it. -->
   <a
-    class="button icon-only download"
+    class="button ghost icon-only download"
     href="/api/messages/{message.id}/original"
     aria-label="Download {name}"
     data-sveltekit-reload

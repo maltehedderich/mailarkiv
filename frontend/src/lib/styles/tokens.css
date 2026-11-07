@@ -27,6 +27,8 @@
   --weight-medium: 510;
   --weight-strong: 590;
   --tracking-section: -0.006em;
+  /* Form inputs at 720 px and below. iOS Safari zooms into smaller text. */
+  --size-input-touch: 16px;
 
   /* Space. Each name is its value in px. */
   --space-2: 2px;
@@ -92,7 +94,7 @@
   --state-ok: oklch(0.6 0.13 155);
   --state-warn: oklch(0.65 0.15 68);
   --state-bad: oklch(0.58 0.19 27);
-  --state-bad-text: oklch(0.48 0.17 27);
+  --state-bad-text: oklch(0.46 0.17 27);
   --state-bad-fill: oklch(0.58 0.19 27 / 0.16);
 
   /* Elevation */

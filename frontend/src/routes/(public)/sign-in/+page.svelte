@@ -120,8 +120,4 @@
     font-size: var(--size-label);
     line-height: var(--leading-label);
   }
-
-  .note a {
-    color: var(--accent);
-  }
 </style>
