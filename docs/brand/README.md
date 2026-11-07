@@ -2,12 +2,12 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="logo/lockup-horizontal-on-dark.svg">
-  <img alt="MailArkiv" src="logo/lockup-horizontal-on-light.svg" width="221" height="48">
+  <img alt="MailArkiv" src="logo/lockup-horizontal-on-light.svg" width="227" height="48">
 </picture>
 
 Use these files as they are: a solid tile with a drawer grip cut out of it, next to the name set in Archivo. The SVGs in `logo/` are the masters. Everything else here is exported from them, so re-export after any change to the drawing.
 
-The app uses copies of these: the 18 px lockup in `frontend/src/lib/components/Logo.svelte` and the favicons in `frontend/static/`. Update the copies when a drawing here changes.
+The app uses copies of these: the 18 px horizontal lockup and the stacked lockup in `frontend/src/lib/components/Logo.svelte`, and the favicons in `frontend/static/`. Update the copies when a drawing here changes.
 
 ## Pick a logo file
 
@@ -78,7 +78,7 @@ On a 24-unit tile:
 
 The wordmark is Archivo at width 110: "Mail" at weight 400, "Arkiv" at weight 640. Tracking is -8/1000 em, with 5 extra units between the l and the A when caps are scaled to 100 units. Both i dots are replaced by the grip's shape, 35% wider than Archivo's dot.
 
-In the horizontal lockup, caps are half the tile's height and the cap line sits on the grip's top edge. The gap between tile and word is 7 units on the 24 grid and 6 on the 18 grid. The stacked lockup makes the word 49.78 units wide under a 24-unit tile, with a gap of 6.
+In the horizontal lockup, caps are half the tile's height and the cap line sits on the grip's top edge. The gap between tile and word is 10 units on the 24 grid and 8 on the 18 grid. The stacked lockup makes the word 49.78 units wide under a 24-unit tile, with a gap of 9: 15 px at a 40 px tile, on whole pixels. The first drawing used gaps of 7, 6, and 6, which crowded the name against the tile. In the stacked lockup the gap was smaller than the name's cap height.
 
 Archivo appears only in the logo, as outlines, so no font file ships. It is copyright 2020 The Archivo Project Authors and licensed under the SIL Open Font License 1.1. The interface stays in Inter and hashes in Geist Mono.
 

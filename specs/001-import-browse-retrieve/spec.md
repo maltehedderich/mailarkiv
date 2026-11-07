@@ -88,7 +88,7 @@ Only a signed-in administrator can import, list, or download mail, including thr
 3. **Given** a signed-in administrator's browser visiting another website, **When** that site submits an import to MailArkiv, **Then** the import is rejected and nothing is stored.
 4. **Given** 10 failed sign-ins for one email address within 15 minutes, whether or not the account exists, **When** another attempt arrives, even with the correct password, **Then** it is refused for the next 15 minutes with the same message in both cases.
 5. **Given** a server operation with no declared access rule, **When** it is requested, **Then** it is denied.
-6. **Given** a fresh install with no accounts, **When** anyone opens the web interface, **Then** they see only the sign-in page, with its standing note that accounts and passwords are managed on the server, and cannot create an account there.
+6. **Given** a fresh install with no accounts, **When** anyone opens the web interface, **Then** they see only the sign-in page and cannot create an account there.
 7. **Given** a blocked account, **When** the operator sets a new password, **Then** the account can sign in at once.
 8. **Given** another website that embeds a MailArkiv page in a frame, **When** a browser loads it, **Then** the browser refuses to show the page.
 9. **Given** a session that ends while a page is open, **When** the administrator takes an action, **Then** the sign-in page opens and says the session ended, and signing in returns them to the same page.
@@ -177,7 +177,7 @@ Administrators and operators can tell when capture, recovery, or retrieval went 
 
 **Accounts and access**
 
-- **FR-001**: An operator on the server host MUST be able to create an administrator account for an email address and set a new password for an existing account. The web interface MUST NOT offer a way to create an account. The sign-in page MUST always say that accounts and passwords are managed on the server and point to the operator documentation, with the same note whether or not any account exists.
+- **FR-001**: An operator on the server host MUST be able to create an administrator account for an email address and set a new password for an existing account. The web interface MUST NOT offer a way to create an account, and the sign-in page MUST look the same whether or not any account exists.
 - **FR-002**: Passwords MUST contain valid UTF-8 text, have at least 12 characters, fit within 4,096 bytes, and be stored only in a form that cannot be reversed. Unsupported password replacements MUST leave the old password and sessions unchanged.
 - **FR-003**: Administrators MUST be able to sign in with an email address and password, and to sign out. A failed sign-in MUST NOT reveal whether the account exists, so a wrong password, an unknown address, and a malformed address MUST all show "That email address and password don't match."
 - **FR-004**: After 10 failed sign-ins for one submitted email address within 15 minutes, the system MUST refuse sign-in for that address for the next 15 minutes. The limit and its message MUST be the same whether or not the account exists. Setting a new password MUST lift the block. Sign-in MUST admit at most two attempts at once, with no waiting queue. Excess attempts MUST return an unavailable response immediately and MUST NOT count as address failures; admitted attempts still enforce the address block.

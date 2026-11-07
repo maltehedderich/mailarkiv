@@ -17,11 +17,6 @@
       "Sign-in didn't finish. Try again. If this repeats, check the server log.",
   };
 
-  // FR-001. The path is the link's text, so the note still helps on a network
-  // that can't reach GitHub.
-  const GUIDE =
-    "https://github.com/maltehedderich/mailarkiv/blob/main/docs/OPERATIONS.md";
-
   // The session cookie is Secure, so a browser on plain HTTP drops it without
   // saying so. localhost counts as secure.
   const secure = window.isSecureContext;
@@ -34,6 +29,9 @@
   // FR-040: only a tab that had a signed-in page open sees this.
   const ended = $derived(showsSessionEnded(page.url));
 
+  // FR-003 can't say which field is wrong, so both are marked.
+  const invalid = $derived(problem === "invalid");
+
   async function submit(event: SubmitEvent) {
     event.preventDefault();
     if (busy) return;
@@ -41,13 +39,18 @@
     // Clear first, so the same line is announced again after a second try.
     problem = null;
     const result = await signIn(email, password);
-    busy = false;
     if (result.kind === "ok") {
-      // Back to the page the session ended on (FR-040).
+      // Back to the page the session ended on (FR-040). Still busy until the
+      // page opens, so a second press can't send the form again.
       const next = safeNext(page.url.searchParams.get("next"), page.url.origin);
-      await goto(next, { replace: true });
+      try {
+        await goto(next, { replace: true });
+      } finally {
+        busy = false;
+      }
       return;
     }
+    busy = false;
     problem = result.kind;
   }
 </script>
@@ -57,15 +60,18 @@
 </svelte:head>
 
 <Standalone title="Sign in">
-  {#if ended}
-    <p class="ended">Your session ended. Sign in again to continue.</p>
-  {/if}
-
-  {#if !secure}
-    <p class="problem">
-      This address uses plain HTTP, so the browser won't keep the sign-in. Open
-      MailArkiv over HTTPS, or on this machine at localhost.
-    </p>
+  {#if ended || !secure}
+    <div class="notices">
+      {#if ended}
+        <p class="notice">Your session ended. Sign in again to continue.</p>
+      {/if}
+      {#if !secure}
+        <p class="notice problem">
+          This address uses plain HTTP, so the browser won't keep the sign-in.
+          Open MailArkiv over HTTPS, or on this machine at localhost.
+        </p>
+      {/if}
+    </div>
   {/if}
 
   <form onsubmit={submit} novalidate>
@@ -76,6 +82,8 @@
         name="email"
         autocomplete="username"
         spellcheck="false"
+        aria-invalid={invalid}
+        aria-describedby={invalid ? "sign-in-problem" : undefined}
         bind:value={email}
       />
     </label>
@@ -85,24 +93,44 @@
         type="password"
         name="password"
         autocomplete="current-password"
+        aria-invalid={invalid}
+        aria-describedby={invalid ? "sign-in-problem" : undefined}
         bind:value={password}
       />
     </label>
-    <button class="button large primary" type="submit">Sign in</button>
-    <p class="problem" role="status">
+    <!-- aria-disabled, not disabled, so focus stays on the button. -->
+    <button
+      class="button large primary"
+      type="submit"
+      aria-disabled={busy ? "true" : undefined}
+    >
+      {busy ? "Signing in…" : "Sign in"}
+    </button>
+    <p id="sign-in-problem" class="problem" role="status">
       {problem === null ? "" : PROBLEMS[problem]}
     </p>
   </form>
-
-  <p class="note">
-    Accounts and passwords are managed on the server. Operator guide:
-    <a href={GUIDE}>docs/OPERATIONS.md</a>
-  </p>
 </Standalone>
 
 <style>
-  .ended {
+  .notices {
+    display: grid;
+    gap: var(--space-8);
+  }
+
+  /* On --fill-1, like the import box, so it reads as a message and not as part
+     of the form. The transparent border is the edge in forced colours. */
+  .notice {
+    padding: var(--space-8) var(--space-12);
+    border: 1px solid transparent;
+    border-radius: var(--radius-medium);
+    background: var(--fill-1);
     color: var(--text-2);
+    text-wrap: pretty;
+  }
+
+  .notice.problem {
+    color: var(--state-bad-text);
   }
 
   form {
@@ -113,11 +141,5 @@
   form .button {
     width: 100%;
     margin-top: var(--space-4);
-  }
-
-  .note {
-    color: var(--text-3);
-    font-size: var(--size-label);
-    line-height: var(--leading-label);
   }
 </style>

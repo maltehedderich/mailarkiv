@@ -9,8 +9,12 @@
 <!-- A page with no sidebar, from DESIGN.md: sign-in. -->
 <main>
   <div class="column">
-    <p><Logo /></p>
-    <h1>{title}</h1>
+    <div class="head">
+      <Logo stacked />
+      <!-- The logo heads the page. Shown under it, the title read as a
+           tagline, so it's for screen readers. Pages set the tab title. -->
+      <h1 class="visually-hidden">{title}</h1>
+    </div>
     {@render children()}
   </div>
 </main>
@@ -29,14 +33,16 @@
 
   .column {
     display: grid;
-    gap: var(--space-16);
+    gap: var(--space-20);
     width: 100%;
     max-width: var(--form-width);
   }
 
-  h1 {
-    font-size: var(--size-section);
-    font-weight: var(--weight-strong);
-    letter-spacing: var(--tracking-section);
+  /* The logo sits centred over the column, 32 px above the content. The
+     content keeps its left edge, so labels and fields line up. */
+  .head {
+    display: grid;
+    justify-items: center;
+    margin-bottom: var(--space-12);
   }
 </style>

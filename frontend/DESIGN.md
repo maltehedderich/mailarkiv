@@ -110,7 +110,7 @@ The theme follows the system setting through `prefers-color-scheme` in `tokens.c
 | Label    | `--size-label`, `--leading-label` (12/16)     | regular or medium                              | Dates, sizes, column heads, field labels, notes        |
 | Evidence | `--size-evidence`, `--leading-body` (12.5/20) | regular, mono                                  | The full hash                                          |
 | Body     | `--size-body`, `--leading-body` (13/20)       | regular, or medium for names and button labels | Everything else                                        |
-| Section  | `--size-section`, `--leading-body` (14/20)    | strong, `--tracking-section`                   | View titles, status headings, standalone page headings |
+| Section  | `--size-section`, `--leading-body` (14/20)    | strong, `--tracking-section`                   | View titles and status headings                        |
 
 Inter sets everything except hashes. Its variable file gives the 510 and 590 weights in the tokens. Geist Mono sets hashes, and it has no Greek, which hashes don't need. Linear's `cv01` and `ss03` alternates aren't in the bundled Inter, so don't add those feature settings: they do nothing.
 
@@ -243,7 +243,17 @@ Sections stack with a `--line` above each: a 136 px label column, then content. 
 
 ### Sign-in
 
-Standalone. Email address, password, and a full-width primary Sign in. A standing note says "Accounts and passwords are managed on the server. Operator guide: docs/OPERATIONS.md", with the path as the link's text, pointing to the guide on GitHub. The path stays readable on a network that can't reach GitHub. When a session ended in this tab, a line above the form says "Your session ended. Sign in again to continue."
+Standalone. The stacked logo heads the column, centred and 32 px above the form: email address, password, and a full-width primary Sign in. The "Sign in" heading is visually hidden. Shown under the logo, it read as a tagline and repeated the button, so it's there for screen readers and the tab title says it. Nothing else: how accounts are made belongs in the operator guide, not on a screen anyone can reach.
+
+| State                     | Shows                                                                                                                                                   |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Busy                      | The button reads "Signing in…" with `aria-disabled="true"`, so it keeps focus and a second press sends nothing. It stays busy until the next page opens |
+| Wrong address or password | Both fields get `aria-invalid="true"` and the line through `aria-describedby`, because FR-003 can't say which one is wrong                              |
+| Blocked or didn't finish  | The line below the button only. Neither field is wrong                                                                                                  |
+| Session ended             | A notice above the form: "Your session ended. Sign in again to continue." (FR-040)                                                                      |
+| Plain HTTP                | A notice above the form in `--state-bad-text`, because the browser will drop the session cookie                                                         |
+
+A notice is a `--fill-1` box with `--radius-medium` and a transparent border for forced colours, so it reads as a message and not as part of the form. Problems from the last try stay in the line below the button, so the fields don't move.
 
 ### Loading
 
@@ -310,7 +320,7 @@ Use Lucide for every icon, imported as `~icons/lucide/download`, at `--icon-size
 
 Slice 1 uses `archive`, `upload`, `activity`, `file-up`, `file-text`, `download`, `x`, `arrow-left`, `log-out`, and `copy`.
 
-The MailArkiv logo is the one drawing that isn't from Lucide: a solid tile with a drawer grip cut out of it, and the name in outlined Archivo. [`Logo.svelte`](src/lib/components/Logo.svelte) holds the 18 px version, used in the sidebar and on sign-in. It fills with `currentColor` and the grip is a real hole, so both themes use the same drawing.
+The MailArkiv logo is the one drawing that isn't from Lucide: a solid tile with a drawer grip cut out of it, and the name in outlined Archivo. [`Logo.svelte`](src/lib/components/Logo.svelte) holds two layouts: the 18 px horizontal lockup for the sidebar, and with `stacked` the name under a 40 px tile for standalone pages such as sign-in. 40 px is the smallest tile the brand guide allows for the stacked lockup. It fills with `currentColor` and the grip is a real hole, so both themes use the same drawing.
 
 Don't type the name beside the mark in Inter. Archivo appears only as these outlines, so the app ships no extra font.
 

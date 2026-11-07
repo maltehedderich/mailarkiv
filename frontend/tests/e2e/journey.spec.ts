@@ -53,6 +53,13 @@ test("an administrator imports one file and downloads the same bytes", async ({
   ]) {
     await submitSignIn(page, email, password);
     await expect(page.getByText(MISMATCH)).toBeVisible();
+    // DESIGN.md, Form field: FR-003 can't say which field is wrong, so both
+    // are marked and described by the line.
+    for (const label of ["Email address", "Password"]) {
+      const field = page.getByLabel(label);
+      await expect(field).toHaveAttribute("aria-invalid", "true");
+      await expect(field).toHaveAccessibleDescription(MISMATCH);
+    }
     await expect(page).toHaveURL(`${server.origin}/sign-in`);
     await expect(page.getByText(/session ended/i)).toHaveCount(0);
   }

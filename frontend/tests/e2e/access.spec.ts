@@ -13,9 +13,6 @@ const EMAIL = "admin@example.test";
 const PASSWORD = "correct horse battery";
 const NEW_PASSWORD = "a different horse battery";
 const ENDED = "Your session ended. Sign in again to continue.";
-const NOTE = "Accounts and passwords are managed on the server.";
-const GUIDE =
-  "https://github.com/maltehedderich/mailarkiv/blob/main/docs/OPERATIONS.md";
 const CONTENT = Buffer.from(
   "From: sender@example.test\r\nTo: admin@example.test\r\nSubject: Synthetic\r\n\r\nHello.\r\n",
 );
@@ -76,12 +73,6 @@ test("a fresh install offers only sign-in, with no way to create an account", as
 
   await expect(page).toHaveURL(`${server.origin}/sign-in`);
   await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
-  await expect(page.getByText(NOTE)).toBeVisible();
-  // FR-001: the note points to the operator guide. The path is the link's
-  // text, so it still helps where GitHub can't be reached.
-  await expect(
-    page.getByRole("link", { name: "docs/OPERATIONS.md" }),
-  ).toHaveAttribute("href", GUIDE);
   // The only action on the page is signing in.
   await expect(page.getByRole("button")).toHaveText(["Sign in"]);
   await expect(
@@ -123,6 +114,40 @@ test("another site can't show MailArkiv in a frame", async ({ page }) => {
   } finally {
     await other.close();
   }
+});
+
+// DESIGN.md, Sign-in: while the request runs, the button says so and keeps
+// focus, and a second press doesn't send the form again.
+test("sign-in shows that it's working and sends the form once", async ({
+  page,
+}) => {
+  await server.createAccount(EMAIL, PASSWORD);
+  await page.goto(`${server.origin}/sign-in`);
+  let release = () => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  let posts = 0;
+  await page.route("**/api/session", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    posts++;
+    await held;
+    await route.continue();
+  });
+
+  await page.getByLabel("Email address").fill(EMAIL);
+  await page.getByLabel("Password").fill("not the password");
+  await page.getByRole("button", { name: "Sign in" }).click();
+
+  const busy = page.getByRole("button", { name: "Signing in…" });
+  await expect(busy).toHaveAttribute("aria-disabled", "true");
+  await expect(busy).toBeFocused();
+  await page.keyboard.press("Enter");
+
+  release();
+  await expect(
+    page.getByText("That email address and password don't match."),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sign in" })).toBeFocused();
+  expect(posts).toBe(1);
 });
 
 /** Serves a page on another origin that frames `url`. */
