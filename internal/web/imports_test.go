@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -400,6 +401,86 @@ func assertNoTempFiles(t *testing.T, dataDir string) {
 	}
 	if len(entries) != 0 {
 		t.Fatalf("tmp/ holds %d entries, want none", len(entries))
+	}
+}
+
+// Complete bodies are archived on either side of the 4 KiB prefix read.
+// Truncated bodies must leave nothing, including when that first read fails.
+func TestImportContentLengthBoundaries(t *testing.T) {
+	for _, size := range []int{32, 4095, 4096, 8192} {
+		for _, truncated := range []bool{false, true} {
+			t.Run(fmt.Sprintf("bytes=%d/truncated=%t", size, truncated), func(t *testing.T) {
+				h := newHarness(t, Routes())
+				const account = "admin@example.test"
+				h.createAccount(t, account)
+				token := h.signInToken(t, account)
+				address := strings.TrimPrefix(h.server.URL, "http://")
+				connection, err := net.DialTimeout("tcp", address, 10*time.Second)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer connection.Close()
+				if err := connection.SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
+					t.Fatal(err)
+				}
+
+				content := []byte("Subject: boundary\r\n\r\n")
+				content = append(content, bytes.Repeat([]byte("x"), size-len(content))...)
+				declared := size
+				if truncated {
+					declared += 100
+				}
+				_, err = fmt.Fprintf(connection,
+					"POST /api/imports HTTP/1.1\r\nHost: %s\r\nCookie: __Host-mailarkiv_session=%s\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s",
+					address, token, declared, content)
+				if err != nil {
+					t.Fatal(err)
+				}
+				// Keep reading after EOF on the sending side. A real HTTP body
+				// reports truncation once, then may return ordinary EOF.
+				if err := connection.(*net.TCPConn).CloseWrite(); err != nil {
+					t.Fatal(err)
+				}
+				answer, err := io.ReadAll(connection)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if truncated {
+					if len(answer) != 0 {
+						t.Errorf("the server answered %q, want nothing", answer)
+					}
+					if got := h.counts(t); got != (archiveCounts{}) {
+						t.Errorf("the archive holds %+v, want nothing", got)
+					}
+				} else {
+					response, err := http.ReadResponse(bufio.NewReader(bytes.NewReader(answer)), nil)
+					if err != nil {
+						t.Fatal(err)
+					}
+					defer response.Body.Close()
+					body, err := io.ReadAll(response.Body)
+					if err != nil {
+						t.Fatal(err)
+					}
+					assertJSONResponse(t, response, string(body), http.StatusCreated,
+						storedJSON("archived", messageID(t, string(body)), content, "null", 1))
+					if got, want := h.counts(t), (archiveCounts{messages: 1, observations: 1, blobs: 1}); got != want {
+						t.Errorf("the archive holds %+v, want %+v", got, want)
+					}
+					stored, err := os.ReadFile(h.blobFile(hashOf(content)))
+					if err != nil {
+						t.Fatal(err)
+					}
+					if !bytes.Equal(stored, content) {
+						t.Error("stored original differs from the complete upload")
+					}
+				}
+				assertNoTempFiles(t, h.dataDir)
+				if failures := h.status.Snapshot().Failures; len(failures) != 0 {
+					t.Errorf("failure events = %+v, want none", failures)
+				}
+			})
+		}
 	}
 }
 

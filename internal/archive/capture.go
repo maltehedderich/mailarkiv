@@ -30,10 +30,10 @@ const copyBufferSize = 256 << 10
 // An error means the server failed in a way no result covers, with nothing
 // stored. The caller answers 500, and the client shows Unconfirmed.
 func (a *Archive) Import(ctx context.Context, body io.Reader, meta ImportMeta) (Result, error) {
-	head := make([]byte, headSize)
-	n, err := io.ReadFull(body, head)
-	head = head[:n]
-	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+	// A complete short file ends with EOF. Preserve transport errors such as
+	// ErrUnexpectedEOF so an interrupted upload cannot become an original.
+	head, err := io.ReadAll(io.LimitReader(body, headSize))
+	if err != nil {
 		return Dropped{}, nil
 	}
 
