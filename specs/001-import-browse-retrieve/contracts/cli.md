@@ -16,7 +16,7 @@ Startup order:
 
 1. Create the data directory if it's missing, with mode 0700.
 2. Take the lock on `<data-dir>/lock`.
-3. Check `tmp/` and `blobs/` by writing a probe file.
+3. Check `tmp/` and `blobs/` by writing and removing a file named `.probe` in each. It's never fsynced, and recovery doesn't count it. A crash that leaves one is replaced by the next start's probe.
 4. Open the catalog and apply migrations.
 5. Run recovery.
 6. Start listening.

@@ -13,7 +13,7 @@ This interface serves MailArkiv's own web interface and isn't a published contra
 
 Every `/api/` response also has `Cache-Control: no-store`.
 
-Errors are JSON: `{ "error": "<code>" }`. Times are RFC 3339 in UTC with milliseconds.
+Errors are JSON: `{ "error": "<code>" }`. Times are RFC 3339 in UTC with milliseconds. JSON answers carry `Content-Length`, so a client sees a complete answer even if the server dies right after the flush.
 
 Any route can answer 500 `internal_error` when the server fails outside the import and download tables below. A failed session lookup answers 500 and doesn't run the route. It never answers 401, because the session may still be valid. A failed sign-in answers 500 too and counts against no address. The server logs the route pattern and the error, with no request values (FR-029). These aren't failure events, so the status screen and problem count leave them out (FR-038).
 
@@ -138,7 +138,7 @@ The table is the whole of FR-032 and FR-033, tested as one pure function.
 
 The client aborts and reports Unconfirmed after 120 seconds with no upload progress, or 120 seconds after the upload finishes with no answer. Other API calls time out after 30 seconds.
 
-Any other call, apart from the session check before an upload, shows the failed-load state (FR-045) when it ends in anything but success or a marked 401. That includes a 500, a 400 or 404 from a hand-edited URL, an unmarked response, a network error, a timeout, and a body that doesn't parse. Sign-in's 401 and 429 are its own results. Only a marked 401 from a signed-in route opens sign-in.
+Any other call, apart from the session check before an upload, shows the failed-load state (FR-045) when it ends in anything but success or a marked 401. The state takes the place of the page's data and leaves the page itself, so an import's result stays on screen (FR-032). That includes a 500, a 400 or 404 from a hand-edited URL, an unmarked response, a network error, a timeout, and a body that doesn't parse. Sign-in's 401 and 429 are its own results. Only a marked 401 from a signed-in route opens sign-in.
 
 ## Browse
 
@@ -236,6 +236,15 @@ Success headers: `Content-Type: application/octet-stream`, `Content-Disposition:
 
 `message_id` and `content_hash` are absent where they don't apply. Categories are listed in [the data model](../data-model.md#in-memory-owner-opstatus). `recovery` holds what startup found. `unreferenced` is the current list, which shrinks as files are imported again. No endpoint here changes the archive (FR-027).
 
+`unreferenced` and `failures` are in the order they were recorded, and an empty one is `[]`. Which identifiers an event carries:
+
+| Event | `message_id` | `content_hash` | `restored` |
+| ----- | ------------ | -------------- | ---------- |
+| Temp file create, write, or fsync failed | | | `false` |
+| Rename, directory fsync, or commit failed | | Yes | `false` |
+| An import replaced a missing or damaged blob | Yes | Yes | `true` |
+| `temp_file_not_removed` | | | `false` |
+
 ## Server timeouts
 
-`ReadHeaderTimeout` 10 s, `ReadTimeout` 30 s, `WriteTimeout` 30 s, `IdleTimeout` 120 s, `MaxHeaderBytes` 64 KiB. The import and download handlers replace the read or write deadline with a rolling 60 seconds through `http.ResponseController`, so a slow transfer that keeps moving can finish and a stalled one can't hold a connection.
+`ReadHeaderTimeout` 10 s, `ReadTimeout` 30 s, `WriteTimeout` 30 s, `IdleTimeout` 120 s, `MaxHeaderBytes` 64 KiB. The import and download handlers replace the read or write deadline with a rolling 60 seconds through `http.ResponseController`, so a slow transfer that keeps moving can finish and a stalled one can't hold a connection. The import handler sets its write deadline again after the capture and before any answer, including a 500, so an upload that took longer than 30 seconds still gets its answer.

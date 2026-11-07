@@ -138,7 +138,7 @@ Capture reads whether the `message` row exists, then `ensureBlob` checks the blo
 | Yes | Yes | Absent | Restored | `stored_original_missing`, restored |
 | Either | Yes | Present and not matching, or unreadable | Restored | `stored_original_damaged`, restored |
 
-Every row adds exactly one source observation.
+Every row adds exactly one source observation. A row before the check and none at commit can't happen in this slice, because nothing deletes a `message` row.
 
 ## Capture states
 
@@ -152,7 +152,8 @@ receiving ──body ended early──────────► dropped: temp 
 temp fsynced
     │
     ├─catalog read failed─────────────► 500 internal_error: temp removed, no event, client sees Unconfirmed
-    ├─rename or directory fsync failed► failed (storage_write_failed): temp removed
+    ├─rename failed───────────────────► failed (storage_write_failed): temp removed
+    ├─directory fsync failed──────────► failed (storage_write_failed): blob kept, the next start lists it
     ▼
 blob durable
     │
@@ -167,10 +168,10 @@ A crash at any point before `committed` leaves at most a temp file, which recove
 
 ## Recovery
 
-Runs in `serve` after the catalog opens and before the listener starts. Running it again gives the same result (FR-025).
+Runs in `serve` after the catalog opens and before the listener starts. Running it again gives the same result (FR-025), except that `temp_files_removed` is then 0.
 
 1. Remove each entry in `tmp/`. A failure adds a `temp_file_not_removed` event, and startup continues (User Story 5 scenario 5).
-2. Walk `blobs/`. For each valid blob, look up the hash in `message`. A miss adds an `UnreferencedOriginal`. Blobs are never hashed here, and none is ever deleted (FR-024).
+2. Walk `blobs/`. For each valid blob, look up the hash in `message`. A miss adds an `UnreferencedOriginal`. Blobs are never hashed here, and none is ever deleted (FR-024). A file that isn't regular counts as an invalid name, and the log line `invalid names in blobs` carries only `count` and appears only when it's above 0.
 3. Log the result with its duration.
 
 Unusable storage or an unusable catalog stops the start with a log entry naming which one failed (FR-026). A failed write probe in `tmp/` counts as unusable storage.

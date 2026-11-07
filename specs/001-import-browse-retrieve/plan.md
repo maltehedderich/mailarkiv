@@ -77,7 +77,7 @@ Cosmetic rules in the design guide rely on review. Writing a test for each token
 
 ### Crash matrix
 
-`TestCrashMatrix` starts the `faults` binary with one point set to `kill`, imports a file over HTTP, restarts with the default binary, and checks the result. A client that gets no answer shows Unconfirmed.
+`TestCrashMatrix` starts the `faults` binary with one point set to `kill`, imports a file over HTTP, restarts with the default binary, and checks the result. A client that gets no answer shows Unconfirmed. `after-commit`, `after-response`, and `recovery-after-temp-removal` only mean something as a kill, so they ignore an injected error: no error path is left at those points.
 
 | Stop point | Client saw | After restart |
 | ---------- | ---------- | ------------- |
