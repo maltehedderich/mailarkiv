@@ -7,3 +7,4 @@
 /frontend/playwright-report/
 mise.local.toml
 mise.*.local.toml
+.DS_Store
