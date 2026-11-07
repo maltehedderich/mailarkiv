@@ -335,7 +335,9 @@ Search, the message reader, and delete use these values. Add each to `tokens.css
 
 From 1041 px up, the archive list has one-line rows. At 1040 px and below, rows take two lines at 54 px and the reader stacks over its details.
 
-[The design review page](../docs/design/design-system.html) shows these screens working: search, the message reader, selection, delete, and the command menu. It also records the research behind this system and where MailArkiv departs from Linear, Attio, and Mercury. Open it in a browser. It's a snapshot from 7 November 2026, so where it disagrees with this file or `tokens.css`, they win.
+For the message reader, keep mail on a light sheet in both themes, inside the sandboxed iframe required by [the architecture](../docs/ARCHITECTURE.md#security-and-privacy-from-the-first-slice). Place the label identifying mail content outside that sheet. Show senders as written, without avatars: a From header is only a claim, and fetching a picture would make a remote request.
+
+For permanent delete, explain what remains in backups and that re-delivery can archive the message again. Focus Cancel first. Use the red button only in the confirmation dialog.
 
 ## Changing this system
 
