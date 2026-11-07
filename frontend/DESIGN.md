@@ -313,6 +313,8 @@ Search, the message reader, and delete use these values. Add each to `tokens.css
 
 From 1041 px up, the archive list has one-line rows. At 1040 px and below, rows take two lines at 54 px and the reader stacks over its details.
 
+[The design review page](../docs/design/design-system.html) shows these screens working: search, the message reader, selection, delete, and the command menu. It also records the research behind this system and where MailArkiv departs from Linear, Attio, and Mercury. Open it in a browser. It's a snapshot from 7 November 2026, so where it disagrees with this file or `tokens.css`, they win.
+
 ## Changing this system
 
 To change a value, edit `tokens.css`, measure again, and update the pair tables here in the same change. A new font or icon set needs an ADR.

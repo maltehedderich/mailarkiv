@@ -53,6 +53,20 @@ Ink on Paper has a contrast of 17.32:1, and Dark ink on Dark ground 17.54:1. The
 - Outline the tile.
 - Type the name in Inter next to the mark. Use the supplied lockup.
 
+## Why it looks like this
+
+The brief asked for a mark for the archive, not the mailbox:
+
+- No envelope. Mail clients own that symbol, and the name already says Mail.
+- No shield, padlock, or seal. The first release doesn't promise tamper-proof storage, and the design guide forbids overclaiming.
+- No cloud and no blue. MailArkiv runs on your own server, so the mark uses the product's ink and paper.
+
+The first sketch was a pill-shaped slot. At 16 px a pill reads as a minus sign, because its top and bottom match. The grip's flat top and curved underside read as a handle. Of twelve pulls drawn at 64, 32, and 16 px, the others read as an equals sign, a printer, a SIM card, a staircase, or the letter G. Tightening the corners from radius 5.5 to 4.5 made the tile look more like a steel cabinet and less like a default app icon.
+
+"Mail" is set regular and "Arkiv" heavy, so the name leans on the archive. Archivo won over Inter, which reads like any app's name, and Schibsted Grotesk, the close second. IBM Plex Sans brought IBM's voice, Instrument Sans was too narrow, Geist Mono's l and i were awkward, and Familjen Grotesk's single-storey a made the name read "Moil".
+
+The weakest point is distinctiveness. A rounded square with a shape near the top is a common family, so the grip and the wordmark carry recognition. No second designer has reviewed the drawing.
+
 ## How it's drawn
 
 On a 24-unit tile:
@@ -106,5 +120,5 @@ For the web, copy the files to the site root and add:
 
 ## Before this goes public
 
-- Check the name. [MailArchiva](https://www.capterra.com/p/129318/MailArchiva/) is an email-archiving product with almost the same name. Nobody has searched a trademark register yet.
+- Check the name. [MailArchiva](https://www.capterra.com/p/129318/MailArchiva/) is an email-archiving product with almost the same name. Nobody has searched a trademark register yet. Try TMview, DPMA, and USPTO, in classes 9 and 42.
 - Run a doodle test. Nobody has tried drawing the mark from memory yet.
