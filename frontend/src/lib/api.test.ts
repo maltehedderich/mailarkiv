@@ -213,6 +213,7 @@ describe("signIn", () => {
     ["an unmarked 204", answer(204, undefined, { marked: false }).fetch],
     ["an unmarked 429", answer(429, "", { marked: false }).fetch],
     ["a marked 500", answer(500, { error: "internal_error" }).fetch],
+    ["sign-in overload", answer(503, { error: "sign_in_unavailable" }).fetch],
     ["an unmarked 502", answer(502, "", { marked: false }).fetch],
     ["a network error", failing(networkError)],
     ["a timeout", failing(timeout)],

@@ -45,6 +45,10 @@ func signIn(s *server, w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusTooManyRequests, "sign_in_blocked")
 		return
 	}
+	if errors.Is(err, identity.ErrSignInUnavailable) {
+		writeError(w, http.StatusServiceUnavailable, "sign_in_unavailable")
+		return
+	}
 	if err != nil {
 		s.writeInternalError(w, r, err)
 		return

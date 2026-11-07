@@ -42,6 +42,10 @@ var (
 	// minutes, and the block hasn't ended (FR-004).
 	ErrSignInBlocked = errors.New("too many failed sign-ins for this address")
 
+	// ErrSignInUnavailable means both password slots are occupied. Sign-in
+	// never queues credentials while it waits for expensive work.
+	ErrSignInUnavailable = errors.New("sign-in is busy; try again")
+
 	// ErrNoAccount means no account has the address.
 	ErrNoAccount = errors.New("no account has that email address")
 
@@ -128,16 +132,11 @@ func (id *Identity) SignIn(ctx context.Context, address, password string) (strin
 	email := strings.ToLower(address)
 	key := addressKey(email)
 
-	// A blocked address is refused before any password work and without waiting
-	// for a slot. The attempt neither counts nor extends the block.
-	if err := id.refuseBlocked(ctx, key); err != nil {
-		return "", err
-	}
-
-	// Guesses sent at once all pass that check, so each looks again once it has a
-	// slot, and keeps the slot until its failure is stored. So at most
-	// maxConcurrentHashes guesses are checked after the ninth failure.
-	if err := id.passwords.acquire(ctx); err != nil {
+	// Refuse excess work before any catalog access. Keep the slot until a
+	// failure is stored, so at most maxConcurrentHashes guesses are checked
+	// after the ninth failure. A blocked attempt neither counts nor extends
+	// the block.
+	if err := id.passwords.admit(ctx); err != nil {
 		return "", err
 	}
 	defer id.passwords.release()

@@ -274,14 +274,64 @@ func TestBlockHoldsAgainstABurst(t *testing.T) {
 		switch err := <-results; {
 		case errors.Is(err, ErrInvalidCredentials):
 			checked++
-		case errors.Is(err, ErrSignInBlocked):
+		case errors.Is(err, ErrSignInBlocked), errors.Is(err, ErrSignInUnavailable):
 			blocked++
 		default:
-			t.Errorf("SignIn = %v, want ErrInvalidCredentials or ErrSignInBlocked", err)
+			t.Errorf("SignIn = %v, want invalid credentials, address block, or overload", err)
 		}
 	}
 	if checked < 1 || checked > maxConcurrentHashes {
 		t.Errorf("%d guesses were checked and %d refused, want at most %d checked", checked, blocked, maxConcurrentHashes)
+	}
+}
+
+// Saturation is independent of the address. No request waits for hashing,
+// and refusing excess work must not count as a bad password.
+func TestSignInAdmission(t *testing.T) {
+	f := newFixture(t)
+	f.create(t, "admin@example.test", goodPassword)
+	for range maxConcurrentHashes {
+		f.identity.passwords.slots <- struct{}{}
+	}
+
+	for _, address := range []string{"admin@example.test", "other@example.test"} {
+		done := make(chan error, 1)
+		go func() { done <- f.signIn(address, goodPassword) }()
+		select {
+		case err := <-done:
+			if !errors.Is(err, ErrSignInUnavailable) {
+				t.Fatalf("saturated SignIn = %v, want ErrSignInUnavailable", err)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("a saturated sign-in waited instead of refusing admission")
+		}
+		if got := f.failureCount(t, address); got != 0 {
+			t.Fatalf("overload stored %d failures, want none", got)
+		}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := f.identity.SignIn(ctx, "admin@example.test", goodPassword); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled SignIn = %v, want context.Canceled", err)
+	}
+	for range maxConcurrentHashes {
+		f.identity.passwords.release()
+	}
+	if _, err := f.identity.SignIn(ctx, "admin@example.test", goodPassword); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled SignIn with capacity = %v, want context.Canceled", err)
+	}
+	if got := len(f.identity.passwords.slots); got != 0 {
+		t.Fatalf("canceled sign-in retained %d slots", got)
+	}
+
+	// Once admitted again, the same address policy still applies.
+	f.seedFailures(t, "admin@example.test", 9, f.clock.Now())
+	if err := f.signIn("admin@example.test", wrongPassword); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("admitted wrong password = %v, want ErrInvalidCredentials", err)
+	}
+	if err := f.signIn("admin@example.test", goodPassword); !errors.Is(err, ErrSignInBlocked) {
+		t.Fatalf("admitted blocked address = %v, want ErrSignInBlocked", err)
 	}
 }
 

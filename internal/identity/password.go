@@ -53,6 +53,20 @@ func (p *passwords) acquire(ctx context.Context) error {
 	}
 }
 
+// admit reserves a password slot without waiting. Public sign-in requests
+// must not accumulate behind active hashes or catalog operations.
+func (p *passwords) admit(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	select {
+	case p.slots <- struct{}{}:
+		return nil
+	default:
+		return ErrSignInUnavailable
+	}
+}
+
 func (p *passwords) release() {
 	<-p.slots
 }

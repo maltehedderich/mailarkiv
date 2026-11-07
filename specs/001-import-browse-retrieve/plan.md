@@ -77,6 +77,7 @@ Cosmetic rules in the design guide rely on review. Writing a test for each token
 
 ### Review fixes
 
+- **R2, sign-in admission**: Reuse the two password slots to bound all admitted sign-in work, including catalog access. Refuse excess requests with 503 and show unavailable in the client. Saturation must not accumulate waiters, count as a wrong password, or bypass address blocking. Controlled slot occupancy and a held real SQLite connection test overload, cancellation, and resumed admission. Run `mise run lint`, `mise run typecheck`, and `mise run audit` (static), `mise run server:test` (unit, integration, process), `mise run frontend:test` (unit), and `mise run test:e2e` (end to end). No new dependency, queue, or constitutional exception is needed.
 - **R5, import completion after navigation**: Keep a started upload's result in the shared notification store. Guard page work after asynchronous boundaries with the component's lifetime. The credible failure is an exception or an unexpected focus change, refresh, or redirect on the destination page. A delayed-response browser regression accepts navigation, releases the import, and checks the result and destination. Run `mise run lint` and `mise run typecheck` (static), `mise run frontend:test` (unit), and `mise run test:e2e` (end to end). This uses the existing page and notification owners and needs no constitutional exception.
 
 ### Crash matrix

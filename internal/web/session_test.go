@@ -3,10 +3,13 @@ package web
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 const invalidCredentials = `{"error":"invalid_credentials"}`
@@ -67,6 +70,63 @@ func TestSignInRefusals(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Hold the real catalog reader so two admitted attempts remain in progress.
+// HTTP overload must be an unavailable response, without a session or an
+// address block. Releasing an attempt by cancellation restores admission.
+func TestSignInOverload(t *testing.T) {
+	h := newHarness(t, Routes())
+	h.db.Reader.SetMaxOpenConns(1)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	connection, err := h.db.Reader.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	before := h.db.Reader.Stats().WaitCount
+	done := make(chan error, 2)
+	for range 2 {
+		go func() {
+			_, err := h.identity.SignIn(ctx, "admin@example.test", goodPassword)
+			done <- err
+		}()
+	}
+	waitFor(t, "two admitted sign-ins waiting on the catalog", func() bool {
+		return h.db.Reader.Stats().WaitCount == before+2
+	})
+	body := `{"email":"other@example.test","password":"correct horse battery"}`
+	requestCtx, stop := context.WithTimeout(context.Background(), time.Second)
+	defer stop()
+	request, err := http.NewRequestWithContext(requestCtx, http.MethodPost, h.server.URL+"/api/session", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := h.server.Client().Do(request)
+	if err != nil {
+		t.Fatalf("overload did not return promptly: %v", err)
+	}
+	defer response.Body.Close()
+	read, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertJSONResponse(t, response, string(read), http.StatusServiceUnavailable, `{"error":"sign_in_unavailable"}`)
+	if cookie := response.Header.Get("Set-Cookie"); cookie != "" {
+		t.Fatalf("overload set a session cookie: %q", cookie)
+	}
+	cancel()
+	for range 2 {
+		if err := <-done; !errors.Is(err, context.Canceled) {
+			t.Errorf("canceled admitted request = %v, want context.Canceled", err)
+		}
+	}
+	if err := connection.Close(); err != nil {
+		t.Fatal(err)
+	}
+	response, result := h.send(t, http.MethodPost, "/api/session", strings.NewReader(body), nil)
+	assertJSONResponse(t, response, result, http.StatusUnauthorized, invalidCredentials)
 }
 
 // Contract: the request is at most 16 KiB. A body that can't be read as

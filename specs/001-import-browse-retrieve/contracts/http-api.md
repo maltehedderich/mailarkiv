@@ -52,6 +52,9 @@ Request, at most 16 KiB:
 | 204 | none | Signed in. Sets the session cookie |
 | 401 | `invalid_credentials` | Wrong password, unknown address, or malformed address. All three are identical |
 | 429 | `sign_in_blocked` | 10 failures for this address within 15 minutes, whether or not the account exists |
+| 503 | `sign_in_unavailable` | Both password slots are occupied. The client shows sign-in as unavailable |
+
+Sign-in admits at most two attempts at once, including catalog work and password hashing. Further attempts return 503 immediately, without joining a queue or counting as an address failure. Admitted attempts check the address block before hashing and hold their slot until their failure is recorded or their session is created.
 
 Cookie: `__Host-mailarkiv_session=<token>; Path=/; Max-Age=43200; HttpOnly; Secure; SameSite=Strict`.
 
