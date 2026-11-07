@@ -4,6 +4,7 @@
 
   import { getSession } from "#lib/api.js";
   import FailedLoad from "#lib/components/FailedLoad.svelte";
+  import HistoryDrawer from "#lib/components/HistoryDrawer.svelte";
   import MessageRow from "#lib/components/MessageRow.svelte";
   import { formatBytes, formatSize } from "#lib/format/size.js";
   import type { ImportResult } from "#lib/import/classify.js";
@@ -67,6 +68,28 @@
     progress = "";
     result = outcome;
     await goto("/", { refreshAll: true, reset: false });
+  }
+
+  function historyHref(id: number): string {
+    const url = new URL(page.url.href);
+    url.searchParams.set("message", String(id));
+    return url.pathname + url.search;
+  }
+
+  // The dialog has closed, by Escape, Close, or Back.
+  async function closeHistory() {
+    const url = new URL(page.url.href);
+    const id = url.searchParams.get("message");
+    // Back has already left this message's address.
+    if (id === null) return;
+    // The dialog gives focus back by itself, unless nothing had focus when it
+    // opened: after a direct address, or a click in a browser that doesn't
+    // focus links.
+    if (document.activeElement === document.body) {
+      document.getElementById(`history-${id}`)?.focus();
+    }
+    url.searchParams.delete("message");
+    await goto(url.pathname + url.search, { reset: false });
   }
 </script>
 
@@ -143,7 +166,7 @@
       {:else}
         <ul aria-label="Messages">
           {#each items as message (message.id)}
-            <MessageRow {message} />
+            <MessageRow {message} historyHref={historyHref(message.id)} />
           {/each}
         </ul>
       {/if}
@@ -152,6 +175,8 @@
     {/if}
   </div>
 </main>
+
+<HistoryDrawer history={data.history} onclose={closeHistory} />
 
 <style>
   header {

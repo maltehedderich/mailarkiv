@@ -168,7 +168,7 @@ Order: most recent import first.
 
 ### `GET /api/messages/{id}`
 
-404 `not_found` for an unknown ID.
+404 `not_found` for an unknown ID, including one that isn't a number.
 
 ```json
 {
@@ -202,11 +202,11 @@ The interface links here with a plain `<a>` that has no `download` attribute. Th
 | No session, `Sec-Fetch-Mode: navigate` | 303 | To `/sign-in?ended=1&next=<path from a same-origin Referer, or />` |
 | No session, any other request | 401 | `no_session` |
 
-Until T094 adds these pages, an unknown ID answers 404 `not_found` as JSON.
+An ID that isn't a number counts as unknown.
 
 A same-origin `Referer` is one whose host equals the request's `Host`. The scheme isn't compared, because TLS may end at a proxy. Only its path and query are used, and the client checks `next` again before following it.
 
-Success headers: `Content-Type: application/octet-stream`, `Content-Disposition: attachment; filename="<content_hash>.eml"`, `Content-Length`. A read that fails after the headers aborts the connection, so the browser shows a failed download, and it records a `stored_original_damaged` event.
+Success headers: `Content-Type: application/octet-stream`, `Content-Disposition: attachment; filename="<content_hash>.eml"`, `Content-Length`. The headers go out before the first read. A read that fails after them, or a file that has become shorter since the check, aborts the connection, so the browser shows a failed download, and it records a `stored_original_damaged` event. Hashing can use up the server's 30 second write timeout, so the write deadline restarts once the hash is done, before any answer.
 
 ## Status
 

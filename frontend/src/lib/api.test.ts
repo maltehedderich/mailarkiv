@@ -1,6 +1,13 @@
 import { describe, expect, test } from "vitest";
 
-import { getSession, listMessages, signIn, signOut, type Fetch } from "./api";
+import {
+  getMessage,
+  getSession,
+  listMessages,
+  signIn,
+  signOut,
+  type Fetch,
+} from "./api";
 
 // FR-045 and the contract: every call ends in success, session_ended for a
 // marked 401, or unavailable for anything else.
@@ -241,5 +248,102 @@ describe("signOut", () => {
     ["a timeout", failing(timeout)],
   ])("%s is unavailable", async (_name, fetch) => {
     expect(await signOut(fetch)).toEqual({ kind: "unavailable" });
+  });
+});
+
+describe("getMessage", () => {
+  const OBSERVATION = {
+    source_type: "manual_import",
+    observed_at: "2026-11-06T15:50:52.123Z",
+    account_email: "admin@example.test",
+    file_name: "invoice.eml",
+  };
+  const HISTORY = {
+    id: 17,
+    content_hash: HASH,
+    size: 31,
+    observations: [OBSERVATION, { ...OBSERVATION, file_name: null }],
+  };
+
+  test("reads the contract's history, keeping its order", async () => {
+    const { fetch, calls } = answer(200, HISTORY);
+    expect(await getMessage("17", fetch)).toEqual({
+      kind: "ok",
+      value: {
+        id: 17,
+        contentHash: HASH,
+        size: 31,
+        observations: [
+          {
+            sourceType: "manual_import",
+            observedAt: "2026-11-06T15:50:52.123Z",
+            accountEmail: "admin@example.test",
+            fileName: "invoice.eml",
+          },
+          {
+            sourceType: "manual_import",
+            observedAt: "2026-11-06T15:50:52.123Z",
+            accountEmail: "admin@example.test",
+            fileName: null,
+          },
+        ],
+      },
+    });
+    expect(calls[0].url).toBe("/api/messages/17");
+    expect(calls[0].init?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  test("escapes an ID typed into the address", async () => {
+    const { fetch, calls } = answer(404, { error: "not_found" });
+    await getMessage("1/original?x=1", fetch);
+    expect(calls[0].url).toBe("/api/messages/1%2Foriginal%3Fx%3D1");
+  });
+
+  test("reads a marked 401 as session_ended", async () => {
+    const { fetch } = answer(401, { error: "no_session" });
+    expect(await getMessage("17", fetch)).toEqual({ kind: "session_ended" });
+  });
+
+  test.each([
+    ["an unknown ID", 404, { error: "not_found" }],
+    ["a server error", 500, { error: "internal_error" }],
+    ["a body that isn't JSON", 200, "<!doctype html>"],
+    ["no observations field", 200, { ...HISTORY, observations: undefined }],
+    ["a short hash", 200, { ...HISTORY, content_hash: "ea94" }],
+    [
+      "a source type the interface doesn't know",
+      200,
+      {
+        ...HISTORY,
+        observations: [{ ...OBSERVATION, source_type: "imap" }],
+      },
+    ],
+    [
+      "a time that can't be read",
+      200,
+      { ...HISTORY, observations: [{ ...OBSERVATION, observed_at: "soon" }] },
+    ],
+    [
+      "an observation with no account",
+      200,
+      {
+        ...HISTORY,
+        observations: [{ ...OBSERVATION, account_email: undefined }],
+      },
+    ],
+  ])("reads %s as unavailable", async (_name, status, body) => {
+    const { fetch } = answer(status, body);
+    expect(await getMessage("17", fetch)).toEqual({ kind: "unavailable" });
+  });
+
+  test("reads an unmarked answer as unavailable", async () => {
+    const { fetch } = answer(200, HISTORY, { marked: false });
+    expect(await getMessage("17", fetch)).toEqual({ kind: "unavailable" });
+  });
+
+  test("reads a network error as unavailable", async () => {
+    expect(await getMessage("17", failing(networkError))).toEqual({
+      kind: "unavailable",
+    });
   });
 });

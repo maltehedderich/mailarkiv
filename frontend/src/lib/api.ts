@@ -31,6 +31,26 @@ export interface MessagePage {
   total: number;
 }
 
+/** Slice 1 has one source. The column's CHECK closes the set on the server. */
+export type SourceType = "manual_import";
+
+export interface Observation {
+  sourceType: SourceType;
+  /** RFC 3339 in UTC. */
+  observedAt: string;
+  accountEmail: string;
+  /** Null when the import supplied no name. */
+  fileName: string | null;
+}
+
+export interface MessageHistory {
+  id: number;
+  contentHash: string;
+  size: number;
+  /** Every import, newest first, with no cap. */
+  observations: Observation[];
+}
+
 export interface SessionInfo {
   problemCount: number;
 }
@@ -65,6 +85,21 @@ export async function listMessages(
 ): Promise<ApiResult<MessagePage>> {
   const query = page === null ? "" : `?${new URLSearchParams({ page })}`;
   return getJSON(fetch, `/api/messages${query}`, parseMessagePage);
+}
+
+/**
+ * Reads one message's history. `id` goes to the server as typed, so one that
+ * names no message comes back as unavailable.
+ */
+export async function getMessage(
+  id: string,
+  fetch: Fetch = globalThis.fetch,
+): Promise<ApiResult<MessageHistory>> {
+  return getJSON(
+    fetch,
+    `/api/messages/${encodeURIComponent(id)}`,
+    parseHistory,
+  );
 }
 
 export async function signIn(
@@ -179,6 +214,41 @@ function parseMessagePage(body: unknown): MessagePage | null {
   return { items: messages as Message[], page, pageSize, total };
 }
 
+function parseHistory(body: unknown): MessageHistory | null {
+  const id = field(body, "id");
+  const contentHash = field(body, "content_hash");
+  const size = field(body, "size");
+  const observations = field(body, "observations");
+  if (
+    !isCount(id) ||
+    !isContentHash(contentHash) ||
+    !isCount(size) ||
+    !Array.isArray(observations)
+  ) {
+    return null;
+  }
+  const parsed = observations.map(parseObservation);
+  if (parsed.some((observation) => observation === null)) return null;
+  return { id, contentHash, size, observations: parsed as Observation[] };
+}
+
+function parseObservation(value: unknown): Observation | null {
+  const sourceType = field(value, "source_type");
+  const observedAt = field(value, "observed_at");
+  const accountEmail = field(value, "account_email");
+  const fileName = field(value, "file_name");
+  if (
+    sourceType !== "manual_import" ||
+    typeof observedAt !== "string" ||
+    Number.isNaN(Date.parse(observedAt)) ||
+    typeof accountEmail !== "string" ||
+    (fileName !== null && typeof fileName !== "string")
+  ) {
+    return null;
+  }
+  return { sourceType, observedAt, accountEmail, fileName };
+}
+
 /** Reads one message as the contract writes it, or null if it isn't one. */
 export function parseMessage(value: unknown): Message | null {
   const id = field(value, "id");
@@ -189,8 +259,7 @@ export function parseMessage(value: unknown): Message | null {
   const importCount = field(value, "import_count");
   if (
     !isCount(id) ||
-    typeof contentHash !== "string" ||
-    !/^[0-9a-f]{64}$/.test(contentHash) ||
+    !isContentHash(contentHash) ||
     !isCount(size) ||
     (fileName !== null && typeof fileName !== "string") ||
     typeof importedAt !== "string" ||
@@ -208,6 +277,10 @@ export function field(value: unknown, name: string): unknown {
     return undefined;
   }
   return (value as Record<string, unknown>)[name];
+}
+
+function isContentHash(value: unknown): value is string {
+  return typeof value === "string" && /^[0-9a-f]{64}$/.test(value);
 }
 
 function isCount(value: unknown): value is number {

@@ -11,16 +11,19 @@ import (
 )
 
 const (
-	appPage   = "<!doctype html><title>app</title>"
-	appBundle = "console.log('bundle');"
+	appPage     = "<!doctype html><title>app</title>"
+	appBundle   = "console.log('bundle');"
+	missingPage = "<!doctype html><h1>missing</h1>"
+	damagedPage = "<!doctype html><h1>damaged</h1>"
 )
 
 func staticFiles() fstest.MapFS {
 	return fstest.MapFS{
-		"app.html":                  {Data: []byte(appPage)},
-		"_app/immutable/start.js":   {Data: []byte(appBundle)},
-		"_app/immutable/style.css":  {Data: []byte("body{}")},
-		"download-failed/page.html": {Data: []byte("<h1>failed</h1>")},
+		"app.html":                     {Data: []byte(appPage)},
+		"_app/immutable/start.js":      {Data: []byte(appBundle)},
+		"_app/immutable/style.css":     {Data: []byte("body{}")},
+		"download-failed/missing.html": {Data: []byte(missingPage)},
+		"download-failed/damaged.html": {Data: []byte(damagedPage)},
 	}
 }
 

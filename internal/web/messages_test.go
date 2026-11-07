@@ -65,20 +65,3 @@ func TestListMessages(t *testing.T) {
 		})
 	}
 }
-
-// Contract: an unknown ID answers 404. T094 replaces the JSON body with the
-// missing page.
-func TestDownloadUnknownMessage(t *testing.T) {
-	h := newHarness(t, Routes())
-	h.createAccount(t, "admin@example.test")
-	session := h.signIn(t, "admin@example.test")
-
-	for _, id := range []string{"1", "0", "-1", "abc", "99999999999999999999"} {
-		t.Run(id, func(t *testing.T) {
-			response, body := h.do(t, http.MethodGet, "/api/messages/"+id+"/original", session)
-			if response.StatusCode != http.StatusNotFound {
-				t.Fatalf("status = %d, want 404; body %s", response.StatusCode, body)
-			}
-		})
-	}
-}

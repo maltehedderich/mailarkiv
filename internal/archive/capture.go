@@ -218,7 +218,7 @@ func (a *Archive) ensureBlob(tempPath, contentHash string) (blobState, error) {
 // inspectBlob hashes the whole file. A file that can't be read counts as not
 // matching, because FR-038's Stored original damaged covers both.
 func inspectBlob(path, contentHash string) blobState {
-	file, err := os.Open(path)
+	file, _, err := openMatching(path, contentHash)
 	if errors.Is(err, fs.ErrNotExist) {
 		return blobAbsent
 	}
@@ -226,15 +226,7 @@ func inspectBlob(path, contentHash string) blobState {
 		return blobNotMatching
 	}
 	// Opened for reading only, so closing it can't lose anything.
-	defer file.Close()
-
-	hash := sha256.New()
-	if _, err := io.Copy(hash, file); err != nil {
-		return blobNotMatching
-	}
-	if hex.EncodeToString(hash.Sum(nil)) != contentHash {
-		return blobNotMatching
-	}
+	file.Close()
 	return blobMatching
 }
 

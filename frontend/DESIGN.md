@@ -64,6 +64,7 @@ FR-041 requires WCAG 2.2 AA: 4.5:1 for text and 3:1 for meaningful non-text. Use
 | `--accent`         | `--panel`                        | 6.50  | 9.31  |
 | `--accent`         | `--raised`                       | 6.55  | 8.40  |
 | `--state-bad-text` | `--panel`                        | 7.06  | 8.10  |
+| `--state-bad-text` | `--raised`                       | 7.14  | 7.26  |
 | `--state-bad-text` | `--canvas`                       | 6.36  | 8.62  |
 | `--state-bad-text` | `--state-bad-fill` on `--canvas` | 5.07  | 7.05  |
 
@@ -71,6 +72,7 @@ FR-041 requires WCAG 2.2 AA: 4.5:1 for text and 3:1 for meaningful non-text. Use
 | --------------------------------------- | ----------------------- | ----- | ---- |
 | `--text-4` (input edge, neutral dot)    | `--panel`               | 3.35  | 3.95 |
 | `--text-4` (neutral dot in the outcome) | `--fill-1` on `--panel` | 3.13  | 3.64 |
+| `--text-4` (timeline dot)               | `--raised`              | 3.36  | 3.54 |
 | `--focus`                               | `--panel`               | 4.40  | 7.53 |
 | `--focus`                               | `--raised`              | 4.43  | 6.79 |
 | `--focus`                               | `--canvas`              | 3.96  | 8.02 |
@@ -204,7 +206,7 @@ Show "1–7 of 7" and Previous and Next under the list. A fresh install shows th
 
 ### File history drawer
 
-A native modal `<dialog>` on `--raised`, `--drawer-width` wide, attached to the right, with `--shadow-pop` and a `--scrim`. The header holds the title and Close. The body holds the full hash, the size in exact bytes, and every observation as a timeline with no cap (FR-020). Each observation shows source type, time, account, and file name (FR-014). Download is pinned in a footer, so it stays visible on a long history.
+A native modal `<dialog>` on `--raised`, `--drawer-width` wide, attached to the right, with `--shadow-pop` and a `--scrim`. The header holds the title, "Import history", and Close. The body holds the full hash, the size in exact bytes, and every observation as a timeline with no cap (FR-020). Each observation shows source type, time, account, and file name (FR-014). Download is pinned in a footer, so it stays visible on a long history.
 
 ### Status
 

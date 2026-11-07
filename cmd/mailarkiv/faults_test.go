@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -169,4 +171,54 @@ func TestDefaultBuildIgnoresFaults(t *testing.T) {
 	if code := server.stop(syscall.SIGTERM); code != 0 {
 		t.Fatalf("exit = %d, want 0:\n%s", code, server.stderr())
 	}
+}
+
+// FR-023, risk 10: a read that fails after the check passed comes too late for an
+// error page, so the connection ends and the browser reports a failed download.
+// It still reaches the status and the log as a damaged original.
+func TestDownloadReadFailure(t *testing.T) {
+	dataDir := t.TempDir()
+	createAdmin(t, dataDir)
+	server := startFaultServer(t, dataDir, "download-read=EIO")
+	token := signInOverHTTP(t, server.baseURL, adminAddress)
+	content := faultMail("download read")
+	attempt := tryImport(server.baseURL, token, content)
+	if attempt.err != nil || attempt.status != http.StatusCreated {
+		t.Fatalf("the import = %d %s %v, want 201", attempt.status, attempt.body, attempt.err)
+	}
+	id := parseImportAnswer(t, attempt.body).Message.ID
+
+	// Sent by hand, because server.request fails the test on the broken body.
+	request, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/messages/%d/original", server.baseURL, id), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Cookie", "__Host-mailarkiv_session="+token)
+	response, err := processClient.Do(request)
+	if err != nil {
+		t.Fatalf("the headers didn't arrive: %v", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200: the check passed, and the read fails later", response.StatusCode)
+	}
+	if response.ContentLength != int64(len(content)) {
+		t.Errorf("Content-Length = %d, want %d", response.ContentLength, len(content))
+	}
+	body, err := io.ReadAll(response.Body)
+	if err == nil {
+		t.Errorf("the body ended cleanly with %d of %d bytes, so a browser would save a short file", len(body), len(content))
+	}
+
+	failures := server.status(token).Failures
+	if len(failures) != 1 {
+		t.Fatalf("failures = %+v, want 1", failures)
+	}
+	if got := failures[0]; got.Category != "stored_original_damaged" ||
+		got.MessageID == nil || *got.MessageID != id ||
+		got.ContentHash == nil || *got.ContentHash != contentHash(content) {
+		t.Errorf("failure = %+v, want stored_original_damaged for message %d", got, id)
+	}
+
+	server.assertLogged("stored_original_damaged")
 }

@@ -1,8 +1,8 @@
 //go:build faults
 
-// Package fault marks the points in capture and recovery where tests stop the
-// process or inject an operating system error. This file is only in the build
-// that process tests make with -tags faults.
+// Package fault marks the points in capture, recovery, and download where tests
+// stop the process or inject an operating system error. This file is only in the
+// build that process tests make with -tags faults.
 package fault
 
 import (

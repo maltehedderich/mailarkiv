@@ -56,6 +56,7 @@ func Routes() []Route {
 		{Method: http.MethodDelete, Path: "/api/session", Access: SignedIn, Handler: signOut},
 		{Method: http.MethodPost, Path: "/api/imports", Access: SignedIn, Handler: importFile},
 		{Method: http.MethodGet, Path: "/api/messages", Access: SignedIn, Handler: listMessages},
+		{Method: http.MethodGet, Path: "/api/messages/{id}", Access: SignedIn, Handler: readHistory},
 		{Method: http.MethodGet, Path: "/api/messages/{id}/original", Access: SignedIn, Handler: downloadOriginal, NoSession: redirectToSignIn},
 		{Method: http.MethodGet, Path: "/api/status", Access: SignedIn, Handler: readStatus},
 		{Path: "/", Access: Public, Handler: serveStatic},
@@ -74,6 +75,7 @@ type Deps struct {
 
 type server struct {
 	logger   *slog.Logger
+	files    fs.FS
 	static   http.Handler
 	identity *identity.Identity
 	archive  *archive.Archive
@@ -88,6 +90,7 @@ func New(deps Deps) http.Handler {
 func newHandler(deps Deps, routes []Route) http.Handler {
 	s := &server{
 		logger:   deps.Logger,
+		files:    deps.Files,
 		static:   Static(deps.Files),
 		identity: deps.Identity,
 		archive:  deps.Archive,

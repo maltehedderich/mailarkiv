@@ -3,10 +3,8 @@ package archive
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"math"
-	"os"
 	"time"
 
 	"github.com/maltehedderich/mailarkiv/internal/sqlitedb"
@@ -14,9 +12,6 @@ import (
 
 // PageSize is the number of messages on one list page.
 const PageSize = 50
-
-// ErrNotFound means no message has the requested ID.
-var ErrNotFound = errors.New("no message has that ID")
 
 // Page is one page of the message list.
 type Page struct {
@@ -76,35 +71,4 @@ func (a *Archive) List(ctx context.Context, page int) (Page, error) {
 		return Page{}, fmt.Errorf("list messages: %w", err)
 	}
 	return result, nil
-}
-
-// Original is an open stored original. The caller closes File.
-type Original struct {
-	File        *os.File
-	ContentHash string
-	Size        int64
-}
-
-// OpenOriginal opens a message's stored original. The path comes from the
-// content hash alone, never from a supplied name (FR-021). It doesn't check the
-// bytes against the hash yet.
-func (a *Archive) OpenOriginal(ctx context.Context, id int64) (Original, error) {
-	var contentHash string
-	err := a.db.Reader.QueryRowContext(ctx, "SELECT content_hash FROM message WHERE id = ?", id).Scan(&contentHash)
-	if errors.Is(err, sql.ErrNoRows) {
-		return Original{}, ErrNotFound
-	}
-	if err != nil {
-		return Original{}, fmt.Errorf("read the message: %w", err)
-	}
-
-	file, err := os.Open(a.blobPath(contentHash))
-	if err != nil {
-		return Original{}, fmt.Errorf("open the stored original: %w", err)
-	}
-	info, err := file.Stat()
-	if err != nil {
-		return Original{}, errors.Join(fmt.Errorf("read the stored original's size: %w", err), file.Close())
-	}
-	return Original{File: file, ContentHash: contentHash, Size: info.Size()}, nil
 }

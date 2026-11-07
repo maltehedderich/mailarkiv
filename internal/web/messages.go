@@ -1,6 +1,7 @@
 package web
 
 import (
+	"errors"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -67,4 +68,52 @@ func listMessages(s *server, w http.ResponseWriter, r *http.Request) {
 		PageSize int           `json:"page_size"`
 		Total    int           `json:"total"`
 	}{items, page, archive.PageSize, listed.Total})
+}
+
+// parseMessageID reads the path's {id}. Anything that isn't a number can't name
+// a message, so the caller treats it as an unknown ID.
+func parseMessageID(r *http.Request) (int64, bool) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	return id, err == nil
+}
+
+type observationJSON struct {
+	SourceType   string  `json:"source_type"`
+	ObservedAt   string  `json:"observed_at"`
+	AccountEmail string  `json:"account_email"`
+	FileName     *string `json:"file_name"`
+}
+
+// readHistory answers GET /api/messages/{id} with the full content hash and
+// every import, newest first (FR-020).
+func readHistory(s *server, w http.ResponseWriter, r *http.Request) {
+	id, ok := parseMessageID(r)
+	if !ok {
+		writeError(w, http.StatusNotFound, "not_found")
+		return
+	}
+	history, err := s.archive.History(r.Context(), id)
+	if errors.Is(err, archive.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "not_found")
+		return
+	}
+	if err != nil {
+		s.writeInternalError(w, r, err)
+		return
+	}
+	observations := make([]observationJSON, 0, len(history.Observations))
+	for _, observation := range history.Observations {
+		observations = append(observations, observationJSON{
+			SourceType:   observation.SourceType,
+			ObservedAt:   formatTime(observation.ObservedAt),
+			AccountEmail: observation.AccountEmail,
+			FileName:     observation.FileName,
+		})
+	}
+	writeJSON(w, http.StatusOK, struct {
+		ID           int64             `json:"id"`
+		ContentHash  string            `json:"content_hash"`
+		Size         int64             `json:"size"`
+		Observations []observationJSON `json:"observations"`
+	}{history.ID, history.ContentHash, history.Size, observations})
 }
