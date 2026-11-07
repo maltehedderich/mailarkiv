@@ -191,7 +191,7 @@ func (a *Archive) ensureBlob(tempPath, contentHash string) (blobState, error) {
 	blob := a.blobPath(contentHash)
 	leaf := filepath.Dir(blob)
 
-	found := inspectBlob(blob, contentHash)
+	found := a.inspectBlob(blob, contentHash)
 	if found == blobMatching {
 		a.removeTemp(tempPath)
 		if err := syncFile(blob); err != nil {

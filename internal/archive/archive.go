@@ -28,19 +28,22 @@ type Archive struct {
 	status   *opstatus.Status
 	logger   *slog.Logger
 	now      func() time.Time
+	// Tests wrap the real inspector to hold concurrent captures at this boundary.
+	inspectBlob func(path, contentHash string) blobState
 }
 
 // Open prepares tmp/ and blobs/ in the data directory. status records failure
 // events, and logger takes the details an operator needs to find their cause.
 func Open(dataDir string, db *sqlitedb.DB, status *opstatus.Status, logger *slog.Logger, now func() time.Time) (*Archive, error) {
 	a := &Archive{
-		dataDir:  dataDir,
-		tmpDir:   filepath.Join(dataDir, "tmp"),
-		blobsDir: filepath.Join(dataDir, "blobs"),
-		db:       db,
-		status:   status,
-		logger:   logger,
-		now:      now,
+		dataDir:     dataDir,
+		tmpDir:      filepath.Join(dataDir, "tmp"),
+		blobsDir:    filepath.Join(dataDir, "blobs"),
+		db:          db,
+		status:      status,
+		logger:      logger,
+		now:         now,
+		inspectBlob: inspectBlob,
 	}
 	for _, dir := range []string{a.tmpDir, a.blobsDir} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
