@@ -134,7 +134,7 @@
       {/if}
     </div>
 
-    {#if data.messages.kind === "ok"}
+    {#if data.session.kind === "ok" && data.messages.kind === "ok"}
       {@const { items, page, total } = data.messages.value}
       {#if total === 0}
         <p class="empty">No mail yet</p>

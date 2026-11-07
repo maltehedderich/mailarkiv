@@ -6,13 +6,12 @@
   import { page } from "$app/state";
 
   import { signOut } from "#lib/api.js";
-  import FailedLoad from "#lib/components/FailedLoad.svelte";
   import Mark from "#lib/components/Mark.svelte";
   import { clearSignedIn } from "#lib/session.js";
 
   import type { LayoutProps } from "./$types";
 
-  let { data, children }: LayoutProps = $props();
+  let { children }: LayoutProps = $props();
 
   let signingOut = false;
   let signOutFailed = $state(false);
@@ -64,14 +63,10 @@
   </nav>
 
   <div class="panel">
-    {#if data.session.kind === "ok"}
-      {@render children()}
-    {:else}
-      <!-- No count pill: a failed read must not look like zero problems. -->
-      <main class="failed">
-        <FailedLoad />
-      </main>
-    {/if}
+    <!-- Always the page, even when the session read failed. Swapping it out
+         would take an import's result with it (FR-032), so each page shows
+         the failed-load state itself. -->
+    {@render children()}
   </div>
 </div>
 
@@ -160,11 +155,5 @@
     border-radius: var(--radius-large);
     background: var(--panel);
     box-shadow: var(--shadow-panel);
-  }
-
-  .failed {
-    max-width: var(--content-width);
-    margin: 0 auto;
-    padding: 0 var(--space-24);
   }
 </style>
