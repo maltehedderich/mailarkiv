@@ -1,6 +1,6 @@
 import { MARKER } from "#lib/api.js";
 
-import { classify, type ImportResponse, type ImportResult } from "./classify";
+import { classify, type Classified, type ImportResponse } from "./classify";
 
 /**
  * The upload gives up after this long with no progress, or this long after
@@ -22,7 +22,7 @@ export interface UploadCallbacks {
 export function upload(
   file: File,
   { onProgress, onUploaded }: UploadCallbacks = {},
-): Promise<ImportResult> {
+): Promise<Classified> {
   return new Promise((resolve) => {
     const xhr = new XMLHttpRequest();
     let timer: ReturnType<typeof setTimeout> | undefined;

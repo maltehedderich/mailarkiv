@@ -65,6 +65,15 @@ function drawer(page: Page) {
   return page.getByRole("dialog", { name: "Import history" });
 }
 
+/** Waits for the drawer's slide-in to end, so measurements see where it settles. */
+async function settled(page: Page) {
+  await drawer(page).evaluate((dialog) =>
+    Promise.all(dialog.getAnimations().map(({ finished }) => finished)).then(
+      () => undefined,
+    ),
+  );
+}
+
 test("a repeat import adds history and no copy", async ({ page }) => {
   await signIn(page, "Admin@example.test");
   const messages = page.getByRole("list", { name: "Messages" });
@@ -89,6 +98,7 @@ test("a repeat import adds history and no copy", async ({ page }) => {
   // The full hash, as 16 groups of 4 in 4 columns.
   const groups = drawer(page).locator("code > span");
   await expect(groups).toHaveCount(16);
+  await settled(page);
   expect((await groups.allTextContents()).join("")).toBe(HASH);
   const [first, fifth] = await Promise.all([
     groups.nth(0).boundingBox(),
@@ -303,7 +313,6 @@ test("at 360 px a long name fits, and Download stays in view", async ({
     );
   }
 
-  // Opened first, because the list's own 360 px layout comes with T120.
   await rowLink(page).click();
   await expect(drawer(page)).toBeVisible();
   await page.setViewportSize({ width: 360, height: 480 });
@@ -311,6 +320,7 @@ test("at 360 px a long name fits, and Download stays in view", async ({
   await expect(drawer(page).getByRole("listitem").first()).toContainText(
     longName,
   );
+  await settled(page);
   const widths = await drawer(page).evaluate((dialog) => ({
     dialog: dialog.getBoundingClientRect().width,
     content: Math.max(

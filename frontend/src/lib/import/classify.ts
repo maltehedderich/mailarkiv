@@ -6,8 +6,15 @@ import { field, parseMessage, type Message } from "#lib/api.js";
 
 export type RefusedReason = "empty" | "no_mail_header" | "too_large";
 
-export type FailedReason =
+/** FR-038's three capture failures, as the server names them. */
+export type CaptureFailure =
   "storage_full" | "storage_write_failed" | "catalog_write_failed";
+
+/**
+ * Why the file isn't archived: a capture failure MailArkiv reported, a marked
+ * 403 from MailArkiv, or a proxy's upload limit (FR-033).
+ */
+export type FailedReason = CaptureFailure | "refused_by_server" | "proxy_limit";
 
 export type ImportResult =
   | { outcome: "archived"; message: Message }
@@ -16,6 +23,12 @@ export type ImportResult =
   | { outcome: "refused"; reason: RefusedReason }
   | { outcome: "failed"; reason: FailedReason }
   | { outcome: "unconfirmed" };
+
+/**
+ * A marked 401: the session ended before the upload was accepted. The page
+ * opens sign-in with the session-ended message instead of showing an outcome.
+ */
+export type Classified = ImportResult | { outcome: "session_ended" };
 
 /** What the browser got back for an upload. */
 export type ImportResponse =
@@ -39,14 +52,23 @@ const REFUSED: Record<RefusedReason, number> = {
   too_large: 413,
 };
 
-const FAILED: Record<FailedReason, number> = {
+const FAILED: Record<CaptureFailure, number> = {
   storage_full: 507,
   storage_write_failed: 500,
   catalog_write_failed: 500,
 };
 
-export function classify(response: ImportResponse): ImportResult {
-  if (response.kind !== "response" || !response.marked) return UNCONFIRMED;
+export function classify(response: ImportResponse): Classified {
+  if (response.kind !== "response") return UNCONFIRMED;
+  if (!response.marked) {
+    return response.status === 413
+      ? { outcome: "failed", reason: "proxy_limit" }
+      : UNCONFIRMED;
+  }
+  if (response.status === 401) return { outcome: "session_ended" };
+  if (response.status === 403) {
+    return { outcome: "failed", reason: "refused_by_server" };
+  }
 
   let body: unknown;
   try {

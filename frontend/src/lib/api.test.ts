@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import {
   getMessage,
   getSession,
+  getStatus,
   listMessages,
   signIn,
   signOut,
@@ -343,6 +344,139 @@ describe("getMessage", () => {
 
   test("reads a network error as unavailable", async () => {
     expect(await getMessage("17", failing(networkError))).toEqual({
+      kind: "unavailable",
+    });
+  });
+});
+
+describe("getStatus", () => {
+  const STATUS = {
+    started_at: "2026-11-06T15:00:00.000Z",
+    recovery: {
+      finished_at: "2026-11-06T15:00:00.410Z",
+      temp_files_removed: 1,
+      temp_files_not_removed: 0,
+      unreferenced_found: 1,
+    },
+    unreferenced: [{ content_hash: HASH, size: 2048 }],
+    failures: [
+      {
+        at: "2026-11-06T15:20:00.000Z",
+        category: "stored_original_damaged",
+        message_id: 17,
+        content_hash: HASH,
+        restored: false,
+      },
+      {
+        at: "2026-11-06T15:21:00.000Z",
+        category: "temp_file_not_removed",
+        restored: false,
+      },
+    ],
+  };
+
+  test("reads the contract's status, keeping its order", async () => {
+    const { fetch, calls } = answer(200, STATUS);
+    expect(await getStatus(fetch)).toEqual({
+      kind: "ok",
+      value: {
+        startedAt: "2026-11-06T15:00:00.000Z",
+        recovery: {
+          finishedAt: "2026-11-06T15:00:00.410Z",
+          tempFilesRemoved: 1,
+          tempFilesNotRemoved: 0,
+          unreferencedFound: 1,
+        },
+        unreferenced: [{ contentHash: HASH, size: 2048 }],
+        failures: [
+          {
+            at: "2026-11-06T15:20:00.000Z",
+            category: "stored_original_damaged",
+            messageId: 17,
+            contentHash: HASH,
+            restored: false,
+          },
+          {
+            at: "2026-11-06T15:21:00.000Z",
+            category: "temp_file_not_removed",
+            messageId: null,
+            contentHash: null,
+            restored: false,
+          },
+        ],
+      },
+    });
+    expect(calls[0].url).toBe("/api/status");
+    expect(calls[0].init?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  test("reads every category FR-038 lists", async () => {
+    const categories = [
+      "storage_full",
+      "storage_write_failed",
+      "catalog_write_failed",
+      "stored_original_missing",
+      "stored_original_damaged",
+      "temp_file_not_removed",
+    ];
+    const failures = categories.map((category) => ({
+      at: "2026-11-06T15:20:00.000Z",
+      category,
+      restored: false,
+    }));
+    const { fetch } = answer(200, { ...STATUS, failures });
+    const status = await getStatus(fetch);
+    expect(status.kind).toBe("ok");
+    if (status.kind !== "ok") return;
+    expect(status.value.failures.map((failure) => failure.category)).toEqual(
+      categories,
+    );
+  });
+
+  test("reads a marked 401 as session_ended", async () => {
+    const { fetch } = answer(401, { error: "no_session" });
+    expect(await getStatus(fetch)).toEqual({ kind: "session_ended" });
+  });
+
+  const FAILURE = STATUS.failures[0];
+  test.each([
+    ["a server error", 500, { error: "internal_error" }],
+    ["a body that isn't JSON", 200, "<!doctype html>"],
+    ["no recovery result", 200, { ...STATUS, recovery: null }],
+    ["no failures field", 200, { ...STATUS, failures: undefined }],
+    ["a start time that can't be read", 200, { ...STATUS, started_at: "soon" }],
+    [
+      "an unreferenced original with a short hash",
+      200,
+      { ...STATUS, unreferenced: [{ content_hash: "ea94", size: 1 }] },
+    ],
+    [
+      "a category the interface doesn't know",
+      200,
+      { ...STATUS, failures: [{ ...FAILURE, category: "disk_on_fire" }] },
+    ],
+    [
+      "a failure with no restored flag",
+      200,
+      { ...STATUS, failures: [{ ...FAILURE, restored: undefined }] },
+    ],
+    [
+      "a failure with a negative message ID",
+      200,
+      { ...STATUS, failures: [{ ...FAILURE, message_id: -1 }] },
+    ],
+  ])("reads %s as unavailable", async (_name, status, body) => {
+    const { fetch } = answer(status, body);
+    expect(await getStatus(fetch)).toEqual({ kind: "unavailable" });
+  });
+
+  test("reads an unmarked answer as unavailable", async () => {
+    const { fetch } = answer(200, STATUS, { marked: false });
+    expect(await getStatus(fetch)).toEqual({ kind: "unavailable" });
+  });
+
+  test("reads a network error as unavailable", async () => {
+    expect(await getStatus(failing(networkError))).toEqual({
       kind: "unavailable",
     });
   });

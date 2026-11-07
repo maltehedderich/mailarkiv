@@ -2,8 +2,8 @@ import { describe, expect, test } from "vitest";
 
 import { classify, type ImportResponse } from "./classify";
 
-// Rows from "How the client classifies a result" in contracts/http-api.md, for
-// this phase. T104 adds marked 401 and 403 and unmarked 413.
+// Every row of "How the client classifies a result" in contracts/http-api.md
+// (FR-032, FR-033).
 
 const HASH = "ea9449bf2f2e4ba3d3c4f3d61a1f6b8e0c3e5f8b0a9d2c7e6f5a4b3c2d1e0f9a";
 
@@ -145,7 +145,61 @@ describe("a marked response with anything else is Unconfirmed", () => {
   });
 });
 
+// A marked 401 means the session ended during the upload, so the page opens
+// sign-in with the session-ended message (FR-040).
+describe("a marked 401 opens sign-in", () => {
+  test.each([
+    ["no_session", { error: "no_session" }],
+    ["an empty body", ""],
+    ["a body with an outcome", { outcome: "archived", message: messageJSON }],
+  ])("with %s", (_name, body) => {
+    expect(classify(marked(401, body))).toEqual({ outcome: "session_ended" });
+  });
+});
+
+// MailArkiv refused the request, so nothing was stored.
+describe("a marked 403 is Failed", () => {
+  test.each([
+    ["cross_origin", { error: "cross_origin" }],
+    ["no_access_rule", { error: "no_access_rule" }],
+    ["an empty body", ""],
+  ])("with %s", (_name, body) => {
+    expect(classify(marked(403, body))).toEqual({
+      outcome: "failed",
+      reason: "refused_by_server",
+    });
+  });
+});
+
+// FR-033: a proxy refused the file as too large, so it never reached MailArkiv.
+describe("an unmarked 413 is Failed, naming the proxy's limit", () => {
+  test.each([
+    ["nginx's page", "<html><body>413 Request Entity Too Large</body></html>"],
+    ["an empty body", ""],
+    [
+      "a body that looks like MailArkiv's",
+      { outcome: "refused", reason: "too_large" },
+    ],
+  ])("with %s", (_name, body) => {
+    expect(classify(unmarked(413, body))).toEqual({
+      outcome: "failed",
+      reason: "proxy_limit",
+    });
+  });
+});
+
 describe("an unmarked response is Unconfirmed", () => {
+  // FR-033: a proxy's timeout or bad gateway, and a 200 MailArkiv didn't send.
+  test.each([
+    [200, ""],
+    [502, "<html><body>502 Bad Gateway</body></html>"],
+    [504, "<html><body>504 Gateway Time-out</body></html>"],
+  ])("%i from a proxy", (status, body) => {
+    expect(classify(unmarked(status, body))).toEqual({
+      outcome: "unconfirmed",
+    });
+  });
+
   test("even a 201 with a valid-looking body", () => {
     expect(
       classify(unmarked(201, { outcome: "archived", message: messageJSON })),

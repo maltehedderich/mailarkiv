@@ -107,7 +107,7 @@ Inter sets everything except hashes. Its variable file gives the 510 and 590 wei
 - **Short hash:** the first 8 characters, in the mono font at `--size-label`, coloured `--text-3`.
 - **Full hash:** all 64 characters as 16 groups of 4, in 4 columns, with `font-variant-ligatures: none`. A copy button next to it copies the 64 characters without spaces. Groups make the hash comparable by eye, so don't shorten it (FR-020).
 - **File names:** the medium weight in `--text-1`, isolated with `<bdi>`. Long names lose their middle, so the start and the extension both stay visible (FR-021). A control or bidi character shows as a small code such as `U+202E`. A missing name is `(no file name)` in `--text-3` at regular weight.
-- **Dates:** `2 Nov, 09:14:55` in lists. Use the same form everywhere a person compares times.
+- **Dates:** `2 Nov 2026, 09:14:55 +01:00`, in the viewer's time zone with its UTC offset (FR-043). Use the same form everywhere a person compares times.
 
 ## Space, size, and shape
 
@@ -198,7 +198,7 @@ The dot is `--dot-size`. Use the spec's words for each outcome and its explanati
 
 ### Import list row
 
-Columns: file name, latest time (112 px), size (62 px), short hash (72 px), count (40 px), download (28 px). The count shows as `3×`, only above 1 (FR-019). Rows are `--row-height`, `--radius-medium`, with no separators. Hover is `--fill-1`.
+Columns: file name, latest time (185 px), size (62 px), short hash (72 px), count (40 px), download (28 px). 185 px fits the widest time, `22 May 2026, 09:14:55 +05:30`, measured in Chromium in Inter at 12 px with tabular numerals. Measure again if the date form or the font changes. The count shows as `3×`, only above 1 (FR-019). Rows are `--row-height`, `--radius-medium`, with no separators. Hover is `--fill-1`.
 
 Every row has two keyboard stops: the row opens its history on Enter, and its download button saves the file. The row's accessible name must include the file name. Clicking the download button must not also open the history.
 

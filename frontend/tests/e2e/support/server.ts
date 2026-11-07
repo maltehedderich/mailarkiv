@@ -20,6 +20,11 @@ export interface TestServer {
   createAccount(email: string, password: string): Promise<void>;
   /** Sets a new password through the CLI, which ends the account's sessions. */
   setPassword(email: string, password: string): Promise<void>;
+  /**
+   * Stops the server with SIGTERM and starts it again on the same port and
+   * data directory, so the origin and the session cookie stay the same.
+   */
+  restart(): Promise<void>;
   stop(): Promise<void>;
 }
 
@@ -27,6 +32,40 @@ export interface TestServer {
 export async function startServer(): Promise<TestServer> {
   const dataDir = await mkdtemp(join(tmpdir(), "mailarkiv-e2e-"));
   const port = await freePort();
+  const origin = `http://localhost:${port}`;
+
+  let child: ChildProcess;
+  try {
+    child = await launch(dataDir, port, origin);
+  } catch (error) {
+    await rm(dataDir, { recursive: true, force: true });
+    throw error;
+  }
+
+  return {
+    origin,
+    dataDir,
+    createAccount: (email, password) =>
+      runAccountCommand("create", dataDir, email, password),
+    setPassword: (email, password) =>
+      runAccountCommand("set-password", dataDir, email, password),
+    restart: async () => {
+      await stopProcess(child);
+      child = await launch(dataDir, port, origin);
+    },
+    stop: async () => {
+      await stopProcess(child);
+      await rm(dataDir, { recursive: true, force: true });
+    },
+  };
+}
+
+/** Runs the server and returns once it answers. */
+async function launch(
+  dataDir: string,
+  port: number,
+  origin: string,
+): Promise<ChildProcess> {
   const child = spawn(
     BINARY,
     ["serve", "--data-dir", dataDir, "--listen", `127.0.0.1:${port}`],
@@ -36,27 +75,13 @@ export async function startServer(): Promise<TestServer> {
   let stderr = "";
   child.stderr?.on("data", (chunk) => (stderr += chunk));
 
-  const origin = `http://localhost:${port}`;
-  const stop = async () => {
-    await stopProcess(child);
-    await rm(dataDir, { recursive: true, force: true });
-  };
-
   try {
     await waitUntilAnswering(origin, child);
   } catch (error) {
-    await stop();
+    await stopProcess(child);
     throw new Error(`The server didn't start: ${String(error)}\n${stderr}`);
   }
-  return {
-    origin,
-    dataDir,
-    createAccount: (email, password) =>
-      runAccountCommand("create", dataDir, email, password),
-    setPassword: (email, password) =>
-      runAccountCommand("set-password", dataDir, email, password),
-    stop,
-  };
+  return child;
 }
 
 /**

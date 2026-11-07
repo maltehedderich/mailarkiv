@@ -55,6 +55,55 @@ export interface SessionInfo {
   problemCount: number;
 }
 
+/** FR-038's six failure categories, as the server names them. */
+export const FAILURE_CATEGORIES = [
+  "storage_full",
+  "storage_write_failed",
+  "catalog_write_failed",
+  "stored_original_missing",
+  "stored_original_damaged",
+  "temp_file_not_removed",
+] as const;
+
+export type FailureCategory = (typeof FAILURE_CATEGORIES)[number];
+
+export interface RecoveryResult {
+  /** RFC 3339 in UTC. */
+  finishedAt: string;
+  tempFilesRemoved: number;
+  tempFilesNotRemoved: number;
+  unreferencedFound: number;
+}
+
+/** A stored original with no catalog entry. */
+export interface UnreferencedOriginal {
+  contentHash: string;
+  size: number;
+}
+
+export interface FailureEvent {
+  /** RFC 3339 in UTC. */
+  at: string;
+  category: FailureCategory;
+  /** Null when the event names no message. */
+  messageId: number | null;
+  /** Null when the event names no stored original. */
+  contentHash: string | null;
+  /** An import has already replaced the stored original. */
+  restored: boolean;
+}
+
+/** What the server knows since its latest start (FR-027). */
+export interface ServerStatus {
+  /** RFC 3339 in UTC. */
+  startedAt: string;
+  recovery: RecoveryResult;
+  /** In the order recovery found them. */
+  unreferenced: UnreferencedOriginal[];
+  /** In the order they happened. */
+  failures: FailureEvent[];
+}
+
 export type ApiResult<T> =
   | { kind: "ok"; value: T }
   | { kind: "session_ended" }
@@ -100,6 +149,13 @@ export async function getMessage(
     `/api/messages/${encodeURIComponent(id)}`,
     parseHistory,
   );
+}
+
+/** Reads the status screen's data. */
+export async function getStatus(
+  fetch: Fetch = globalThis.fetch,
+): Promise<ApiResult<ServerStatus>> {
+  return getJSON(fetch, "/api/status", parseStatus);
 }
 
 export async function signIn(
@@ -249,6 +305,82 @@ function parseObservation(value: unknown): Observation | null {
   return { sourceType, observedAt, accountEmail, fileName };
 }
 
+function parseStatus(body: unknown): ServerStatus | null {
+  const startedAt = field(body, "started_at");
+  const recovery = parseRecovery(field(body, "recovery"));
+  const unreferenced = field(body, "unreferenced");
+  const failures = field(body, "failures");
+  if (
+    !isTime(startedAt) ||
+    recovery === null ||
+    !Array.isArray(unreferenced) ||
+    !Array.isArray(failures)
+  ) {
+    return null;
+  }
+  const originals = unreferenced.map(parseUnreferenced);
+  const events = failures.map(parseFailure);
+  if (originals.some((original) => original === null)) return null;
+  if (events.some((event) => event === null)) return null;
+  return {
+    startedAt,
+    recovery,
+    unreferenced: originals as UnreferencedOriginal[],
+    failures: events as FailureEvent[],
+  };
+}
+
+function parseRecovery(value: unknown): RecoveryResult | null {
+  const finishedAt = field(value, "finished_at");
+  const tempFilesRemoved = field(value, "temp_files_removed");
+  const tempFilesNotRemoved = field(value, "temp_files_not_removed");
+  const unreferencedFound = field(value, "unreferenced_found");
+  if (
+    !isTime(finishedAt) ||
+    !isCount(tempFilesRemoved) ||
+    !isCount(tempFilesNotRemoved) ||
+    !isCount(unreferencedFound)
+  ) {
+    return null;
+  }
+  return {
+    finishedAt,
+    tempFilesRemoved,
+    tempFilesNotRemoved,
+    unreferencedFound,
+  };
+}
+
+function parseUnreferenced(value: unknown): UnreferencedOriginal | null {
+  const contentHash = field(value, "content_hash");
+  const size = field(value, "size");
+  if (!isContentHash(contentHash) || !isCount(size)) return null;
+  return { contentHash, size };
+}
+
+/** The contract leaves out `message_id` and `content_hash` where they don't apply. */
+function parseFailure(value: unknown): FailureEvent | null {
+  const at = field(value, "at");
+  const category = field(value, "category");
+  const messageId = field(value, "message_id") ?? null;
+  const contentHash = field(value, "content_hash") ?? null;
+  const restored = field(value, "restored");
+  if (
+    !isTime(at) ||
+    !isFailureCategory(category) ||
+    (messageId !== null && !isCount(messageId)) ||
+    (contentHash !== null && !isContentHash(contentHash)) ||
+    typeof restored !== "boolean"
+  ) {
+    return null;
+  }
+  return { at, category, messageId, contentHash, restored };
+}
+
+function isFailureCategory(value: unknown): value is FailureCategory {
+  return FAILURE_CATEGORIES.some((category) => category === value);
+}
+
 /** Reads one message as the contract writes it, or null if it isn't one. */
 export function parseMessage(value: unknown): Message | null {
   const id = field(value, "id");
@@ -277,6 +409,10 @@ export function field(value: unknown, name: string): unknown {
     return undefined;
   }
   return (value as Record<string, unknown>)[name];
+}
+
+function isTime(value: unknown): value is string {
+  return typeof value === "string" && !Number.isNaN(Date.parse(value));
 }
 
 function isContentHash(value: unknown): value is string {

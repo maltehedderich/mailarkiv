@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ActivityIcon from "~icons/lucide/activity";
   import ArchiveIcon from "~icons/lucide/archive";
   import LogOutIcon from "~icons/lucide/log-out";
 
@@ -11,7 +12,14 @@
 
   import type { LayoutProps } from "./$types";
 
-  let { children }: LayoutProps = $props();
+  let { children, data }: LayoutProps = $props();
+
+  // FR-039: failure events plus unreferenced originals, read at each page load.
+  // A failed read shows no count, and the page shows the failed-load state, so
+  // it never looks like zero (FR-045).
+  const problemCount = $derived(
+    data.session.kind === "ok" ? data.session.value.problemCount : 0,
+  );
 
   let signingOut = false;
   let signOutFailed = $state(false);
@@ -48,11 +56,32 @@
       <ArchiveIcon />
       Messages
     </a>
+    <a
+      class="item"
+      href="/status"
+      aria-current={page.url.pathname === "/status" ? "page" : undefined}
+    >
+      <ActivityIcon />
+      Status
+      {#if problemCount > 0}
+        <span class="count"
+          >{problemCount}<span class="visually-hidden"
+            >{problemCount === 1 ? " problem" : " problems"}</span
+          ></span
+        >
+      {/if}
+    </a>
 
     <div class="sign-out">
-      <button class="item" type="button" onclick={signOutNow}>
+      <!-- The label hides at 720 px and below, where this is an icon tab. -->
+      <button
+        class="item"
+        type="button"
+        aria-label="Sign out"
+        onclick={signOutNow}
+      >
         <LogOutIcon />
-        Sign out
+        <span class="label">Sign out</span>
       </button>
       <p class="problem" role="status">
         {signOutFailed
@@ -135,6 +164,23 @@
     color: var(--text-1);
   }
 
+  /* The problem count on the Status item (FR-039). */
+  .count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    margin-left: auto;
+    padding: 0 var(--space-6);
+    border-radius: 9px;
+    background: var(--state-bad-fill);
+    color: var(--state-bad-text);
+    font-size: var(--size-label);
+    font-variant-numeric: tabular-nums;
+    line-height: var(--leading-label);
+  }
+
   .sign-out {
     display: grid;
     gap: var(--space-4);
@@ -153,5 +199,87 @@
     border-radius: var(--radius-large);
     background: var(--panel);
     box-shadow: var(--shadow-panel);
+  }
+
+  /* DESIGN.md: the sidebar becomes a bottom bar of 44 px tabs, icon over
+     label, and the panel takes the whole width above it. */
+  @media (max-width: 720px) {
+    .shell {
+      grid-template-columns: minmax(0, 1fr);
+      padding-bottom: 44px;
+    }
+
+    nav {
+      position: fixed;
+      inset: auto 0 0;
+      z-index: 1;
+      flex-direction: row;
+      gap: 0;
+      height: 44px;
+      padding: 0;
+      border-top: 1px solid var(--line);
+      background: var(--canvas);
+    }
+
+    .brand {
+      display: none;
+    }
+
+    .item {
+      position: relative;
+      flex: 1;
+      flex-direction: column;
+      justify-content: center;
+      gap: var(--space-2);
+      height: 44px;
+      border-radius: 0;
+      font-size: var(--size-label);
+      line-height: var(--leading-label);
+    }
+
+    button.item {
+      width: 56px;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .item .label {
+      display: none;
+    }
+
+    /* Beside the icon, so the label stays centred. */
+    .count {
+      position: absolute;
+      top: var(--space-2);
+      left: calc(50% + var(--space-6));
+      margin: 0;
+    }
+
+    .sign-out {
+      flex: none;
+      margin: 0;
+    }
+
+    /* Above the bar, and only drawn when it has something to say. */
+    .sign-out .problem {
+      position: fixed;
+      right: var(--space-16);
+      bottom: 52px;
+      left: var(--space-16);
+      padding: 0;
+    }
+
+    .sign-out .problem:not(:empty) {
+      padding: var(--space-8) var(--space-12);
+      border-radius: var(--radius-medium);
+      background: var(--raised);
+      box-shadow: var(--shadow-pop);
+    }
+
+    .panel {
+      margin: 0;
+      border-radius: 0;
+      box-shadow: none;
+    }
   }
 </style>

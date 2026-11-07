@@ -151,3 +151,36 @@ body {
 .problem {
   color: var(--state-bad-text);
 }
+
+/* Read by screen readers and not shown, such as the word after a count. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* DESIGN.md: buttons grow for touch on narrow screens. */
+@media (max-width: 720px) {
+  .button,
+  .button.large {
+    height: var(--control-height-touch);
+  }
+
+  .button.icon-only {
+    width: var(--control-height-touch);
+  }
+}
+
+/* DESIGN.md: with reduced motion, nothing animates or fades. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after,
+  ::backdrop {
+    animation: none !important;
+    transition: none !important;
+  }
+}

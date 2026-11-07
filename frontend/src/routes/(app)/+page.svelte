@@ -1,13 +1,20 @@
 <script lang="ts">
-  import { goto } from "$app/navigation";
+  import { tick } from "svelte";
+
+  import { beforeNavigate, goto } from "$app/navigation";
   import { page } from "$app/state";
 
-  import { getSession } from "#lib/api.js";
+  import { getSession, type ApiResult, type MessagePage } from "#lib/api.js";
   import FailedLoad from "#lib/components/FailedLoad.svelte";
   import HistoryDrawer from "#lib/components/HistoryDrawer.svelte";
+  import ImportBox from "#lib/components/ImportBox.svelte";
+  import ImportOutcome, {
+    type Shown,
+  } from "#lib/components/ImportOutcome.svelte";
   import MessageRow from "#lib/components/MessageRow.svelte";
-  import { formatBytes, formatSize } from "#lib/format/size.js";
-  import type { ImportResult } from "#lib/import/classify.js";
+  import Pager from "#lib/components/Pager.svelte";
+  import { choose } from "#lib/import/choose.js";
+  import { isBusy, type ImportStep } from "#lib/import/step.js";
   import { upload } from "#lib/import/upload.js";
   import { signInPath } from "#lib/session.js";
 
@@ -15,59 +22,120 @@
 
   let { data }: PageProps = $props();
 
-  // A thin import form. T115 to T117 replace it with the import box.
-  let input: HTMLInputElement;
-  let busy = $state(false);
-  let progress = $state("");
-  let result: ImportResult | null = $state(null);
+  let box: ReturnType<typeof ImportBox>;
+  let heading: HTMLHeadingElement;
 
-  const LIMIT = 150_000_000;
+  // The page owns the import, so its result outlives a failed refresh.
+  let step = $state<ImportStep>({ kind: "ready" });
+  // FR-032: the last result stays until the next import starts.
+  let shown = $state<Shown | null>(null);
+  const busy = $derived(isBusy(step));
 
-  // FR-038's meaning and next step for each failure.
-  const FAILED = {
-    storage_full:
-      "The disk holding the archive ran out of space. Free disk space, then import the file again.",
-    storage_write_failed:
-      "The server could not write to its storage location. Fix the storage location, then import the file again.",
-    catalog_write_failed:
-      "The original was stored but its catalog entry was not written. Import the same file again. If this repeats, check the server log.",
-  } as const;
+  const LEAVE =
+    "An import is still running. If you leave now, the file may not be archived.";
 
-  const REFUSED = {
-    empty: "The file is empty.",
-    too_large: `The file is larger than ${formatBytes(LIMIT)}.`,
-    no_mail_header: "The file has no mail header line.",
-  } as const;
+  // The latest list that arrived, with the page it is for. A refresh of the
+  // same page keeps showing it, so the rows, and the focus in them, stay until
+  // the new list replaces them.
+  type Settled = { pageParam: string | null; result: ApiResult<MessagePage> };
+  let settled = $state<Settled | null>(null);
 
-  async function submit(event: SubmitEvent) {
-    event.preventDefault();
-    const file = input.files?.[0];
-    if (busy || file === undefined) return;
-    busy = true;
+  const list = $derived(
+    settled !== null && settled.pageParam === data.pageParam
+      ? settled.result
+      : null,
+  );
+
+  $effect(() => {
+    const { pageParam, messages } = data;
+    let current = true;
+    void messages.then(async (result) => {
+      if (!current) return;
+      const before = settled?.result.kind;
+      settled = { pageParam, result };
+      if (result.kind === "session_ended") {
+        await goto(signInPath(page.url));
+        return;
+      }
+      if (result.kind === "ok") await movePastTheEnd(result.value);
+      // Try again went away with the failed-load block, so focus moves on
+      // purpose instead of falling to the page.
+      if (before === "unavailable" && result.kind === "ok") {
+        await tick();
+        if (document.activeElement === document.body) heading.focus();
+      }
+    });
+    return () => {
+      current = false;
+    };
+  });
+
+  /** A page past the end, from an old link or a typed address, moves back. */
+  async function movePastTheEnd({ items, total, pageSize }: MessagePage) {
+    if (items.length > 0 || total === 0) return;
+    const url = new URL(page.url.href);
+    url.searchParams.set("page", String(Math.ceil(total / pageSize)));
+    await goto(url.pathname + url.search, { replace: true });
+  }
+
+  function chooseFiles(files: File[]) {
+    const choice = choose(files);
+    if (choice.kind === "chosen") step = { kind: "chosen", file: choice.file };
+    if (choice.kind === "refused") {
+      step = { kind: "refused", reason: choice.reason };
+    }
+  }
+
+  async function startImport() {
+    if (step.kind !== "chosen") return;
+    const { file } = step;
+    shown = null;
+    step = { kind: "uploading", file, fraction: 0 };
     // FR-040: a session that ended opens sign-in before any byte is sent.
     // Only a marked 401 changes anything. After any other result the upload
     // goes ahead, and its own answer decides the outcome.
-    const session = await getSession();
-    if (session.kind === "session_ended") {
-      busy = false;
+    if ((await getSession()).kind === "session_ended") {
+      step = { kind: "chosen", file };
       await goto(signInPath(page.url));
       return;
     }
-    // FR-032: the last result stays until the next import starts.
-    result = null;
-    progress = "Uploading, 0%";
-    const outcome = await upload(file, {
-      onProgress: (sent) => {
-        progress = `Uploading, ${Math.floor(sent * 100)}%`;
+    const result = await upload(file, {
+      onProgress: (fraction) => {
+        if (step.kind === "uploading") {
+          step = { kind: "uploading", file, fraction };
+        }
       },
       onUploaded: () => {
-        progress = "Storing";
+        step = { kind: "storing", file };
       },
     });
-    busy = false;
-    progress = "";
-    result = outcome;
-    await goto("/", { refreshAll: true, reset: false });
+    if (result.outcome === "session_ended") {
+      step = { kind: "chosen", file };
+      await goto(signInPath(page.url));
+      return;
+    }
+    step = { kind: "ready" };
+    shown = { fileName: file.name, result };
+    // Import goes away with the chosen file, so focus moves on purpose.
+    await tick();
+    box.focus();
+    // The newest message is first, so the list goes back to page 1. An open
+    // history stays open.
+    const url = new URL(page.url.href);
+    url.searchParams.delete("page");
+    await goto(url.pathname + url.search, { refreshAll: true, reset: false });
+  }
+
+  // FR-037: leaving would lose the import's result, and closing the tab may
+  // stop the upload. The history opens on this page, so it doesn't ask.
+  beforeNavigate((navigation) => {
+    if (!busy || navigation.type === "leave") return;
+    if (navigation.to?.url.pathname === page.url.pathname) return;
+    if (!confirm(LEAVE)) navigation.cancel();
+  });
+
+  function warnBeforeUnload(event: BeforeUnloadEvent) {
+    if (busy) event.preventDefault();
   }
 
   function historyHref(id: number): string {
@@ -97,81 +165,59 @@
   <title>Messages · MailArkiv</title>
 </svelte:head>
 
+<svelte:window onbeforeunload={warnBeforeUnload} />
+
 <main>
   <header>
-    <h1>Messages</h1>
+    <h1 bind:this={heading} tabindex="-1">Messages</h1>
   </header>
 
   <div class="body">
-    <form class="import" onsubmit={submit}>
-      <label class="choose">
-        <span>Choose a file</span>
-        <input type="file" accept=".eml,message/rfc822" bind:this={input} />
-      </label>
-      <button
-        class="button primary"
-        type="submit"
-        aria-disabled={busy ? "true" : undefined}
-      >
-        Import
-      </button>
-      <p class="progress">{progress}</p>
-    </form>
+    <ImportBox
+      bind:this={box}
+      {step}
+      onchoose={chooseFiles}
+      onimport={startImport}
+    />
+    <ImportOutcome {shown} {historyHref} />
 
-    <div class="outcome" role="status">
-      {#if result === null}
-        <!-- Nothing yet. The element stays, so screen readers announce the
-             result when it appears. -->
-      {:else if result.outcome === "archived"}
-        <p>
-          <strong>Archived</strong>
-          <bdi>{result.message.fileName ?? "(no file name)"}</bdi>,
-          {formatSize(result.message.size)}.
-        </p>
-      {:else if result.outcome === "already_archived"}
-        <p>
-          <strong>Already archived</strong>
-          This import was added to the history, and no second copy was stored.
-        </p>
-      {:else if result.outcome === "restored"}
-        <p>
-          <strong>Restored</strong>
-          The stored copy was restored from this file.
-        </p>
-      {:else if result.outcome === "refused"}
-        <p>
-          <strong>Refused</strong>
-          {REFUSED[result.reason]} Nothing was stored.
-        </p>
-      {:else if result.outcome === "failed"}
-        <p>
-          <strong>Failed</strong>
-          The file is not archived. {FAILED[result.reason]}
-        </p>
-      {:else}
-        <p>
-          <strong>Unconfirmed</strong>
-          The file may be archived. Importing it again is safe and stores no second
-          copy.
-        </p>
-      {/if}
-    </div>
-
-    {#if data.session.kind === "ok" && data.messages.kind === "ok"}
-      {@const { items, page, total } = data.messages.value}
-      {#if total === 0}
-        <p class="empty">No mail yet</p>
-      {:else if items.length === 0}
-        <p class="empty">Page {page} is past the end of the list.</p>
-      {:else}
-        <ul aria-label="Messages">
-          {#each items as message (message.id)}
-            <MessageRow {message} historyHref={historyHref(message.id)} />
-          {/each}
-        </ul>
-      {/if}
-    {:else}
+    {#if data.session.kind !== "ok" || list?.kind === "unavailable"}
       <FailedLoad />
+    {:else if list?.kind === "ok" && list.value.total === 0}
+      <p class="empty">No mail yet</p>
+    {:else}
+      <div class="table">
+        <p class="heads" aria-hidden="true">
+          <span>File name</span>
+          <span>Imported</span>
+          <span class="right">Size</span>
+          <span>Hash</span>
+        </p>
+        {#if list?.kind === "ok" && list.value.items.length > 0}
+          <ul aria-label="Messages">
+            {#each list.value.items as message (message.id)}
+              <MessageRow {message} historyHref={historyHref(message.id)} />
+            {/each}
+          </ul>
+        {:else}
+          <!-- Loading, or moving back from past the end. Still, so a slow
+               archive doesn't look busy. -->
+          <ul class="skeleton" aria-hidden="true">
+            {#each { length: 6 }, index (index)}
+              <li>
+                <span class="bone name"></span>
+                <span class="bone time"></span>
+                <span class="bone size"></span>
+                <span class="bone hash"></span>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      </div>
+      {#if list?.kind === "ok" && list.value.items.length > 0}
+        {@const { page: number, pageSize, total } = list.value}
+        <Pager page={number} {pageSize} {total} />
+      {/if}
     {/if}
   </div>
 </main>
@@ -193,6 +239,11 @@
     letter-spacing: var(--tracking-section);
   }
 
+  /* Focused only when the content it heads was replaced. */
+  h1:focus {
+    outline: none;
+  }
+
   .body {
     display: grid;
     gap: var(--space-16);
@@ -201,55 +252,99 @@
     padding: var(--space-24);
   }
 
-  .import {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: end;
-    gap: var(--space-12);
-    padding: var(--space-16);
-    border: 1px solid var(--line);
-    border-radius: var(--radius-large);
-    background: var(--fill-1);
+  .empty {
+    color: var(--text-3);
   }
 
-  .choose {
+  /* The columns from DESIGN.md. 185 px fits the widest time, such as
+     "22 May 2026, 09:14:55 +05:30", in Inter at 12 px with tabular numerals. */
+  .table {
     display: grid;
-    gap: var(--space-6);
-    min-width: 0;
+    grid-template-columns:
+      minmax(0, 1fr) 185px 62px 72px 40px
+      var(--control-height);
+    column-gap: var(--space-12);
   }
 
-  .choose > span {
-    color: var(--text-2);
+  .heads,
+  ul {
+    display: grid;
+    grid-template-columns: subgrid;
+    grid-column: 1 / -1;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .heads {
+    align-items: center;
+    height: var(--space-32);
+    padding: 0 var(--space-4) 0 var(--space-10);
+    color: var(--text-3);
     font-size: var(--size-label);
     font-weight: var(--weight-medium);
     line-height: var(--leading-label);
   }
 
-  .choose > input {
-    max-width: 100%;
+  .right {
+    text-align: right;
   }
 
-  .progress {
-    color: var(--text-3);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .outcome strong {
-    font-weight: var(--weight-strong);
-  }
-
-  .empty {
-    color: var(--text-3);
-  }
-
-  ul {
+  .skeleton li {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) max-content 62px 72px 40px var(
-        --control-height
-      );
-    column-gap: var(--space-12);
-    margin: 0;
-    padding: 0;
-    list-style: none;
+    grid-template-columns: subgrid;
+    grid-column: 1 / -1;
+    align-items: center;
+    height: var(--row-height);
+    padding: 0 var(--space-4) 0 var(--space-10);
+  }
+
+  .bone {
+    height: 8px;
+    border-radius: var(--radius-small);
+    background: var(--fill-2);
+  }
+
+  .bone.name {
+    width: 60%;
+  }
+
+  /* DESIGN.md: the header row goes, and rows stack. */
+  @media (max-width: 720px) {
+    header {
+      padding: 0 var(--space-16);
+    }
+
+    .body {
+      padding: var(--space-16);
+    }
+
+    .table {
+      display: block;
+    }
+
+    .heads {
+      display: none;
+    }
+
+    ul {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .skeleton li {
+      grid-template-columns: minmax(0, 1fr);
+      gap: var(--space-8);
+      height: auto;
+      padding: var(--space-12) var(--space-8);
+    }
+
+    .bone.size,
+    .bone.hash {
+      display: none;
+    }
+
+    .bone.time {
+      width: 40%;
+    }
   }
 </style>

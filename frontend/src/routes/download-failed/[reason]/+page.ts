@@ -1,5 +1,7 @@
 import { error } from "@sveltejs/kit";
 
+import { CATEGORIES } from "#lib/status/categories.js";
+
 import type { EntryGenerator, PageLoad } from "./$types";
 
 // The server sends these two files in place of a failed download, from whatever
@@ -13,19 +15,14 @@ export const entries: EntryGenerator = () => [
   { reason: "damaged" },
 ];
 
-// FR-038's two stored-original rows, word for word.
+// FR-038's two stored-original rows.
 const REASONS = new Map([
-  ["missing", "A download or repeat import found no stored file."],
-  [
-    "damaged",
-    "The stored file can't be read or does not match its content hash.",
-  ],
+  ["missing", CATEGORIES.stored_original_missing],
+  ["damaged", CATEGORIES.stored_original_damaged],
 ]);
-const NEXT_STEP =
-  "Import the same file again, if you still have it, to restore the original.";
 
 export const load: PageLoad = ({ params }) => {
-  const reason = REASONS.get(params.reason);
-  if (reason === undefined) error(404);
-  return { reason, nextStep: NEXT_STEP };
+  const category = REASONS.get(params.reason);
+  if (category === undefined) error(404);
+  return { reason: category.meaning, nextStep: category.nextStep };
 };

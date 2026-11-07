@@ -9,6 +9,9 @@ import type { LayoutLoad } from "./$types";
 // opens sign-in. For anything else that isn't success, the page shows the
 // failed-load state, and no count: a failed read must not look like zero.
 export const load: LayoutLoad = async ({ fetch, url }) => {
+  // Reading the whole address makes SvelteKit run this load again at every
+  // in-app navigation, so the problem count is current on each page.
+  void url.href;
   const session = await getSession(fetch);
   if (session.kind === "session_ended") redirect(307, signInPath(url));
   if (session.kind === "ok") markSignedIn();

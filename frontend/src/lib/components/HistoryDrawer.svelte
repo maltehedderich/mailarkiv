@@ -4,6 +4,7 @@
 
   import type { ApiResult, MessageHistory, SourceType } from "#lib/api.js";
   import FailedLoad from "#lib/components/FailedLoad.svelte";
+  import FileName from "#lib/components/FileName.svelte";
   import FullHash from "#lib/components/FullHash.svelte";
   import { formatBytes } from "#lib/format/size.js";
   import { formatTime } from "#lib/format/time.js";
@@ -74,8 +75,8 @@
                 </time>
                 <span>{SOURCES[observation.sourceType]}</span>
               </p>
-              <p class="name" class:missing={observation.fileName === null}>
-                <bdi>{observation.fileName ?? "(no file name)"}</bdi>
+              <p class="name">
+                <FileName name={observation.fileName} full />
               </p>
               <p class="account"><bdi>{observation.accountEmail}</bdi></p>
             </li>
@@ -118,10 +119,18 @@
     color: var(--text-1);
   }
 
-  /* Only when open, or the closed dialog would show. */
+  /* Only when open, or the closed dialog would show. DESIGN.md: it slides in
+     from the right. Reduced motion turns this off in global.css. */
   dialog[open] {
     display: grid;
     grid-template-rows: auto minmax(0, 1fr) auto;
+    animation: slide-in var(--motion-slide) var(--ease-enter);
+  }
+
+  @keyframes slide-in {
+    from {
+      transform: translateX(100%);
+    }
   }
 
   dialog::backdrop {
@@ -214,12 +223,6 @@
   .name {
     margin-top: var(--space-2);
     font-weight: var(--weight-medium);
-    overflow-wrap: anywhere;
-  }
-
-  .name.missing {
-    color: var(--text-3);
-    font-weight: var(--weight-regular);
   }
 
   .account {
@@ -233,5 +236,12 @@
     display: grid;
     padding: var(--space-12) var(--space-16);
     border-top: 1px solid var(--line);
+  }
+
+  @media (max-width: 720px) {
+    dialog {
+      width: 100%;
+      border-radius: 0;
+    }
   }
 </style>
