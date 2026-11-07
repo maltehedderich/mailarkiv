@@ -22,8 +22,23 @@
     data.session.kind === "ok" ? data.session.value.problemCount : 0,
   );
 
+  // Separators, as the pager shows totals.
+  const numbers = new Intl.NumberFormat("en-US");
+
   let signingOut = false;
   let signOutFailed = $state(false);
+
+  // WCAG 2.4.11: at 720 px and below the sign-out line floats above the tab
+  // bar, so the page keeps room for it, as it does for the toasts. Only the
+  // narrow layout reads --sign-out-room. The 8 px gap matches the toasts'.
+  const GAP = 8;
+  let lineHeight = $state(0);
+  $effect(() => {
+    const root = document.documentElement;
+    const room = lineHeight === 0 ? 0 : lineHeight + GAP;
+    root.style.setProperty("--sign-out-room", `${room}px`);
+    return () => root.style.removeProperty("--sign-out-room");
+  });
 
   async function signOutNow() {
     // Not disabled while busy, so the focused button keeps focus.
@@ -66,7 +81,7 @@
       Status
       {#if problemCount > 0}
         <span class="count"
-          >{problemCount}<span class="visually-hidden"
+          >{numbers.format(problemCount)}<span class="visually-hidden"
             >{problemCount === 1 ? " problem" : " problems"}</span
           ></span
         >
@@ -74,6 +89,13 @@
     </a>
 
     <div class="sign-out">
+      <!-- Above the button, so the line grows upward and the button stays
+           under the pointer for the second try. -->
+      <p class="problem" role="status" bind:offsetHeight={lineHeight}>
+        {signOutFailed
+          ? "Sign-out didn't finish, so you're still signed in. Try again."
+          : ""}
+      </p>
       <!-- The label hides at 720 px and below, where this is an icon tab. -->
       <button
         class="item"
@@ -84,11 +106,6 @@
         <LogOutIcon />
         <span class="label">Sign out</span>
       </button>
-      <p class="problem" role="status">
-        {signOutFailed
-          ? "Sign-out didn't finish, so you're still signed in. Try again."
-          : ""}
-      </p>
     </div>
   </nav>
 
@@ -119,14 +136,16 @@
     flex-direction: column;
     gap: var(--space-2);
     height: 100dvh;
-    padding: var(--space-16) var(--space-8);
+    padding: var(--space-8);
   }
 
+  /* As tall as a view header and inset like the panel, so the logo lines up
+     with the view title. */
   .brand {
     display: flex;
+    flex: none;
     align-items: center;
-    height: var(--control-height);
-    margin-bottom: var(--space-12);
+    height: var(--header-height);
     padding: 0 var(--space-8);
   }
 
@@ -199,8 +218,10 @@
   }
 
   /* --toast-room is set by the toasts, so the end of the page can scroll
-     clear of them. */
+     clear of them. Isolated, so a raised control in the page, such as a row's
+     download, can't paint over the bottom tab bar. */
   .panel {
+    isolation: isolate;
     min-width: 0;
     margin: var(--space-8) var(--space-8) var(--space-8) 0;
     padding-bottom: var(--toast-room, 0px);
@@ -209,12 +230,12 @@
     box-shadow: var(--shadow-panel);
   }
 
-  /* DESIGN.md: the sidebar becomes a bottom bar of 44 px tabs, icon over
-     label, and the panel takes the whole width above it. */
+  /* DESIGN.md: the sidebar becomes a bottom bar of tabs, icon over label, and
+     the panel takes the whole width above it. */
   @media (max-width: 720px) {
     .shell {
       grid-template-columns: minmax(0, 1fr);
-      padding-bottom: 44px;
+      padding-bottom: var(--tab-bar-height);
     }
 
     nav {
@@ -223,7 +244,7 @@
       z-index: 1;
       flex-direction: row;
       gap: 0;
-      height: 44px;
+      height: var(--tab-bar-height);
       padding: 0;
       border-top: 1px solid var(--line);
       background: var(--canvas);
@@ -239,27 +260,34 @@
       flex-direction: column;
       justify-content: center;
       gap: var(--space-2);
-      height: 44px;
+      height: var(--tab-bar-height);
       border-radius: 0;
       font-size: var(--size-label);
       line-height: var(--leading-label);
     }
 
+    /* Inside the tab, so the screen edge and the next tab don't cut it. */
+    .item:focus-visible {
+      outline-offset: -2px;
+    }
+
+    /* Room for the hidden label below, so this icon sits level with the
+       others. */
     button.item {
       width: 56px;
-      justify-content: center;
-      align-items: center;
+      padding-bottom: calc(var(--leading-label) + var(--space-2));
     }
 
     .item .label {
       display: none;
     }
 
-    /* Beside the icon, so the label stays centred. */
+    /* Beside the icon and level with it, so the label stays centred and the
+       see-through pill doesn't cover the icon. */
     .count {
       position: absolute;
-      top: var(--space-2);
-      left: calc(50% + var(--space-6));
+      top: var(--space-4);
+      left: calc(50% + var(--icon-size) / 2 + var(--space-2));
       margin: 0;
     }
 
@@ -268,11 +296,15 @@
       margin: 0;
     }
 
-    /* Above the bar, and only drawn when it has something to say. */
+    /* Above the bar and any toasts, which have no timer, and only drawn when
+       it has something to say. */
     .sign-out .problem {
       position: fixed;
       right: var(--space-16);
-      bottom: 52px;
+      bottom: max(
+        var(--tab-bar-height) + var(--space-8),
+        var(--toast-room, 0px)
+      );
       left: var(--space-16);
       padding: 0;
     }
@@ -284,10 +316,14 @@
       box-shadow: var(--shadow-pop);
     }
 
-    /* The shell already keeps 44 px for the bar, which the room includes. */
+    /* The shell already keeps room for the bar, which the toasts' room
+       includes. The sign-out line sits above both. */
     .panel {
       margin: 0;
-      padding-bottom: max(0px, calc(var(--toast-room, 0px) - 44px));
+      padding-bottom: calc(
+        max(0px, var(--toast-room, 0px) - var(--tab-bar-height)) +
+          var(--sign-out-room, 0px)
+      );
       border-radius: 0;
       box-shadow: none;
     }

@@ -16,11 +16,14 @@
 </main>
 
 <style>
+  /* Centred across and set a fifth of the way down, not centred vertically,
+     so a line added below, such as an error, doesn't move the fields. */
   main {
     display: grid;
-    place-items: center;
+    justify-items: center;
+    align-content: start;
     min-height: 100dvh;
-    padding: var(--space-32) var(--space-16);
+    padding: max(var(--space-32), 20vh) var(--space-16) var(--space-32);
     background: var(--panel);
   }
 

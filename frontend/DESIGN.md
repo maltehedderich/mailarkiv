@@ -132,6 +132,7 @@ Space tokens are named for their pixel value: `--space-2` through `--space-32`. 
 | `--row-height`           | 38 px  | List rows                              |
 | `--header-height`        | 52 px  | View and drawer headers                |
 | `--sidebar-width`        | 224 px | Sidebar                                |
+| `--tab-bar-height`       | 44 px  | Bottom tab bar at 720 px and below     |
 | `--content-width`        | 880 px | Centred content column                 |
 | `--drawer-width`         | 440 px | File history                           |
 | `--form-width`           | 300 px | Sign-in                                |
@@ -143,13 +144,13 @@ A shadow means something sits above the page. The panel gets `--shadow-panel`, d
 
 ## Layout
 
-Signed-in pages have a sidebar on `--canvas` and one `--panel` beside it, inset 8 px. The sidebar stays in view while the page scrolls, with Sign out at its foot. A view has a 52 px header with its title, then a scrolling body. Import and status centre their content in `--content-width`. The page itself never scrolls sideways.
+Signed-in pages have a sidebar on `--canvas` and one `--panel` beside it, inset 8 px. The sidebar stays in view while the page scrolls, with Sign out at its foot. Its logo row is `--header-height` tall, so the logo lines up with the view title. When sign-out doesn't finish, the line saying so goes above Sign out, so the button stays under the pointer for the second try. A view has a 52 px header with its title, then a scrolling body. Import and status centre their content in `--content-width`. The page itself never scrolls sideways.
 
-Sign-in is standalone: a `--form-width` column, centred, on `--panel`, with no sidebar.
+Sign-in is standalone: a `--form-width` column on `--panel` with no sidebar, centred across and set 20% of the way down. It isn't centred vertically, because then a line added to the form, such as an error, would move the fields.
 
 | At 720 px and below | Change                                                                                                                                       |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| Sidebar             | Becomes a bottom bar of 44 px tabs, icon and label. The problem count stays on Status, and Sign out becomes an icon tab with an `aria-label` |
+| Sidebar             | Becomes a bottom bar of `--tab-bar-height` tabs, icon over label, with all icons on one line. The problem count sits beside the Status icon. Sign out becomes an icon tab with an `aria-label`, and its error line shows above the bar and any toasts. `scroll-padding-bottom` keeps a focused control clear of the bar |
 | Import list         | The header row goes. Each row stacks as name and count, then time and size, then hash and download, with a line between rows                 |
 | Import box          | The button moves below the text and fills the width. The file icon goes                                                                      |
 | View header         | Title and count stay on one line. The update time moves to its own line below                                                                |
@@ -182,7 +183,7 @@ Use the `field` class on a `<label>` that holds a `<span>` and the `<input>`.
 
 ### Navigation item
 
-30 px tall, medium weight, 16 px icon. Rest is `--text-2` with a `--text-3` icon. Hover is `--fill-2`. Current is `--fill-3` in `--text-1`. The Status item carries the problem count on every signed-in page (FR-039): an 18 px pill, `--state-bad-fill` with `--state-bad-text`.
+30 px tall, medium weight, 16 px icon. Rest is `--text-2` with a `--text-3` icon. Hover is `--fill-2`. Current is `--fill-3` in `--text-1`. The Status item carries the problem count on every signed-in page (FR-039): an 18 px pill, `--state-bad-fill` with `--state-bad-text`. The count has thousands separators, as the pager's totals do: `1,284`.
 
 ### Import box
 
@@ -254,7 +255,7 @@ Data that didn't arrive leaves one block in place of the content: what happened 
 
 ## Accessibility and keyboard
 
-- **Focus:** every interactive element uses `:focus-visible` with `outline: 2px solid var(--focus)` and a 2 px offset. Rows use a −2 px offset, so scrolling containers don't clip it.
+- **Focus:** every interactive element uses `:focus-visible` with `outline: 2px solid var(--focus)` and a 2 px offset. Rows and the bottom tabs use a −2 px offset, so a scrolling container or the screen edge doesn't clip it.
 - **Opening with a key:** call `preventDefault()` on the key press that opens a drawer. Otherwise focus moves to Close and the same Enter closes it again.
 - **Drawers:** use `<dialog>` with `showModal()`, close on Escape, and return focus to the row that opened it.
 - **Re-rendering:** updating a list or the import box must not drop focus. Keep the focused element, or move focus on purpose.

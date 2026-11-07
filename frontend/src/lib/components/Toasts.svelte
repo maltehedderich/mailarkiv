@@ -320,7 +320,7 @@
   @media (max-width: 720px) {
     .toasts.page {
       right: var(--space-16);
-      bottom: calc(44px + var(--space-8));
+      bottom: calc(var(--tab-bar-height) + var(--space-8));
       left: var(--space-16);
       width: auto;
     }

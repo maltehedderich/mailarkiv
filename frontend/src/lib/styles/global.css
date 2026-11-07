@@ -203,6 +203,16 @@ a {
   .field > input {
     font-size: var(--size-input-touch);
   }
+
+  /* The signed-in pages' tab bar covers the bottom of the page, so focus
+     scrolls a control clear of it too. The toasts' room already includes it,
+     and the sign-out line, when shown, sits above both. */
+  html {
+    scroll-padding-bottom: calc(
+      max(var(--tab-bar-height) + var(--space-8), var(--toast-room, 0px)) +
+        var(--sign-out-room, 0px)
+    );
+  }
 }
 
 /* DESIGN.md: with reduced motion, nothing animates or fades. */
