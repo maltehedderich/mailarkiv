@@ -63,6 +63,14 @@
         return;
       }
       if (result.kind === "ok") await movePastTheEnd(result.value);
+      // The history closed before its row arrived. Anything focused since
+      // keeps focus.
+      if (rowToFocus !== null) {
+        const id = rowToFocus;
+        rowToFocus = null;
+        await tick();
+        if (document.activeElement === document.body) focusRow(id);
+      }
       // Try again went away with the failed-load block, so focus moves on
       // purpose instead of falling to the page.
       if (before === "unavailable" && result.kind === "ok") {
@@ -189,7 +197,16 @@
     if (busy) event.preventDefault();
   }
 
-  // The dialog has closed, by Escape, Close, or Back.
+  /** A message whose row gets focus once the list arrives. */
+  let rowToFocus: string | null = null;
+
+  function focusRow(id: string): boolean {
+    const row = document.getElementById(`history-${id}`);
+    row?.focus();
+    return row !== null;
+  }
+
+  // The dialog has closed, by Escape, Close, Back, or a click on the scrim.
   async function closeHistory() {
     const url = new URL(page.url.href);
     const id = url.searchParams.get("message");
@@ -197,9 +214,10 @@
     if (id === null) return;
     // The dialog gives focus back by itself, unless nothing had focus when it
     // opened: after a direct address, or a click in a browser that doesn't
-    // focus links.
-    if (document.activeElement === document.body) {
-      document.getElementById(`history-${id}`)?.focus();
+    // focus links. A direct address streams the list, so the row may not be
+    // there yet, and gets focus when it arrives.
+    if (document.activeElement === document.body && !focusRow(id)) {
+      rowToFocus = id;
     }
     url.searchParams.delete("message");
     await goto(url.pathname + url.search, { reset: false });

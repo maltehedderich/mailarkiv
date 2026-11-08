@@ -95,6 +95,20 @@ test("a repeat import adds history and no copy", async ({ page }) => {
   await rowLink(page).click();
   await expect(drawer(page)).toBeVisible();
 
+  // It names the message as its row does, by the newest import's name, and
+  // counts the imports as the row's 3× does.
+  await expect(
+    page.getByRole("dialog", { name: "Import history of second.eml" }),
+  ).toBeVisible();
+  await expect(
+    drawer(page).getByRole("heading", { name: "Imports 3" }),
+  ).toBeVisible();
+
+  // FR-021: the download is named after the hash, and the footer says so.
+  await expect(drawer(page).locator("footer")).toContainText(
+    `Saves as ${HASH.slice(0, 8)}…${HASH.slice(-4)}.eml`,
+  );
+
   // The full hash, as 16 groups of 4 in 4 columns.
   const groups = drawer(page).locator("code > span");
   await expect(groups).toHaveCount(16);
@@ -176,6 +190,63 @@ test("a click opens the history, and Close returns to the row", async ({
   await expect(drawer(page)).toBeHidden();
   await expect(page).toHaveURL(`${server.origin}/`);
   await expect(rowLink(page)).toBeFocused();
+});
+
+// The scrim is the list the drawer covers, so a click there closes it. A press
+// that starts in the drawer, such as selecting the hash, doesn't.
+test("a click on the scrim closes the history, and a drag out of it doesn't", async ({
+  page,
+}) => {
+  await signInWithOneMessage(page);
+  await rowLink(page).click();
+  await expect(drawer(page)).toBeVisible();
+  await settled(page);
+
+  const hash = (await drawer(page).locator("code").boundingBox())!;
+  await page.mouse.move(hash.x + 2, hash.y + 4);
+  await page.mouse.down();
+  await page.mouse.move(100, 400, { steps: 4 });
+  await page.mouse.up();
+  await expect(drawer(page)).toBeVisible();
+
+  await page.mouse.click(100, 400);
+  await expect(drawer(page)).toBeHidden();
+  await expect(page).toHaveURL(`${server.origin}/`);
+  await expect(rowLink(page)).toBeFocused();
+});
+
+// The drawer keeps its history while it slides out, and each opening starts
+// afresh, so a copy result doesn't come back with it.
+test("a reopened history starts afresh", async ({ page, context }) => {
+  await signInWithOneMessage(page);
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await rowLink(page).click();
+  await drawer(page).getByRole("button", { name: /copy/i }).click();
+  await expect(drawer(page).getByText("Hash copied.")).toBeVisible();
+
+  await page.keyboard.press("Escape");
+  await expect(drawer(page)).toBeHidden();
+  await rowLink(page).click();
+  await expect(drawer(page)).toBeVisible();
+  await expect(drawer(page).getByText("Hash copied.")).toHaveCount(0);
+});
+
+// Exact, as evidence, and rounded, as the row shows it.
+test("the size shows in bytes and as its row shows it", async ({ page }) => {
+  await signIn(page);
+  const bytes = Buffer.concat([
+    CONTENT,
+    Buffer.alloc(2048 - CONTENT.length, "x"),
+  ]);
+  await page.getByLabel("Choose a file").setInputFiles({
+    name: "two.eml",
+    mimeType: "message/rfc822",
+    buffer: bytes,
+  });
+  await page.getByRole("button", { name: "Import" }).click();
+  await rowLink(page).click();
+
+  await expect(drawer(page)).toContainText("2,048 bytes (2 KB)");
 });
 
 // The drawer opens once its history has arrived. Until then the row shows the
@@ -269,6 +340,32 @@ test("an address with the message opens its history, and closing keeps the page"
   await page.keyboard.press("Escape");
   await expect(drawer(page)).toBeHidden();
   await expect(page).toHaveURL(`${server.origin}/?page=1`);
+  await expect(rowLink(page)).toBeFocused();
+});
+
+// A direct address waits for the history and streams the list, so the drawer
+// can close before its row has arrived. Focus goes to the row when it does.
+test("closing before the list arrives still returns focus to the row", async ({
+  page,
+}) => {
+  await signInWithOneMessage(page);
+  await rowLink(page).click();
+  await expect(drawer(page)).toBeVisible();
+  const id = new URL(page.url()).searchParams.get("message");
+
+  let release = () => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  await page.route(/\/api\/messages(\?.*)?$/, async (route) => {
+    await held;
+    await route.fallback();
+  });
+  await page.goto(`${server.origin}/?message=${id}`);
+  await expect(drawer(page)).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(drawer(page)).toBeHidden();
+  await expect(rowLink(page)).toHaveCount(0);
+
+  release();
   await expect(rowLink(page)).toBeFocused();
 });
 

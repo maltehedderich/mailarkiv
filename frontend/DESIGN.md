@@ -172,7 +172,9 @@ Staged file-import boxes use `--fill-1` with a 1 px `--line` edge and `--radius-
 
 ### Modal drawer
 
-Detail drawers use a native `<dialog>` opened with `showModal()` on `--raised` (`--drawer-width` wide, attached to the right edge, with `--shadow-pop` and `--scrim`). A `--header-height` header holds the title and Close button, the body scrolls, and a pinned footer keeps primary actions in view. Closing on `Escape` or Close returns focus to the element that opened the drawer.
+Detail drawers use a native `<dialog>` opened with `showModal()` on `--raised` (`--drawer-width` wide, attached to the right edge, with `--shadow-pop` and `--scrim`). A `--header-height` header holds the title and Close button, the body scrolls, and a pinned footer keeps primary actions in view. Closing on `Escape`, Close, Back, or a click on the scrim returns focus to the element that opened the drawer. A press that starts inside the drawer, such as one selecting the hash, never closes it.
+
+The header names what the drawer shows in `--text-3` at label size, over which item it shows in `--text-1` at section size, so the drawer says what it's about where it covers the list. The file history uses the newest import's name, as its row does, cut in the middle on one line, and the dialog's accessible name reads `Import history of statement.eml`. Facts sit in a 96 px label column beside their values, as on Status, and stack at 720 px and below. A hairline separates them from the history. The history's heading carries its count (`Imports 9`), and each entry is a timeline dot beside the time, the file name in full, and `Manual import by` the account. The footer pairs Download, at its natural width at the end, with a note in `--text-3` that names the saved file (`Saves as e33d74d4…acd8.eml`), because FR-021 keeps the supplied name off the download.
 
 ### Status items, toasts, and failed loads
 
@@ -187,7 +189,7 @@ When a view or drawer cannot load its data, replace the content area with one `r
 Motion confirms a state change and never decorates it:
 
 - Hover fills appear immediately and fade out over `--motion-fade` (140 ms).
-- Drawers slide in over `--motion-slide` (200 ms) with `--ease-enter`.
+- Drawers slide in over `--motion-slide` (200 ms) with `--ease-enter`, and out over `--motion-exit` (150 ms) with `--ease-exit`. The scrim fades with them, and the drawer keeps its content until it has gone.
 - Toasts rise 8 px and fade in over `--motion-enter` (160 ms) with `--ease-enter`.
 - Under `prefers-reduced-motion: reduce`, remove all animations and transitions.
 

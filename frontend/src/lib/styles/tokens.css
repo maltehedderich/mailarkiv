@@ -70,7 +70,9 @@
   --motion-fade: 140ms;
   --motion-slide: 200ms;
   --motion-enter: 160ms;
+  --motion-exit: 150ms;
   --ease-enter: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
 
   /* Surfaces */
   --canvas: oklch(0.962 0.0045 var(--hue-neutral));
