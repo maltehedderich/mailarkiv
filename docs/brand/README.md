@@ -7,7 +7,7 @@
 
 Use these files as they are: a solid tile with a drawer grip cut out of it, next to the name set in Archivo. The SVGs in `logo/` are the masters. Everything else here is exported from them, so re-export after any change to the drawing.
 
-The app uses copies of these: the 18 px horizontal lockup and the stacked lockup in `frontend/src/lib/components/Logo.svelte`, and the favicons in `frontend/static/`. Update the copies when a drawing here changes.
+The app uses copies of these: the 18 px horizontal lockup and the stacked lockup in `frontend/src/lib/components/Logo.svelte`, and the favicons, touch icon, and PWA icons in `frontend/static/`. Update the copies when a drawing here changes. `frontend/src/lib/components/Logo.test.ts` fails until you do.
 
 ## Pick a logo file
 

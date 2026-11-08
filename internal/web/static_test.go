@@ -11,8 +11,9 @@ import (
 )
 
 const (
-	appPage   = "<!doctype html><title>app</title>"
-	appBundle = "console.log('bundle');"
+	appPage     = "<!doctype html><title>app</title>"
+	appBundle   = "console.log('bundle');"
+	appManifest = `{"name":"MailArkiv"}`
 )
 
 func staticFiles() fstest.MapFS {
@@ -21,6 +22,7 @@ func staticFiles() fstest.MapFS {
 		"_app/immutable/start.js":  {Data: []byte(appBundle)},
 		"_app/immutable/style.css": {Data: []byte("body{}")},
 		"brand/mark.svg":           {Data: []byte("<svg/>")},
+		"manifest.webmanifest":     {Data: []byte(appManifest)},
 	}
 }
 
@@ -37,6 +39,7 @@ func TestStaticGET(t *testing.T) {
 	}{
 		{"known file", "/_app/immutable/start.js", http.StatusOK, appBundle, "text/javascript"},
 		{"known stylesheet", "/_app/immutable/style.css", http.StatusOK, "body{}", "text/css"},
+		{"web app manifest", "/manifest.webmanifest", http.StatusOK, appManifest, "application/manifest+json"},
 		{"root", "/", http.StatusOK, appPage, "text/html"},
 		{"unknown path", "/sign-in", http.StatusOK, appPage, "text/html"},
 		{"unknown nested path", "/status/anything", http.StatusOK, appPage, "text/html"},

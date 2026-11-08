@@ -56,4 +56,17 @@
     width: 82.968px;
     height: 67.718px;
   }
+
+  /* Centred so the 40 px tile, not the wider word, starts on a whole pixel,
+     given a container that starts on one. Plain centring put the tile at
+     x.5 in a container of odd width, which blurred its edges and the grip
+     the drawing places on whole pixels. */
+  @supports (width: round(1.5px, 1px)) {
+    .stacked {
+      justify-self: start;
+      margin-inline-start: calc(
+        round(down, 50% - 20px, 1px) - (82.968px - 40px) / 2
+      );
+    }
+  }
 </style>

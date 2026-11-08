@@ -41,6 +41,20 @@
     background: var(--panel);
   }
 
+  /* The same, on whole pixels, so the logo's tile and grip stay sharp at 1x.
+     Centring by justify-items put the column at x.5 in a window of odd
+     width, and 20vh put it at y.59 in one 803 px tall. */
+  @supports (width: round(1.5px, 1px)) {
+    main {
+      justify-items: stretch;
+      padding-top: max(var(--space-32), round(20vh, 1px));
+      padding-inline: max(
+        var(--space-16),
+        round(down, (100% - var(--form-width)) / 2, 1px)
+      );
+    }
+  }
+
   .column {
     display: grid;
     gap: var(--space-20);

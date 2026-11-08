@@ -4,6 +4,7 @@ package web
 import (
 	"io/fs"
 	"net/http"
+	"path"
 	"strings"
 )
 
@@ -28,6 +29,10 @@ func Static(files fs.FS) http.Handler {
 		name := strings.TrimPrefix(r.URL.Path, "/")
 		switch {
 		case isFile(files, name):
+			// Go has no type for this extension, so it would sniff text/plain.
+			if path.Ext(name) == ".webmanifest" {
+				w.Header().Set("Content-Type", "application/manifest+json")
+			}
 			http.ServeFileFS(w, r, files, name)
 		case strings.HasPrefix(r.URL.Path, buildPrefix):
 			http.NotFound(w, r)
