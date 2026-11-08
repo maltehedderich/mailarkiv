@@ -9,7 +9,7 @@ import (
 
 // Contract: GET /api/messages lists the most recent import first. page starts
 // at 1 and defaults to 1, anything else is 400 bad_page, and a page past the
-// end has no items and the real total (FR-019).
+// end has no items and the real total.
 func TestListMessages(t *testing.T) {
 	h := newHarness(t, Routes())
 	h.createAccount(t, "admin@example.test")

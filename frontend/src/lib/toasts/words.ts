@@ -8,9 +8,6 @@ import { CATEGORIES } from "#lib/status/categories.js";
 
 import type { Toast } from "./store.svelte";
 
-// What each toast says, from the spec's words. DESIGN.md's Toast section has
-// the layout.
-
 /** DESIGN.md's dot colour for each state. */
 export type Tone = "ok" | "neutral" | "warn" | "bad";
 
@@ -34,7 +31,6 @@ export interface ToastWords {
 
 type Outcome = ImportResult["outcome"];
 
-// FR-032's words, and DESIGN.md's dot for each outcome.
 const OUTCOMES: Record<Outcome, { word: string; tone: Tone }> = {
   archived: { word: "Archived", tone: "ok" },
   already_archived: { word: "Already archived", tone: "neutral" },
@@ -50,8 +46,7 @@ const REFUSED: Record<RefusedReason, string> = {
   no_mail_header: "This file doesn't start with a mail header line.",
 };
 
-// FR-038's meaning and next step for a capture failure. FR-033 names the
-// proxy's limit, and a marked 403 is MailArkiv refusing the request.
+// A proxy limit and a marked 403 mean the upload was refused before capture.
 const FAILED: Record<FailedReason, { meaning: string; nextStep: string }> = {
   storage_full: CATEGORIES.storage_full,
   storage_write_failed: CATEGORIES.storage_write_failed,
@@ -70,12 +65,10 @@ const FAILED: Record<FailedReason, { meaning: string; nextStep: string }> = {
 const UNCONFIRMED =
   "The file may be archived, and importing it again is safe and stores no second copy.";
 
-/** FR-023's words. */
 export const NOT_DOWNLOADED = "This message wasn't downloaded.";
 
 const TRY_AGAIN = "Try again. If this repeats, check the server log.";
 
-// FR-038's two stored-original rows, and what a broken transfer says.
 const DOWNLOAD_FAILED: Record<
   DownloadFailure,
   { meaning?: string; nextStep: string }

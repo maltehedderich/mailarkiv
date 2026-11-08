@@ -36,7 +36,7 @@ func newMessageJSON(m archive.Message) messageJSON {
 var pageNumber = regexp.MustCompile(`^[1-9][0-9]*$`)
 
 // listMessages answers GET /api/messages?page=N. A page past the end has no
-// items and the real total, so the client can move to the last page (FR-019).
+// items and the real total, so the client can move to the last page.
 func listMessages(s *server, w http.ResponseWriter, r *http.Request) {
 	page := 1
 	if values, given := r.URL.Query()["page"]; given {
@@ -85,7 +85,7 @@ type observationJSON struct {
 }
 
 // readHistory answers GET /api/messages/{id} with the full content hash and
-// every import, newest first (FR-020).
+// every import, newest first.
 func readHistory(s *server, w http.ResponseWriter, r *http.Request) {
 	id, ok := parseMessageID(r)
 	if !ok {

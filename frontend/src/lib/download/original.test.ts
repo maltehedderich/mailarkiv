@@ -4,8 +4,6 @@ import { MARKER } from "#lib/api.js";
 
 import { classifyRefusal, fetchOriginal } from "./original";
 
-// Expected results come from the download table in contracts/http-api.md.
-
 const MARKED = { [MARKER]: "1" };
 
 function answer(

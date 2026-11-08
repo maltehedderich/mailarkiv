@@ -249,7 +249,7 @@ func TestImportSameBytesAgain(t *testing.T) {
 	f.assertTempEmpty(t)
 }
 
-// FR-021: a supplied name is text in the catalog and never reaches a path.
+// A supplied name is text in the catalog and never reaches a path.
 func TestHostileFileNames(t *testing.T) {
 	f := newFixture(t)
 	names := []string{
@@ -405,7 +405,7 @@ func (r *failingReader) Read(p []byte) (int, error) {
 }
 
 // A body that ends early is no failure event: the administrator who sent it
-// sees Unconfirmed (FR-038).
+// sees Unconfirmed.
 func TestDroppedBodyLeavesNothing(t *testing.T) {
 	for _, size := range []int{100, 300_000} {
 		f := newFixture(t)
@@ -482,7 +482,7 @@ func TestStorageWriteFailure(t *testing.T) {
 }
 
 // The original was stored, so it stays, and the next start lists it as
-// unreferenced (FR-038, Catalog write failed).
+// unreferenced after the catalog write fails.
 func TestCatalogWriteFailure(t *testing.T) {
 	f := newFixture(t)
 	if err := f.db.Writer.Close(); err != nil {
@@ -507,9 +507,9 @@ func TestCatalogWriteFailure(t *testing.T) {
 	f.assertNothingListed(t)
 }
 
-// Every line of the data model's Import outcome table, with each "Either" as
-// both values. A test can reach the "No, Yes" lines only by timing two imports,
-// so this is where they are pinned down.
+// Cover all reachable combinations of catalog and blob state. A row appearing
+// between the first read and commit requires concurrent imports; exercising
+// those states directly avoids relying on timing here.
 func TestDecideOutcome(t *testing.T) {
 	tests := []struct {
 		rowBefore   bool

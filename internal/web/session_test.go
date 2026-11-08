@@ -43,9 +43,8 @@ func TestSignIn(t *testing.T) {
 	assertJSONResponse(t, response, read, http.StatusOK, `{"problem_count":0}`)
 }
 
-// FR-003, scenario 5: a wrong password, an unknown address, and a malformed
-// address get the same answer, so the answer doesn't reveal which accounts
-// exist.
+// A wrong password, an unknown address, and a malformed address get the same
+// answer, so the answer doesn't reveal which accounts exist.
 func TestSignInRefusals(t *testing.T) {
 	h := newHarness(t, Routes())
 	h.createAccount(t, "admin@example.test")
@@ -243,9 +242,8 @@ type answer struct {
 	cookie string
 }
 
-// FR-003, FR-004, risk 13: a known and an unknown address get byte-identical
-// answers at the first failure and when blocked, so the answers don't reveal
-// which accounts exist.
+// A known and an unknown address get byte-identical answers at the first
+// failure and when blocked, so the answers don't reveal which accounts exist.
 func TestSignInLimitAnswersAlike(t *testing.T) {
 	h := newHarness(t, Routes())
 	h.createAccount(t, "admin@example.test")
@@ -290,8 +288,8 @@ func TestSignInLimitAnswersAlike(t *testing.T) {
 	}
 }
 
-// FR-003, FR-005: sign-out ends this session and no other, deletes its row, and
-// clears the cookie.
+// Sign-out ends this session and no other, deletes its row, and clears the
+// cookie.
 func TestSignOut(t *testing.T) {
 	h := newHarness(t, Routes())
 	h.createAccount(t, "admin@example.test")

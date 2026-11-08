@@ -19,10 +19,9 @@
     onimport: () => void;
   } = $props();
 
-  // FR-034: shown until Slice 6 ships delete.
   const WARNING = "Imported mail can't be removed in this version.";
 
-  // FR-036's messages. Each says that nothing left the browser.
+  // Browser refusals must make clear that nothing was uploaded.
   const REFUSALS: Record<BrowserRefusal, string> = {
     several: "Choose one file at a time. Nothing was uploaded.",
     empty: "This file is empty. Nothing was uploaded.",
@@ -137,7 +136,7 @@
     return entered.filter((node) => node !== target && node.isConnected);
   }
 
-  // FR-041: dropping adds to the Choose a file button and never replaces it.
+  // Dropping adds to the Choose a file button and never replaces it.
   // Cancelled everywhere, or a file dropped beside the box would replace the
   // page. Only the box takes the file, and elsewhere the cursor says so.
   function dragOver(event: DragEvent) {
@@ -222,7 +221,7 @@
     <label class="button choose">
       Choose a file
       <!-- One file only, so the dialog itself prevents several. A drop can
-           still bring several, and the page refuses them (FR-036). -->
+           still bring several, and the page refuses them. -->
       <input
         bind:this={input}
         class="visually-hidden"

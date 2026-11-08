@@ -51,7 +51,7 @@ func (f *fixture) logEntries(t *testing.T) []map[string]any {
 
 func pointer[T any](value T) *T { return &value }
 
-// The six names are FR-038's, and the frontend's words are keyed by them.
+// The frontend keys its failure messages by these six category names.
 func TestCategoryNames(t *testing.T) {
 	tests := []struct {
 		category Category
@@ -84,9 +84,9 @@ func TestCategoryIsClosed(t *testing.T) {
 	}
 }
 
-// FR-029 holds at the type level: none of these has a place for a subject, a
-// message address, a body, a file name, or an account address. Adding a field
-// fails here, so it gets a decision.
+// None of these types has a place for a subject, a message address, a body, a
+// file name, or an account address. Adding a field fails here, so it gets a
+// decision.
 func TestEntitiesHoldOnlyTheAllowedFields(t *testing.T) {
 	tests := []struct {
 		entity reflect.Type
@@ -127,7 +127,7 @@ func TestStartTimeComesFromTheClock(t *testing.T) {
 	}
 }
 
-// FR-039: failure events plus unreferenced originals.
+// Failure events plus unreferenced originals.
 func TestProblemCount(t *testing.T) {
 	f := newFixture(t)
 	if got := f.status.ProblemCount(); got != 0 {
@@ -240,7 +240,7 @@ func TestFailureIsListedAndLogged(t *testing.T) {
 					t.Errorf("log holds %s = %v, want it absent", key, entry[key])
 				}
 			}
-			// FR-028: every failure has its time in the log.
+			// Every failure has its time in the log.
 			if _, present := entry["time"]; !present {
 				t.Error("log line has no time")
 			}
@@ -288,8 +288,8 @@ func TestRecoveryResultIsKeptAndLogged(t *testing.T) {
 	}
 }
 
-// The data model says everything here also goes to the log, so a restart loses
-// nothing an operator can't still read.
+// Every recorded event also goes to the log, so a restart loses nothing an
+// operator can't still read.
 func TestUnreferencedOriginalIsLogged(t *testing.T) {
 	f := newFixture(t)
 	hash := strings.Repeat("cd", 32)

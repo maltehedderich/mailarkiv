@@ -2,8 +2,8 @@ import { describe, expect, test } from "vitest";
 
 import { formatBytes, formatSize } from "./size";
 
-// T050: decimal units, as in "31 B", "48 KB", "1.2 MB", and "150 MB", and
-// exact bytes as "150,000,000 bytes".
+// Decimal units, as in "31 B", "48 KB", "1.2 MB", and "150 MB", and exact
+// bytes as "150,000,000 bytes".
 describe("formatSize", () => {
   test.each([
     [31, "31 B"],

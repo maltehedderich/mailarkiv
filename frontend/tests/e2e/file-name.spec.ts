@@ -2,9 +2,9 @@ import { expect, test, type Page } from "@playwright/test";
 
 import { startServer, type TestServer } from "./support/server";
 
-// Risk 7, FR-021: a hostile file name, which only a direct request can send,
-// shows as plain text with its bidi override as a code. No script runs, and
-// the page's policy reports no violation, so nothing even tried to.
+// A hostile file name, which only a direct request can send, shows as plain
+// text with its bidi override as a code. No script runs, and the page's
+// policy reports no violation, so nothing even tried to.
 
 const EMAIL = "admin@example.test";
 const PASSWORD = "correct horse battery";
@@ -55,8 +55,8 @@ test("a hostile name shows as text with its override as a code", async ({
   });
   await signIn(page);
 
-  // The browser's session cookie goes with this request. The name goes as
-  // the contract says: percent-encoded UTF-8.
+  // The browser's session cookie goes with this request. The name goes as the
+  // API accepts: percent-encoded UTF-8.
   const imported = await page.request.post(`${server.origin}/api/imports`, {
     headers: { "MailArkiv-File-Name": encodeURIComponent(NAME) },
     data: CONTENT,

@@ -1,7 +1,7 @@
 import type { FailureCategory } from "#lib/api.js";
 
-// FR-038's words for each failure category, word for word. A Record over the
-// closed union, so a new category fails svelte-check until it has its words.
+// A Record over the closed union makes a new category fail type checking
+// until it has a name, explanation, and next step.
 
 export interface CategoryWords {
   /** The state word on the status screen. */
@@ -51,11 +51,10 @@ export const CATEGORIES: Record<FailureCategory, CategoryWords> = {
   },
 };
 
-/** The spec's definition of an unreferenced original, from its glossary. */
 export const UNREFERENCED_MEANING =
   "A stored original with no catalog entry, usually left by a crash between storage and catalog writes.";
 
-/** FR-038's next step for an unreferenced original, which isn't a failure. */
+/** An unreferenced original is recoverable and isn't a failure. */
 export const UNREFERENCED_NEXT_STEP =
   "Importing the same file again puts it back in the list, and nothing is deleted.";
 

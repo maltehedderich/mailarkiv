@@ -14,8 +14,7 @@ import (
 	"github.com/maltehedderich/mailarkiv/internal/sqlitedb"
 )
 
-// startupFailure finds the log entry for a refused start. FR-026 and the CLI
-// contract require the log to name the cause.
+// startupFailure finds the refused-start log entry that names the cause.
 func startupFailure(t *testing.T, stderr string) map[string]any {
 	t.Helper()
 	for _, entry := range logEntries(t, stderr) {
@@ -242,8 +241,8 @@ func TestServeAnswers(t *testing.T) {
 	})
 }
 
-// FR-029: sign-in attempts and successful requests aren't logged, so nothing a
-// client sends can reach the log this way.
+// Sign-in attempts and successful requests aren't logged, so nothing a client
+// sends can reach the log this way.
 func TestServeLogsNoRequests(t *testing.T) {
 	server := startServer(t, t.TempDir())
 

@@ -9,9 +9,9 @@ import (
 	"testing"
 )
 
-// FR-023, risk 10, and the contract's download table: the server hashes the
-// stored file before it sends any header, so a damaged copy is never saved as
-// the message, and the interface learns why from the error code.
+// Download integrity: the server hashes the stored file before it sends any
+// header, so a damaged copy is never saved as the message, and the interface
+// learns why from the error code.
 func TestDownloadVerifies(t *testing.T) {
 	type wanted struct {
 		status   int

@@ -150,12 +150,12 @@
   async function startImport() {
     if (step.kind !== "chosen") return;
     const { file } = step;
-    // FR-032: the last result stays until the next import starts.
+    // The last result stays until the next import starts.
     dismissToast(IMPORT_KEY);
     step = { kind: "uploading", file, fraction: 0 };
-    // FR-040: a session that ended opens sign-in before any byte is sent.
-    // Only a marked 401 changes anything. After any other result the upload
-    // goes ahead, and its own answer decides the outcome.
+    // A session that ended opens sign-in before any byte is sent. Only a
+    // marked 401 changes anything. After any other result the upload goes
+    // ahead, and its own answer decides the outcome.
     const session = await getSession();
     if (!mounted) return;
     if (session.kind === "session_ended") {
@@ -192,8 +192,8 @@
     await goto(url.pathname + url.search, { refreshAll: true, reset: false });
   }
 
-  // FR-037: closing the tab may stop the upload. In-app navigation lets an
-  // upload finish and report through the shared toast store.
+  // Closing the tab may stop the upload. In-app navigation lets an upload
+  // finish and report through the shared toast store.
   beforeNavigate((navigation) => {
     if (!busy || navigation.type === "leave") return;
     if (navigation.to?.url.pathname === page.url.pathname) return;

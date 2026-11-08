@@ -1,7 +1,7 @@
 // Package archive owns capture, the catalog, and retrieval: the message and
 // source_observation tables, and the tmp/ and blobs/ directories. Stored
-// originals are files named by their SHA-256, so no supplied name ever chooses
-// a path (FR-021).
+// originals are files named by their SHA-256, so no supplied name ever
+// chooses a path.
 package archive
 
 import (
@@ -15,8 +15,8 @@ import (
 	"github.com/maltehedderich/mailarkiv/internal/sqlitedb"
 )
 
-// MaxSize is the largest file an import accepts, in bytes (FR-009). A file of
-// exactly this size is accepted.
+// MaxSize is the largest file an import accepts, in bytes. A file of exactly
+// this size is accepted.
 const MaxSize = 150_000_000
 
 // Archive is safe for concurrent use.
@@ -110,15 +110,15 @@ type Stored struct {
 	Message Message
 }
 
-// Refused means the file was refused and nothing was stored (FR-010).
+// Refused means the file was refused and nothing was stored.
 type Refused struct{ Reason Reason }
 
 // Failed means the import didn't finish. Its failure event is recorded.
 type Failed struct{ Category opstatus.Category }
 
-// Dropped means the body ended early, as when the connection drops. Nothing was
-// stored and no failure event is recorded, because no one is waiting for an
-// answer (FR-038).
+// Dropped means the body ended early, as when the connection drops. Nothing
+// was stored and no failure event is recorded, because no one is waiting for
+// an answer.
 type Dropped struct{}
 
 func (Stored) isResult()  {}

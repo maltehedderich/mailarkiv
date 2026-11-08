@@ -4,7 +4,7 @@
 // an operator can't still read.
 //
 // No type here has a field for a subject, a message address, a body, a file
-// name, or an account address. That is how FR-029 holds at the type level.
+// name, or an account address.
 package opstatus
 
 import (
@@ -15,8 +15,8 @@ import (
 	"time"
 )
 
-// Category is one of FR-038's six failure categories. Its field is private, so
-// no other package can make a seventh.
+// Category is one of six failure categories. Its field is private, so no
+// other package can make a seventh.
 type Category struct{ name string }
 
 var (
@@ -41,8 +41,8 @@ type RecoveryResult struct {
 	Duration            time.Duration
 }
 
-// UnreferencedOriginal is a stored original with no catalog entry. It leaves the
-// list when an import of those bytes commits (FR-018).
+// UnreferencedOriginal is a stored original with no catalog entry. It leaves
+// the list when an import of those bytes commits.
 type UnreferencedOriginal struct {
 	ContentHash string
 	Size        int64
@@ -84,8 +84,8 @@ func New(logger *slog.Logger, now func() time.Time) *Status {
 	return &Status{logger: logger, now: now, startedAt: now()}
 }
 
-// RecordFailure lists the event at the current time and logs it (FR-028). The
-// list has no cap: failure events come only from signed-in actions and startup.
+// RecordFailure lists the event at the current time and logs it. The list has
+// no cap: failure events come only from signed-in actions and startup.
 func (s *Status) RecordFailure(event FailureEvent) {
 	if event.Category == (Category{}) {
 		panic("opstatus: a failure event needs a category")
@@ -147,7 +147,7 @@ func (s *Status) RemoveUnreferenced(contentHash string) {
 }
 
 // ProblemCount is the number every signed-in page shows: failure events plus
-// unreferenced originals (FR-039).
+// unreferenced originals.
 func (s *Status) ProblemCount() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -15,8 +15,8 @@ import (
 	"github.com/maltehedderich/mailarkiv/internal/fault"
 )
 
-// downloadOriginal answers GET /api/messages/{id}/original with the stored bytes
-// (FR-022), after checking them against the content hash (FR-023).
+// downloadOriginal answers GET /api/messages/{id}/original with the stored
+// bytes, after checking them against the content hash.
 func downloadOriginal(s *server, w http.ResponseWriter, r *http.Request) {
 	id, ok := parseMessageID(r)
 	if !ok {
@@ -36,7 +36,7 @@ func downloadOriginal(s *server, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch {
-	// A failure answer has no Content-Disposition, so nothing is saved (FR-023).
+	// A failure answer has no Content-Disposition, so nothing is saved.
 	case errors.Is(err, archive.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not_found")
 		return

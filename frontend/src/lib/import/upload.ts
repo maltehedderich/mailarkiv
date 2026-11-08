@@ -17,7 +17,7 @@ export interface UploadCallbacks {
 
 /**
  * Sends one file to POST /api/imports. XMLHttpRequest is used because fetch
- * reports no upload progress (FR-035).
+ * reports no upload progress.
  */
 export function upload(
   file: File,

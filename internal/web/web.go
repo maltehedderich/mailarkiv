@@ -16,8 +16,8 @@ import (
 )
 
 // Access is a route's rule for who may call it. The zero value, Undeclared,
-// denies everyone, so a route added without a decision stays closed (FR-006).
-// Its field is private, so no other package can make a fourth rule.
+// denies everyone, so a route added without a decision stays closed. Its
+// field is private, so no other package can make a fourth rule.
 type Access struct{ name string }
 
 var (
@@ -185,7 +185,7 @@ func serveStatic(s *server, w http.ResponseWriter, r *http.Request) {
 	s.static.ServeHTTP(w, r)
 }
 
-// writeError writes the contract's error body, { "error": "<code>" }.
+// writeError writes the API error body, { "error": "<code>" }.
 func writeError(w http.ResponseWriter, status int, code string) {
 	writeJSON(w, status, struct {
 		Error string `json:"error"`
@@ -209,7 +209,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 }
 
 // writeInternalError logs the route pattern and the error, and nothing the
-// request supplied (FR-029), then answers 500 internal_error.
+// request supplied, then answers 500 internal_error.
 func (s *server) writeInternalError(w http.ResponseWriter, r *http.Request, err error) {
 	s.logger.LogAttrs(r.Context(), slog.LevelError, "request failed",
 		slog.String("route", r.Pattern),

@@ -13,7 +13,7 @@ import (
 
 const wrongPassword = "the wrong password"
 
-// keyOf is the data model's address_key: the SHA-256 of the lowercased
+// keyOf computes the sign-in limit key: the SHA-256 of the lowercased
 // submitted address.
 func keyOf(address string) []byte {
 	sum := sha256.Sum256([]byte(strings.ToLower(address)))
@@ -83,9 +83,9 @@ func (f *fixture) blockedUntil(t *testing.T, address string) (time.Time, bool) {
 	return time.UnixMilli(until).UTC(), true
 }
 
-// FR-004, User Story 2 scenario 4: the tenth failure within 15 minutes blocks
-// the address for 15 minutes, even with the correct password, and the same way
-// whether or not the account exists.
+// The tenth failure within 15 minutes blocks the address for 15 minutes, even
+// with the correct password, and the same way whether or not the account
+// exists.
 func TestSignInLimit(t *testing.T) {
 	for _, tt := range []struct {
 		name  string
@@ -168,8 +168,8 @@ func TestSignInLimit(t *testing.T) {
 	}
 }
 
-// FR-004: only failures within the last 15 minutes count, and older ones are
-// deleted for every address.
+// Only failures within the last 15 minutes count, and older ones are deleted
+// for every address.
 func TestFailuresOlderThanTheWindowDontCount(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
@@ -217,8 +217,8 @@ func TestSuccessClearsFailures(t *testing.T) {
 	}
 }
 
-// FR-004 and FR-029: the limit stores only the SHA-256 of the lowercased
-// address, never the address.
+// The limit stores only the SHA-256 of the lowercased address, never the
+// address.
 func TestLimitStoresNoAddress(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
@@ -254,9 +254,9 @@ func TestLimitStoresNoAddress(t *testing.T) {
 	}
 }
 
-// FR-004, risk 13: guesses sent at once can't all pass the block check before
-// the tenth failure is stored. Two hashes run at a time, so at most two guesses
-// are checked once nine failures exist, and the rest are refused.
+// Guesses sent at once can't all pass the block check before the tenth
+// failure is stored. Two hashes run at a time, so at most two guesses are
+// checked once nine failures exist, and the rest are refused.
 func TestBlockHoldsAgainstABurst(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
@@ -335,8 +335,8 @@ func TestSignInAdmission(t *testing.T) {
 	}
 }
 
-// Risk 13: once a password has been checked, a client that leaves can't keep a
-// wrong guess from counting. Leaving cancels the request's context.
+// Once a password has been checked, a client that leaves can't keep a wrong
+// guess from counting. Leaving cancels the request's context.
 func TestFailureCountsAfterTheClientLeaves(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)

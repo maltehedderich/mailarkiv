@@ -7,8 +7,7 @@ import (
 	"time"
 )
 
-// shutdownLimit is the 5 second grace period plus room for a busy machine. The
-// task's "about 6 seconds" is the same bound without that room.
+// shutdownLimit is the 5 second grace period plus room for a busy machine.
 const shutdownLimit = 8 * time.Second
 
 // A stalled upload can't hold the process past the grace period, and the client

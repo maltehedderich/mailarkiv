@@ -3,9 +3,9 @@
 
 CREATE TABLE account (
     id            INTEGER PRIMARY KEY,
-    -- strings.ToLower of the address given at creation. The only stored form (FR-044).
+    -- strings.ToLower of the address given at creation. The only stored form.
     email         TEXT NOT NULL UNIQUE,
-    -- Argon2id in PHC format (FR-002).
+    -- Argon2id in PHC format.
     password_hash TEXT NOT NULL,
     created_at    INTEGER NOT NULL
 ) STRICT;
@@ -35,7 +35,7 @@ CREATE TABLE sign_in_block (
 CREATE TABLE message (
     -- Never reused, so a stale ID in a log or a failure report can't name another message.
     id                    INTEGER PRIMARY KEY AUTOINCREMENT,
-    -- Lowercase hex SHA-256. Identifies the message (FR-016).
+    -- Lowercase hex SHA-256. Identifies the message.
     content_hash          TEXT NOT NULL UNIQUE,
     -- Bytes, from 1 to 150,000,000.
     size                  INTEGER NOT NULL,

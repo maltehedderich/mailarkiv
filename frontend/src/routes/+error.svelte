@@ -126,8 +126,7 @@
 </div>
 
 <!-- A navigation that failed takes the signed-in layout with it. An import
-     that was running still reports here, so its result stays on screen
-     (FR-032, FR-037). -->
+     that was running still reports here, so its result stays on screen. -->
 <Toasts place="page" />
 
 <style>

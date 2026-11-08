@@ -20,7 +20,7 @@ import (
 	"github.com/maltehedderich/mailarkiv/internal/sqlitedb"
 )
 
-// The contract's lines for each refusal, written to stderr.
+// CLI refusal messages are written to stderr.
 const (
 	msgInvalidAddress   = "That email address isn't valid."
 	msgAddressLong      = "Email addresses must be at most 1024 bytes."

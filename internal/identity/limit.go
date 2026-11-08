@@ -12,8 +12,8 @@ import (
 	"github.com/maltehedderich/mailarkiv/internal/sqlitedb"
 )
 
-// The sign-in limit (FR-004): 10 failures for one address within 15 minutes
-// block it for the next 15 minutes, whether or not the account exists.
+// The sign-in limit: 10 failures for one address within 15 minutes block it
+// for the next 15 minutes, whether or not the account exists.
 const (
 	maxFailures   = 10
 	failureWindow = 15 * time.Minute
@@ -21,7 +21,7 @@ const (
 )
 
 // addressKey is how the limit stores an address: the SHA-256 of its lowercase
-// form, so the tables never hold the address itself (FR-029).
+// form, so the tables never hold the address itself.
 func addressKey(address string) []byte {
 	sum := sha256.Sum256([]byte(strings.ToLower(address)))
 	return sum[:]

@@ -161,8 +161,8 @@ func durableAfterBlob(dataDir, hash string) []traceStep {
 	}
 }
 
-// ARCHITECTURE.md rule 3, FR-012: the 201 leaves only after the bytes, their
-// directory entries, and the catalog commit are on disk.
+// The 201 response leaves only after the bytes, their directory entries, and
+// the catalog commit are on disk.
 func TestCaptureSyscallOrder(t *testing.T) {
 	t.Run("new bytes", func(t *testing.T) {
 		content := []byte("From: sender@example.test\r\nTo: admin@example.test\r\nSubject: Traced\r\n\r\nBody.\r\n")

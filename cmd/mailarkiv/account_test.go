@@ -213,8 +213,8 @@ func attemptSignIn(server *serverProcess, address, password string) (status int,
 	return response.StatusCode, token
 }
 
-// FR-004, FR-005, risk 9, User Story 2 scenario 7: set-password works while the
-// server runs, ends the account's sessions at once, and lifts a sign-in block.
+// set-password works while the server runs, ends the account's sessions at
+// once, and lifts a sign-in block.
 func TestAccountSetPassword(t *testing.T) {
 	dataDir := filepath.Join(t.TempDir(), "archive")
 	if code, _, stderr := runAccount(t, accountPassword+"\n", "account", "create", "--data-dir", dataDir, "Admin@example.test"); code != 0 {

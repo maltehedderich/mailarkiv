@@ -1,12 +1,11 @@
 import type { DownloadFailure } from "#lib/download/original.js";
 import type { ImportResult } from "#lib/import/classify.js";
 
-// Toasts report the result of an import or a download. None leaves on a timer:
-// a result that disappears before it's read breaks FR-032. A toast leaves when
-// it's dismissed, or when a newer one with the same key replaces it.
+// Results stay until dismissed or replaced by a newer toast with the same
+// key, so they can't disappear before the administrator reads them.
 
 export type Toast =
-  /** FR-032: the latest import's result, with the name of the file sent. */
+  /** The latest import's result, with the name of the file sent. */
   | { kind: "import"; fileName: string; result: ImportResult }
   /** A download that has run long enough to show. */
   | {
@@ -28,7 +27,7 @@ export type Toast =
       messageId: number;
       fileName: string | null;
     }
-  /** FR-023: a download that saved nothing. */
+  /** A download that saved nothing. */
   | {
       kind: "download_failed";
       messageId: number;

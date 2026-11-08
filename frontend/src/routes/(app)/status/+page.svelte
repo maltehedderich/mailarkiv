@@ -18,8 +18,8 @@
 
   let { data }: PageProps = $props();
 
-  // FR-027: this screen states what the server recorded and offers no action
-  // that changes the archive. It never sums the facts up as healthy.
+  // This screen states what the server recorded and offers no action that
+  // changes the archive. It never sums the facts up as healthy.
 
   // Separators, as the Status item's count shows them.
   const numbers = new Intl.NumberFormat("en-US");
@@ -55,7 +55,7 @@
         data.status.value}
       {@const groups = groupFailures(failures)}
       <!-- What the Status item counts comes first, because that count is why
-           most people open this screen (FR-039). -->
+           most people open this screen. -->
       <section aria-labelledby="problems">
         <h2 id="problems">Problems</h2>
         <div class="content">
@@ -180,7 +180,7 @@
         </div>
       </section>
 
-      <!-- FR-027's scope and the start time, as a footnote: it qualifies
+      <!-- Scope and start time belong in a footnote: they qualify
            everything above rather than leading it. -->
       <p class="scope">
         This screen covers only the time since the server started at

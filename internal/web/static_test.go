@@ -26,8 +26,7 @@ func staticFiles() fstest.MapFS {
 	}
 }
 
-// The expected results come from the static row of the access table in
-// contracts/http-api.md: GET and HEAD only, known files as they are, app.html
+// Static routes allow GET and HEAD only: known files as they are, app.html
 // for an unknown path, and 404 for a missing /_app/ file.
 func TestStaticGET(t *testing.T) {
 	tests := []struct {

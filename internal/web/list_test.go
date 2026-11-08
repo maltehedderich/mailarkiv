@@ -12,9 +12,8 @@ import (
 	"github.com/maltehedderich/mailarkiv/internal/sqlitedb"
 )
 
-// SC-007, FR-019, and risk 19: with 10,000 messages, every page answers in
-// under 2 seconds, and walking the pages reaches every message once, most
-// recent import first.
+// With 10,000 messages, every page answers in under 2 seconds, and walking
+// the pages reaches every message once, most recent import first.
 func TestListAtTenThousand(t *testing.T) {
 	const messages = 10_000
 	const budget = 2 * time.Second

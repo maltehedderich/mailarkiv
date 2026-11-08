@@ -32,8 +32,8 @@ func requestBody(route Route) io.Reader {
 	return nil
 }
 
-// FR-006, SC-004, User Story 2 scenarios 1 and 2. Generated from the route
-// table, so a new route is covered as soon as it's added.
+// Generated from the route table, so a new route is covered as soon as it's
+// added.
 func TestEveryRouteDeniesWithoutSession(t *testing.T) {
 	h := newHarness(t, Routes())
 	h.createAccount(t, "admin@example.test")
@@ -105,8 +105,8 @@ func TestEveryRouteDeniesWithoutSession(t *testing.T) {
 	}
 }
 
-// FR-006: only sign-in and the static application files are reachable without
-// a session. Adding another Public route, or one with no rule, fails here.
+// Only sign-in and the static application files are reachable without a
+// session. Adding another Public route, or one with no rule, fails here.
 func TestOnlyTheAllowlistIsPublic(t *testing.T) {
 	allowlist := map[string]bool{
 		"POST /api/session": true,
@@ -119,7 +119,7 @@ func TestOnlyTheAllowlistIsPublic(t *testing.T) {
 		switch route.Access {
 		case Public:
 			if !allowlist[pattern] {
-				t.Errorf("%s is Public, and FR-006 allows only sign-in and the static files", pattern)
+				t.Errorf("%s is Public; only sign-in and static files may be public", pattern)
 			}
 			seen[pattern] = true
 		case SignedIn:
@@ -137,8 +137,8 @@ func TestOnlyTheAllowlistIsPublic(t *testing.T) {
 	}
 }
 
-// User Story 2 scenario 5: a route with no declared rule answers 403, even to
-// a caller with a valid session.
+// A route with no declared rule answers 403, even to a caller with a valid
+// session.
 func TestUndeclaredRouteRefusesASignedInCaller(t *testing.T) {
 	var ran atomic.Bool
 	h := newHarness(t, append(Routes(),

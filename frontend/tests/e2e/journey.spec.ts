@@ -5,8 +5,8 @@ import { expect, test, type Page } from "@playwright/test";
 
 import { startServer, type TestServer } from "./support/server";
 
-// User Story 1: sign in, import one synthetic file, see it listed, and download
-// the same bytes. Scenarios 1 to 5, 7, 12, and 13.
+// Sign in, import one synthetic file, see it listed, and download the same
+// bytes.
 
 const PASSWORD = "correct horse battery";
 const MISMATCH = "That email address and password don't match.";
@@ -42,19 +42,19 @@ test("an administrator imports one file and downloads the same bytes", async ({
 }) => {
   await server.createAccount("Admin@example.test", PASSWORD);
 
-  // Scenario 1: with no session, the app opens sign-in.
+  // With no session, the app opens sign-in.
   await page.goto(server.origin);
   await expect(page).toHaveURL(`${server.origin}/sign-in`);
 
-  // Scenario 5, FR-003: a wrong password and an unknown address look the same.
+  // A wrong password and an unknown address look the same.
   for (const [email, password] of [
     ["admin@example.test", "wrong horse battery"],
     ["nobody@example.test", PASSWORD],
   ]) {
     await submitSignIn(page, email, password);
     await expect(page.getByText(MISMATCH)).toBeVisible();
-    // DESIGN.md, Form field: FR-003 can't say which field is wrong, so both
-    // are marked and described by the line.
+    // Mark and describe both fields to avoid revealing which credential is
+    // wrong.
     for (const label of ["Email address", "Password"]) {
       const field = page.getByLabel(label);
       await expect(field).toHaveAttribute("aria-invalid", "true");
@@ -64,7 +64,7 @@ test("an administrator imports one file and downloads the same bytes", async ({
     await expect(page.getByText(/session ended/i)).toHaveCount(0);
   }
 
-  // Scenario 13: the lowercase address signs in to the account created as
+  // The lowercase address signs in to the account created as
   // Admin@example.test.
   await submitSignIn(page, "admin@example.test", PASSWORD);
   await expect(page).toHaveURL(`${server.origin}/`);
@@ -82,7 +82,7 @@ test("an administrator imports one file and downloads the same bytes", async ({
   ).toContainText("Archived");
 
   // The new message is first, with its name, size, short hash, and a time
-  // that ends in its UTC offset (scenario 12, FR-043).
+  // that ends in its UTC offset.
   const row = page
     .getByRole("list", { name: "Messages" })
     .getByRole("listitem")

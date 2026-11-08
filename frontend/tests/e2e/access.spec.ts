@@ -5,9 +5,8 @@ import { expect, test, type Page } from "@playwright/test";
 
 import { startServer, type TestServer } from "./support/server";
 
-// User Story 2 in the browser: scenarios 6, 8, and 9, FR-040, and US1
-// scenario 6. Direct requests without a session are tested in Go, generated
-// from the route table.
+// Direct requests without a session are tested in Go using the route table.
+// These tests cover browser session behavior.
 
 const EMAIL = "admin@example.test";
 const PASSWORD = "correct horse battery";
@@ -65,7 +64,6 @@ async function signInQuery(page: Page): Promise<URLSearchParams> {
   return new URL(page.url()).searchParams;
 }
 
-// Scenario 6, FR-001.
 test("a fresh install offers only sign-in, with no way to create an account", async ({
   page,
 }) => {
@@ -81,10 +79,10 @@ test("a fresh install offers only sign-in, with no way to create an account", as
   await expect(page.getByText(/session ended/i)).toHaveCount(0);
 });
 
-// Scenario 8, FR-007. The server sends frame-ancestors 'none', and the
-// browser must refuse to show the page. The other site is a real server on
-// 127.0.0.1, another origin than localhost: Chromium's local network checks
-// would block a public origin's frame before MailArkiv answered at all.
+// The server sends frame-ancestors 'none', and the browser must refuse to
+// show the page. The other site is a real server on 127.0.0.1, another origin
+// than localhost: Chromium's local network checks would block a public
+// origin's frame before MailArkiv answered at all.
 test("another site can't show MailArkiv in a frame", async ({ page }) => {
   const other = await serveFramingPage(`${server.origin}/sign-in`);
   try {
@@ -174,8 +172,8 @@ async function serveFramingPage(
   };
 }
 
-// FR-040: only a tab that had a signed-in page open is told its session
-// ended. Signing in still returns to the page asked for.
+// Only a tab that had a signed-in page open is told its session ended.
+// Signing in still returns to the page asked for.
 test("a first visit with no session shows no session-ended message", async ({
   page,
 }) => {
@@ -195,8 +193,8 @@ test("a first visit with no session shows no session-ended message", async ({
   await expect(page).toHaveURL(`${server.origin}/?page=1`);
 });
 
-// Scenario 9, FR-005, FR-040: a new password ends the session, the next
-// action opens sign-in with the message, and signing in returns to the page.
+// A new password ends the session, the next action opens sign-in with the
+// message, and signing in returns to the page.
 test("a session ended by a new password opens sign-in, then returns to the page", async ({
   page,
 }) => {
@@ -232,8 +230,8 @@ test("a session ended by a new password opens sign-in, then returns to the page"
   await expect(page.getByText("No mail yet")).toBeVisible();
 });
 
-// FR-040 through Download. The page fetches the file, gets a marked 401, and
-// opens sign-in. The browser saves nothing.
+// The page fetches the file, gets a marked 401, and opens sign-in. The
+// browser saves nothing.
 test("a download after the session ended opens sign-in", async ({ page }) => {
   await server.createAccount(EMAIL, PASSWORD);
   await signInFromStart(page);
@@ -260,7 +258,6 @@ test("a download after the session ended opens sign-in", async ({ page }) => {
   await expect(page).toHaveURL(`${server.origin}/?page=1`);
 });
 
-// US1 scenario 6, FR-003, FR-005.
 test("sign-out opens sign-in, and Back shows no list", async ({ page }) => {
   await server.createAccount(EMAIL, PASSWORD);
   await signInFromStart(page);
@@ -289,7 +286,7 @@ test("sign-out opens sign-in, and Back shows no list", async ({ page }) => {
   expect((await reread).status()).toBe(401);
 
   // The router shows sign-in but keeps the history entry Back reached, so the
-  // address bar can still read /. The screen is what the scenario specifies.
+  // address bar can still read /, so assert against the rendered screen.
   await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
   await expect(list).toHaveCount(0);
   await expect(page.getByText("synthetic.eml")).toHaveCount(0);

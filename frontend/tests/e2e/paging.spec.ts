@@ -2,8 +2,8 @@ import { expect, test, type Page } from "@playwright/test";
 
 import { startServer, type TestServer } from "./support/server";
 
-// FR-019 and the contract's paging rule: every message can be reached a page
-// at a time, and a page past the end moves to the last page.
+// Paging: every message can be reached a page at a time, and a page past the
+// end moves to the last page.
 
 const EMAIL = "admin@example.test";
 const PASSWORD = "correct horse battery";

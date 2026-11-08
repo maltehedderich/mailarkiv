@@ -6,9 +6,9 @@ import { expect, test, type Download, type Page } from "@playwright/test";
 
 import { startServer, type TestServer } from "./support/server";
 
-// FR-023, risk 10: the server checks the stored file before it sends a header,
-// so a bad copy is never saved as the message, and the page says why in a
-// toast. journey.spec.ts covers the download that works.
+// The server checks the stored file before it sends a header, so a bad copy
+// is never saved as the message, and the page says why in a toast.
+// journey.spec.ts covers the download that works.
 
 const EMAIL = "admin@example.test";
 const PASSWORD = "correct horse battery";
@@ -17,7 +17,7 @@ const CONTENT = Buffer.from(
 );
 const HASH = createHash("sha256").update(CONTENT).digest("hex");
 const NOT_DOWNLOADED = "This message wasn't downloaded.";
-// FR-038's next step, which both stored-original rows share.
+// Missing and damaged originals share the same recovery step.
 const NEXT_STEP =
   "Import the same file again, if you still have it, to restore the original.";
 const DAMAGED =
@@ -114,7 +114,7 @@ for (const { name, change, status, reason } of CASES) {
   });
 }
 
-// FR-023: a failure doesn't leave on a timer, and trying again replaces it.
+// A failure doesn't leave on a timer, and trying again replaces it.
 test("a failure stays until it's dismissed, and a retry replaces it", async ({
   page,
 }) => {

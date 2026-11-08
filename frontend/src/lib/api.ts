@@ -1,6 +1,6 @@
 // The one place the interface talks to the server's JSON API. Every answer is
 // parsed here, once, into a closed union, so a screen can't mistake a failure
-// for an empty list (FR-045).
+// for an empty list.
 
 /** Other API calls than an upload give up after 30 seconds. */
 const TIMEOUT_MS = 30_000;
@@ -31,7 +31,7 @@ export interface MessagePage {
   total: number;
 }
 
-/** Slice 1 has one source. The column's CHECK closes the set on the server. */
+/** The source column's CHECK constraint enforces the same set on the server. */
 export type SourceType = "manual_import";
 
 export interface Observation {
@@ -55,7 +55,7 @@ export interface SessionInfo {
   problemCount: number;
 }
 
-/** FR-038's six failure categories, as the server names them. */
+/** Failure categories use the server's names. */
 export const FAILURE_CATEGORIES = [
   "storage_full",
   "storage_write_failed",
@@ -93,7 +93,7 @@ export interface FailureEvent {
   restored: boolean;
 }
 
-/** What the server knows since its latest start (FR-027). */
+/** What the server knows since its latest start. */
 export interface ServerStatus {
   /** RFC 3339 in UTC. */
   startedAt: string;
@@ -191,7 +191,7 @@ export async function signIn(
 /**
  * Ends the session. A marked 401 means it had already ended, so the browser is
  * signed out either way. Anything else that isn't a marked 204 leaves the
- * administrator signed in, and the screen says so (FR-045).
+ * administrator signed in, and the screen says so.
  */
 export async function signOut(
   fetch: Fetch = globalThis.fetch,

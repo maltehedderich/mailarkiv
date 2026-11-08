@@ -8,7 +8,6 @@
 
   type Problem = Exclude<SignInResult["kind"], "ok">;
 
-  // FR-003, T071, and FR-045's sign-in line.
   const PROBLEMS: Record<Problem, string> = {
     invalid: "That email address and password don't match.",
     blocked:
@@ -26,10 +25,10 @@
   let busy = $state(false);
   let problem: Problem | null = $state(null);
 
-  // FR-040: only a tab that had a signed-in page open sees this.
+  // Only a tab that had a signed-in page open sees this.
   const ended = $derived(showsSessionEnded(page.url));
 
-  // FR-003 can't say which field is wrong, so both are marked.
+  // Mark both fields to avoid revealing which credential is wrong.
   const invalid = $derived(problem === "invalid");
 
   async function submit(event: SubmitEvent) {
@@ -40,8 +39,8 @@
     problem = null;
     const result = await signIn(email, password);
     if (result.kind === "ok") {
-      // Back to the page the session ended on (FR-040). Still busy until the
-      // page opens, so a second press can't send the form again.
+      // Back to the page the session ended on. Still busy until the page
+      // opens, so a second press can't send the form again.
       const next = safeNext(page.url.searchParams.get("next"), page.url.origin);
       try {
         await goto(next, { replace: true });

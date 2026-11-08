@@ -1,18 +1,17 @@
 import { field, parseMessage, type Message } from "#lib/api.js";
 
-// FR-032 and FR-033 as one pure function: "How the client classifies a result"
-// in contracts/http-api.md. Anything it doesn't recognize is Unconfirmed,
-// because the file may be stored and importing it again is safe.
+// Unrecognized responses are Unconfirmed: the file may already be stored, and
+// importing it again is safe.
 
 export type RefusedReason = "empty" | "no_mail_header" | "too_large";
 
-/** FR-038's three capture failures, as the server names them. */
+/** Capture failures use the server's names. */
 export type CaptureFailure =
   "storage_full" | "storage_write_failed" | "catalog_write_failed";
 
 /**
  * Why the file isn't archived: a capture failure MailArkiv reported, a marked
- * 403 from MailArkiv, or a proxy's upload limit (FR-033).
+ * 403 from MailArkiv, or a proxy's upload limit.
  */
 export type FailedReason = CaptureFailure | "refused_by_server" | "proxy_limit";
 
@@ -39,7 +38,7 @@ export type ImportResponse =
 
 const UNCONFIRMED: ImportResult = { outcome: "unconfirmed" };
 
-// The contract's response table: each outcome with the status it comes with.
+// Accept an outcome only with its matching HTTP status.
 const STORED = {
   archived: 201,
   already_archived: 200,

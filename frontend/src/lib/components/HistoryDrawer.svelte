@@ -90,7 +90,7 @@
 
   /**
    * The download's file name, cut in the middle as Finder and the browser's
-   * download list show it. FR-021: the supplied name is never used.
+   * download list show it. The supplied name is never used.
    */
   function savedAs(contentHash: string): string {
     return `${contentHash.slice(0, 8)}…${contentHash.slice(-4)}.eml`;

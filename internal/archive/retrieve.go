@@ -37,10 +37,10 @@ type Original struct {
 	Size        int64
 }
 
-// OpenVerified opens a message's stored original, hashes all of it, and returns
-// the same open file at its start, so the bytes sent are the bytes checked
-// (FR-023). The path comes from the content hash alone, never from a supplied
-// name (FR-021). ErrOriginalMissing and ErrOriginalDamaged each record a failure
+// OpenVerified opens a message's stored original, hashes all of it, and
+// returns the same open file at its start, so the bytes sent are the bytes
+// checked. The path comes from the content hash alone, never from a supplied
+// name. ErrOriginalMissing and ErrOriginalDamaged each record a failure
 // event, and ErrNotFound doesn't, because nothing is wrong with the archive.
 func (a *Archive) OpenVerified(ctx context.Context, id int64) (Original, error) {
 	var contentHash string
@@ -79,10 +79,10 @@ func (a *Archive) recordFailedRead(category opstatus.Category, id int64, content
 	})
 }
 
-// openMatching opens the file at path and hashes all of it. It returns the file
-// at its start, with its size, only if the hash matches. An error for a missing
-// file wraps fs.ErrNotExist, and any other means the file can't be read or
-// doesn't match, which FR-038's Stored original damaged covers.
+// openMatching opens the file at path and hashes all of it. It returns the
+// file at its start, with its size, only if the hash matches. An error for a
+// missing file wraps fs.ErrNotExist, and any other means the file can't be
+// read or doesn't match, which counts as Stored original damaged.
 func openMatching(path, contentHash string) (*os.File, int64, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -105,7 +105,7 @@ func openMatching(path, contentHash string) (*os.File, int64, error) {
 	return file, size, nil
 }
 
-// Observation is one recorded import of a message's bytes (FR-014).
+// Observation is one recorded import of a message's bytes.
 type Observation struct {
 	SourceType   string // One of the values source_observation's CHECK allows.
 	ObservedAt   time.Time
@@ -113,7 +113,7 @@ type Observation struct {
 	FileName     *string // Nil when none was supplied.
 }
 
-// History is a message with every import of its bytes, newest first (FR-020).
+// History is a message with every import of its bytes, newest first.
 type History struct {
 	ID           int64
 	ContentHash  string

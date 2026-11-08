@@ -17,8 +17,8 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// ErrNewerDatabase means the catalog was migrated by a newer binary, which this
-// one can't read safely (FR-026).
+// ErrNewerDatabase means the catalog was migrated by a newer binary, which
+// this one can't read safely.
 var ErrNewerDatabase = errors.New("the catalog is newer than this binary")
 
 // settings apply to every connection. The driver runs each _pragma when it opens

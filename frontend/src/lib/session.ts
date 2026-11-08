@@ -1,5 +1,5 @@
 // Where the browser goes when a session ends, and where it returns after
-// sign-in (FR-040).
+// sign-in.
 //
 // The sign-in page says the session ended only if this tab has loaded a
 // signed-in page since its last sign-out. A first visit with no session opens

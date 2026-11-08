@@ -2,9 +2,6 @@ import { describe, expect, test } from "vitest";
 
 import { classify, type ImportResponse } from "./classify";
 
-// Every row of "How the client classifies a result" in contracts/http-api.md
-// (FR-032, FR-033).
-
 const HASH = "ea9449bf2f2e4ba3d3c4f3d61a1f6b8e0c3e5f8b0a9d2c7e6f5a4b3c2d1e0f9a";
 
 const messageJSON = {
@@ -146,7 +143,7 @@ describe("a marked response with anything else is Unconfirmed", () => {
 });
 
 // A marked 401 means the session ended during the upload, so the page opens
-// sign-in with the session-ended message (FR-040).
+// sign-in with the session-ended message.
 describe("a marked 401 opens sign-in", () => {
   test.each([
     ["no_session", { error: "no_session" }],
@@ -171,7 +168,7 @@ describe("a marked 403 is Failed", () => {
   });
 });
 
-// FR-033: a proxy refused the file as too large, so it never reached MailArkiv.
+// A proxy refused the file as too large, so it never reached MailArkiv.
 describe("an unmarked 413 is Failed, naming the proxy's limit", () => {
   test.each([
     ["nginx's page", "<html><body>413 Request Entity Too Large</body></html>"],
@@ -189,7 +186,7 @@ describe("an unmarked 413 is Failed, naming the proxy's limit", () => {
 });
 
 describe("an unmarked response is Unconfirmed", () => {
-  // FR-033: a proxy's timeout or bad gateway, and a 200 MailArkiv didn't send.
+  // A proxy's timeout or bad gateway, and a 200 MailArkiv didn't send.
   test.each([
     [200, ""],
     [502, "<html><body>502 Bad Gateway</body></html>"],

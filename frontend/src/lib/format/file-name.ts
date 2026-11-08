@@ -1,6 +1,6 @@
-// FR-021: a supplied file name is untrusted. It is only ever rendered as text,
-// never as markup, a path, or a download name. Control and bidi characters
-// become visible codes, so a name can't reorder or hide the text around it.
+// A supplied file name is untrusted. It is only ever rendered as text, never
+// as markup, a path, or a download name. Control and bidi characters become
+// visible codes, so a name can't reorder or hide the text around it.
 
 export type NamePart =
   | { kind: "text"; text: string }

@@ -86,7 +86,8 @@ description = "Scan Go and frontend dependencies for known vulnerabilities"
 depends = ["frontend:build"]
 run = [
   "govulncheck ./...",
-  # plan.md, Complexity Tracking, records why this one report is ignored.
+  # deepmerge only merges trusted Vite options at build time and isn't bundled.
+  # Remove this exception when a fixed version ships or the plugin drops it.
   "cd frontend && bun audit --ignore=GHSA-gcqx-w48m-w2h4",
 ]
 

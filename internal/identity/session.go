@@ -10,8 +10,8 @@ import (
 	"github.com/maltehedderich/mailarkiv/internal/sqlitedb"
 )
 
-// SignOut ends the token's session by deleting its row (FR-005). A token with
-// no row is already signed out, so it isn't an error.
+// SignOut ends the token's session by deleting its row. A token with no row
+// is already signed out, so it isn't an error.
 func (id *Identity) SignOut(ctx context.Context, token string) error {
 	tokenHash := sha256.Sum256([]byte(token))
 	if _, err := id.db.Writer.ExecContext(ctx, "DELETE FROM session WHERE token_hash = ?", tokenHash[:]); err != nil {
@@ -22,7 +22,7 @@ func (id *Identity) SignOut(ctx context.Context, token string) error {
 
 // SetPassword replaces an account's password. In the same transaction it ends
 // all of that account's sessions and lifts the address's sign-in block and
-// failures (FR-004, FR-005).
+// failures.
 func (id *Identity) SetPassword(ctx context.Context, address, password string) error {
 	email, err := ParseAddress(address)
 	if err != nil {

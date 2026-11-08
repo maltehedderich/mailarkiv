@@ -27,7 +27,8 @@ func (h *harness) createAccount(t *testing.T, address string) {
 	}
 }
 
-// sessionCookie matches the contract's Set-Cookie value and captures the token.
+// sessionCookie matches the session's Set-Cookie value and captures the
+// token.
 var sessionCookie = regexp.MustCompile(`^__Host-mailarkiv_session=([A-Za-z0-9_-]+); Path=/; Max-Age=43200; HttpOnly; Secure; SameSite=Strict$`)
 
 // signIn signs in over HTTP and returns a function that sends the session

@@ -6,9 +6,8 @@ import { expect, test, type Page } from "@playwright/test";
 
 import { startServer, type TestServer } from "./support/server";
 
-// User Story 4 scenario 2, FR-020, FR-041, and T098: a message's import history
-// opens from its row, by pointer or keyboard, from an address that survives Back
-// and sign-in.
+// A message's import history opens from its row, by pointer or keyboard, from
+// an address that survives Back and sign-in.
 
 const PASSWORD = "correct horse battery";
 const NEW_PASSWORD = "a different horse battery";
@@ -104,7 +103,7 @@ test("a repeat import adds history and no copy", async ({ page }) => {
     drawer(page).getByRole("heading", { name: "Imports 3" }),
   ).toBeVisible();
 
-  // FR-021: the download is named after the hash, and the footer says so.
+  // The download is named after the hash, and the footer says so.
   await expect(drawer(page).locator("footer")).toContainText(
     `Saves as ${HASH.slice(0, 8)}…${HASH.slice(-4)}.eml`,
   );
@@ -420,7 +419,7 @@ test("the history reopens after a session ends and sign-in", async ({
   await expect(drawer(page)).toBeVisible();
 });
 
-// FR-045: the drawer's data didn't arrive, so it says so, and Close still works.
+// The drawer's data didn't arrive, so it says so, and Close still works.
 for (const id of ["999", "abc"]) {
   test(`message ${id} shows the failed-load state in the drawer`, async ({
     page,
@@ -463,8 +462,8 @@ test("Try again loads the history and keeps focus in the drawer", async ({
   ).toBeFocused();
 });
 
-// The spec's edge case: the history shows a long name in full. SC-008: at 360 px
-// nothing scrolls sideways. DESIGN: Download stays in view on a long history.
+// History shows long names in full. At 360 px nothing scrolls sideways.
+// DESIGN: Download stays in view on a long history.
 test("at 360 px a long name fits, and Download stays in view", async ({
   page,
 }) => {

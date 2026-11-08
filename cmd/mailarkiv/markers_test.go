@@ -19,7 +19,7 @@ import (
 // from. They're lowercase, so a check on a lowercased haystack also catches a
 // copy whose case changed on the way.
 const (
-	// The account signs in and imports. Lowercase is the stored form (FR-044).
+	// The account signs in and imports. Lowercase is the stored form.
 	markerAccount = "accountmarkerq7z1@example.test"
 	// A failed sign-in submits this address, which has no account.
 	markerSignIn       = "signinmarkerw8j4@example.test"
@@ -95,9 +95,9 @@ func importFailing(n, status int) func(t *testing.T, server *serverProcess, toke
 	}
 }
 
-// FR-028, FR-029, SC-006, risk 6: every failure category reaches the status and
-// the log with its time, and neither holds mail content, an account address, a
-// password, or a session token.
+// Every failure category reaches the status and the log with its time, and
+// neither holds mail content, an account address, a password, or a session
+// token.
 func TestNoMarkersInLogOrStatus(t *testing.T) {
 	dataDir := t.TempDir()
 	if code, _, stderr := runAccount(t, accountPassword+"\n", "account", "create", "--data-dir", dataDir, markerAccount); code != 0 {
@@ -134,7 +134,7 @@ func TestNoMarkersInLogOrStatus(t *testing.T) {
 			server := startFaultServer(t, dataDir, run.faults)
 			token := signInOverHTTP(t, server.baseURL, markerAccount)
 
-			// FR-029 names addresses submitted at sign-in too.
+			// Submitted sign-in addresses must also stay out of logs.
 			if status, _ := attemptSignIn(server, markerSignIn, markerWrongPass); status != http.StatusUnauthorized {
 				t.Fatalf("a failed sign-in = %d, want 401", status)
 			}
@@ -163,7 +163,7 @@ func TestNoMarkersInLogOrStatus(t *testing.T) {
 				t.Errorf("status failures = %v, want %v", categories, run.want)
 			}
 
-			// FR-039: the count is failure events plus unreferenced originals.
+			// The count is failure events plus unreferenced originals.
 			response, sessionBody := server.request(http.MethodGet, "/api/session", "", token)
 			wantCount := fmt.Sprintf(`{"problem_count":%d}`, len(run.want)+len(status.Unreferenced))
 			if response.StatusCode != http.StatusOK || sessionBody != wantCount {

@@ -341,7 +341,7 @@ func contentHash(content []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// blobPath is where the data model stores the original with this hash.
+// blobPath locates an original using only its content hash.
 func blobPath(dataDir, hash string) string {
 	return filepath.Join(dataDir, "blobs", hash[0:2], hash[2:4], hash)
 }

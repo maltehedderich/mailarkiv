@@ -1,5 +1,5 @@
-// Package archtest enforces the plan's module rules: who may import whom, and
-// who may write to which table. Constitution principle II states the rules, and
+// Package archtest enforces module boundaries: who may import whom, and who
+// may write to which table. Constitution principle II states the rules, and
 // this test keeps them true.
 package archtest
 
@@ -19,7 +19,7 @@ import (
 
 const modulePath = "github.com/maltehedderich/mailarkiv"
 
-// allowedImports copies the plan's "Allowed imports" line. A module that isn't
+// allowedImports declares each module's dependencies. A module that isn't
 // listed fails the check, so a new one needs a decision before it can land.
 var allowedImports = map[string][]string{
 	"cmd/mailarkiv": {
@@ -39,7 +39,7 @@ var allowedImports = map[string][]string{
 	"internal/fault":    {},
 }
 
-// tableOwners copies the data model's table ownership.
+// Each table has one owning module; only that module may write to it.
 var tableOwners = map[string]string{
 	"account":            "internal/identity",
 	"session":            "internal/identity",

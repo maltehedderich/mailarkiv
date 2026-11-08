@@ -8,9 +8,9 @@ import {
   signInPath,
 } from "./session";
 
-// FR-040: a session that ends while a page is open sends the next action to
-// sign-in with a message, and signing in returns to the same page. A first
-// visit with no session shows no such message.
+// A session that ends while a page is open sends the next action to sign-in
+// with a message, and signing in returns to the same page. A first visit with
+// no session shows no such message.
 
 const ORIGIN = "http://localhost:8080";
 

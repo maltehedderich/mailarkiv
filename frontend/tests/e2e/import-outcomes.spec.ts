@@ -5,10 +5,9 @@ import { expect, test, type Page, type Route } from "@playwright/test";
 
 import { startServer, type TestServer } from "./support/server";
 
-// FR-032, FR-033, SC-009, risk 15: every import ends in exactly one of six
-// outcomes, in the spec's words. Stubbed answers force each outcome and each
-// kind of proxy answer. The real server then shows that Archived means listed
-// and Failed means not listed.
+// Every import ends in exactly one of six outcomes. Stubbed answers force
+// each outcome and each kind of proxy answer. The real server then shows that
+// Archived means listed and Failed means not listed.
 
 const PASSWORD = "correct horse battery";
 const FILE = {
@@ -38,7 +37,6 @@ const WORDS = [
 ] as const;
 type Word = (typeof WORDS)[number];
 
-// FR-032's explanations, and FR-038's meaning and next step for each failure.
 const NOT_STORED = "Nothing was stored.";
 const NOT_ARCHIVED = "The file is not archived.";
 const UNCONFIRMED =
@@ -258,8 +256,7 @@ test("Archived links to the message's history", async ({ page }) => {
   ).toHaveAttribute("href", "/?message=17");
 });
 
-// SC-009: no Archived for a message that isn't listed, and no Failed for one
-// that is.
+// No Archived for a message that isn't listed, and no Failed for one that is.
 test("on the real server, Archived is listed and Failed isn't", async ({
   page,
 }) => {
@@ -295,9 +292,8 @@ test("on the real server, Archived is listed and Failed isn't", async ({
   await expect(list).not.toContainText("failed.eml");
 });
 
-// Quickstart scenario 3: the refresh after the import fails too, and the
-// result has to survive that, or the administrator never learns that the file
-// may be archived.
+// The refresh after the import fails too, and the result has to survive that,
+// or the administrator never learns that the file may be archived.
 test("a server that stops during an import leaves Unconfirmed on screen", async ({
   page,
 }) => {
@@ -310,7 +306,7 @@ test("a server that stops during an import leaves Unconfirmed on screen", async 
   const unconfirmed = page.getByText(UNCONFIRMED);
   const failedLoad = page.getByText("This page couldn't be loaded.");
   await expect(unconfirmed).toBeVisible();
-  // FR-045: the list couldn't be read, so it says so, and shows no empty list.
+  // The list couldn't be read, so it says so, and shows no empty list.
   await expect(failedLoad).toBeVisible();
   await expect(page.getByText("No mail yet")).toHaveCount(0);
 

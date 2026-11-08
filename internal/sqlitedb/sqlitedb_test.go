@@ -11,8 +11,9 @@ import (
 	"testing"
 )
 
-// migrationCount reads the directory directly, so the expected version doesn't
-// come from the code under test and stays right as later slices add files.
+// migrationCount reads the directory directly, so the expected version
+// doesn't come from the code under test and stays right as migrations are
+// added.
 func migrationCount(t *testing.T) int {
 	t.Helper()
 	entries, err := os.ReadDir("migrations")
@@ -65,7 +66,8 @@ func connections(t *testing.T, pool *sql.DB, n int) []*sql.Conn {
 func TestEveryConnectionHasTheDurabilitySettings(t *testing.T) {
 	db, _ := openCatalog(t)
 
-	// The values are the plan's: WAL, synchronous=FULL (2), and foreign keys on.
+	// WAL and synchronous=FULL (2) ensure durable commits; foreign keys enforce
+	// references.
 	pools := []struct {
 		name      string
 		conns     []*sql.Conn

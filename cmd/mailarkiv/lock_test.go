@@ -11,8 +11,8 @@ import (
 	"github.com/maltehedderich/mailarkiv/internal/sqlitedb"
 )
 
-// Risk 11: a second server on one data directory would delete the first's temp
-// files in its recovery, and lose an upload in progress.
+// A second server on one data directory would delete the first's temp files
+// in its recovery, and lose an upload in progress.
 func TestSecondServerRefused(t *testing.T) {
 	dataDir := t.TempDir()
 	createAdmin(t, dataDir)
@@ -49,9 +49,9 @@ func TestSecondServerRefused(t *testing.T) {
 	assertOneBlob(t, dataDir, content)
 }
 
-// User Story 5 scenario 6, FR-026: the server refuses to start on storage or a
-// catalog it can't use, and the log says which. Plain files in the way keep this
-// true when the test runs as root.
+// The server refuses to start on storage or a catalog it can't use, and the
+// log says which. Plain files in the way keep this true when the test runs as
+// root.
 func TestUnusableStartup(t *testing.T) {
 	garbage := bytes.Repeat([]byte("this is not a database\n"), 200)
 	tests := []struct {
@@ -90,8 +90,8 @@ func TestUnusableStartup(t *testing.T) {
 	}
 }
 
-// FR-026: a database can open and still fail when recovery reads it, and the log
-// has to name the catalog then too.
+// A database can open and still fail when recovery reads it, and the log has
+// to name the catalog then too.
 func TestCatalogUnusableInRecovery(t *testing.T) {
 	dataDir := t.TempDir()
 	createAdmin(t, dataDir)
@@ -116,8 +116,8 @@ func TestCatalogUnusableInRecovery(t *testing.T) {
 	}
 }
 
-// User Story 5 scenario 5: a temp file recovery can't remove is harmless, so the
-// server still starts and reports it.
+// A temp file recovery can't remove is harmless, so the server still starts
+// and reports it.
 func TestTempFileNotRemoved(t *testing.T) {
 	dataDir := t.TempDir()
 	createAdmin(t, dataDir)

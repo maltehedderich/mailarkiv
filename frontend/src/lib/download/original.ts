@@ -1,8 +1,8 @@
 import { field, isMarked, type Fetch } from "#lib/api.js";
 
-// FR-022 and FR-023: the page fetches the stored original itself, so it learns
-// why a download failed and can say so in a toast. A file is saved only after
-// every byte has arrived.
+// The page fetches the stored original itself, so it learns why a download
+// failed and can say so in a toast. A file is saved only after every byte has
+// arrived.
 
 /**
  * Gives up after this long with no answer, or this long between two pieces of
@@ -12,7 +12,7 @@ export const STALL_MS = 120_000;
 
 /** Why the file wasn't saved. */
 export type DownloadFailure =
-  /** FR-038's two stored-original rows, as the server names them. */
+  /** Stored-original failures use the server's names. */
   | "stored_original_missing"
   | "stored_original_damaged"
   /** The transfer broke after it started. */
@@ -26,7 +26,7 @@ export type Fetched =
   | { kind: "canceled" }
   | { kind: "failed"; reason: DownloadFailure };
 
-/** Reads an answer that isn't a marked 200, from the contract's table. */
+/** Reads an answer that isn't a marked 200, using its HTTP status and error code. */
 export function classifyRefusal(
   status: number,
   marked: boolean,

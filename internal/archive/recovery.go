@@ -16,16 +16,16 @@ import (
 )
 
 // ErrCatalogUnusable marks a recovery error caused by the catalog, so startup
-// can name it as the cause (FR-026). Any other recovery error is storage.
+// can name it as the cause. Any other recovery error is storage.
 var ErrCatalogUnusable = errors.New("the catalog can't be read")
 
 // probeName is the fixed name of the startup probe. The lock is held while it
 // exists, and a fixed name means a crash can leave at most one per directory.
 const probeName = ".probe"
 
-// CheckStorage creates tmp/ and blobs/ if they're missing and writes and removes
-// a probe file in each, so unusable storage stops the start instead of the first
-// import (FR-026). The caller holds the data directory's lock.
+// CheckStorage creates tmp/ and blobs/ if they're missing and writes and
+// removes a probe file in each, so unusable storage stops the start instead
+// of the first import. The caller holds the data directory's lock.
 func CheckStorage(dataDir string) error {
 	for _, name := range []string{"tmp", "blobs"} {
 		dir := filepath.Join(dataDir, name)
@@ -44,9 +44,9 @@ func CheckStorage(dataDir string) error {
 }
 
 // Recover runs once at startup, before the server accepts imports. It removes
-// leftover temp files and lists stored originals with no catalog entry. It never
-// hashes or deletes a stored original (FR-024), and running it again after an
-// interruption gives the same result (FR-025).
+// leftover temp files and lists stored originals with no catalog entry. It
+// never hashes or deletes a stored original, and running it again after an
+// interruption gives the same result.
 //
 // An error means the catalog or the storage can't be used, and the server must
 // not start. A temp file that can't be removed isn't an error: it's a failure

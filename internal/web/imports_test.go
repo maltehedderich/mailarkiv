@@ -17,8 +17,8 @@ import (
 	"github.com/maltehedderich/mailarkiv/internal/opstatus"
 )
 
-// maxImport is the contract's limit: 150,000,000 bytes is accepted, one more
-// byte is refused.
+// maxImport is the upload limit: 150,000,000 bytes is accepted, one more byte
+// is refused.
 const maxImport = 150_000_000
 
 // testTime is testNow as the contract writes times.
@@ -55,8 +55,7 @@ func TestImportOutcomes(t *testing.T) {
 		return h.send(t, http.MethodPost, "/api/imports", body, change)
 	}
 
-	// The data model promises an ID is never reused. It doesn't promise that IDs
-	// are consecutive.
+	// IDs are never reused, but they need not be consecutive.
 	seen := map[int64]bool{}
 	assertArchived := func(t *testing.T, response *http.Response, body string, content []byte, fileName string) int64 {
 		t.Helper()
@@ -153,11 +152,10 @@ func TestImportOutcomes(t *testing.T) {
 		assertNoTempFiles(t, h.dataDir)
 	})
 
-	// One row per line of the data model's Import outcome table that a single
-	// import can reach. The two lines with no row before the check and a row at
-	// commit need two imports racing, so TestDecideOutcome and
-	// TestConcurrentImports cover them. Each row seeds its state by editing real
-	// files, and each adds exactly one observation.
+	// Cover each import outcome that a single import can reach. The two lines
+	// with no row before the check and a row at commit need two imports racing,
+	// so TestDecideOutcome and TestConcurrentImports cover them. Each row seeds
+	// its state by editing real files, and each adds exactly one observation.
 	seedRow := func(t *testing.T, content []byte) int64 {
 		t.Helper()
 		response, body := importFile(t, bytes.NewReader(content), withFileName("earlier.eml"))
@@ -176,7 +174,7 @@ func TestImportOutcomes(t *testing.T) {
 		importCount int
 		// event is the failure event it records. The zero value means none.
 		event opstatus.Category
-		// reuses is set when the stored file must stay the same file (FR-018).
+		// reuses is set when the stored file must stay the same file.
 		reuses bool
 	}{
 		{
@@ -370,8 +368,8 @@ func TestImportOutcomes(t *testing.T) {
 	}
 }
 
-// Contract: storage_write_failed answers 500 with the outcome, and the failure
-// event counts as a problem (FR-038, FR-039).
+// Contract: storage_write_failed answers 500 with the outcome, and the
+// failure event counts as a problem.
 func TestImportStorageWriteFailure(t *testing.T) {
 	h := newHarness(t, Routes())
 	h.createAccount(t, "admin@example.test")
@@ -484,9 +482,9 @@ func TestImportContentLengthBoundaries(t *testing.T) {
 	}
 }
 
-// User Story 3 scenario 7, FR-038: a connection that drops during an upload
-// removes the partial file, lists nothing, and is no failure event. The client
-// sees Unconfirmed, because no answer comes.
+// A connection that drops during an upload removes the partial file, lists
+// nothing, and is no failure event. The client sees Unconfirmed, because no
+// answer comes.
 func TestDroppedUpload(t *testing.T) {
 	h := newHarness(t, Routes())
 	h.createAccount(t, "admin@example.test")

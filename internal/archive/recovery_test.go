@@ -102,7 +102,7 @@ func (f *fixture) logEntries(t *testing.T) []map[string]any {
 }
 
 // assertInvalidNamesLogged checks for the one line that counts the invalid
-// names. The names themselves stay out of the log (FR-029).
+// names. The names themselves stay out of the log.
 func (f *fixture) assertInvalidNamesLogged(t *testing.T, count int) {
 	t.Helper()
 	var lines []map[string]any
@@ -139,7 +139,6 @@ func otherPair(pair string) string {
 	return "00"
 }
 
-// FR-024, FR-025, and the data model's recovery steps.
 func TestRecovery(t *testing.T) {
 	ctx := context.Background()
 
@@ -376,11 +375,11 @@ func TestRecovery(t *testing.T) {
 			}
 		}
 		if !logged {
-			t.Errorf("no log line holds the result (FR-028):\n%s", recovered.log.String())
+			t.Errorf("no log line holds the result:\n%s", recovered.log.String())
 		}
 	})
 
-	// FR-026: unusable storage or an unusable catalog stops the start.
+	// Unusable storage or an unusable catalog stops the start.
 	t.Run("a catalog that can't be read stops recovery and deletes nothing", func(t *testing.T) {
 		f := newFixture(t)
 		body := []byte("Subject: unreferenced\n")
@@ -390,7 +389,7 @@ func TestRecovery(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// Startup names the catalog as the cause through this error (FR-026).
+		// Startup names the catalog as the cause through this error.
 		if err := next.archive.Recover(ctx); !errors.Is(err, ErrCatalogUnusable) {
 			t.Errorf("Recover = %v, want ErrCatalogUnusable", err)
 		}

@@ -11,8 +11,8 @@ import (
 	"testing"
 )
 
-// SC-002's samples. The server must store and return each one byte for byte,
-// whether or not it is well-formed mail (FR-011, FR-022).
+// The server must store and return each sample byte for byte, whether or not
+// it is well-formed mail.
 var roundTripSamples = []struct {
 	name    string
 	content []byte
@@ -71,7 +71,7 @@ func TestImportedBytesRoundTrip(t *testing.T) {
 		assertDownload(t, h, admin, stored.Message.ID, inputHash, maxImport)
 	})
 
-	// Scenario 7, FR-008: every account sees the same archive.
+	// Every account sees the same archive.
 	t.Run("a second account lists and downloads the same message", func(t *testing.T) {
 		response, body := h.do(t, http.MethodGet, "/api/messages", second)
 		if response.StatusCode != http.StatusOK {
@@ -114,8 +114,8 @@ func importForRoundTrip(t *testing.T, h *harness, session func(*http.Request), b
 	return stored
 }
 
-// assertDownload hashes the download as it arrives, and checks FR-022's
-// headers.
+// assertDownload checks the downloaded bytes against the hash and verifies
+// the content type, length, and hash-based filename.
 func assertDownload(t *testing.T, h *harness, session func(*http.Request), id int64, wantHash string, wantSize int64) {
 	t.Helper()
 	request, err := http.NewRequest(http.MethodGet, h.server.URL+"/api/messages/"+strconv.FormatInt(id, 10)+"/original", nil)

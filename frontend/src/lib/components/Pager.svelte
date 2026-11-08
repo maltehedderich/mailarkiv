@@ -27,7 +27,7 @@
   }
 </script>
 
-<!-- FR-019: every message can be reached, a page at a time. An end keeps its
+<!-- Every message can be reached, a page at a time. An end keeps its
      arrow, off, so the other one never moves. -->
 <nav class="pager" aria-label="Pages">
   <!-- Screen readers may skip the dash, which would leave "1 50 of 7,000".

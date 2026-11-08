@@ -17,8 +17,8 @@ func faultMail(subject string) []byte {
 	return []byte("From: sender@example.test\r\nTo: admin@example.test\r\nSubject: " + subject + "\r\n\r\nBody.\r\n")
 }
 
-// User Story 3 scenario 6, FR-013, risk 12: a storage failure shows as Failed,
-// lists nothing, leaves no partial file, and reaches the status and the log.
+// A storage failure shows as Failed, lists nothing, leaves no partial file,
+// and reaches the status and the log.
 func TestStorageFailures(t *testing.T) {
 	const (
 		storageFull  = "storage_full"
@@ -32,7 +32,7 @@ func TestStorageFailures(t *testing.T) {
 		// noBlob is set where the failure comes before the rename. A failed
 		// directory fsync comes after it, so that row leaves a whole blob.
 		noBlob bool
-		// blobKept is set where FR-038 says the original was stored.
+		// blobKept is set when the original has been stored.
 		blobKept bool
 	}{
 		{fault: "temp-create=ENOSPC", status: http.StatusInsufficientStorage, reason: storageFull, noBlob: true},
@@ -89,7 +89,7 @@ func TestStorageFailures(t *testing.T) {
 			if !tt.blobKept {
 				return
 			}
-			// FR-038: the stored original is listed as unreferenced at the next start.
+			// The stored original is listed as unreferenced at the next start.
 			next := restart(t, dataDir)
 			nextToken := signInOverHTTP(t, next.baseURL, adminAddress)
 			want := []unreferencedEntry{{ContentHash: contentHash(content), Size: int64(len(content))}}
@@ -101,9 +101,8 @@ func TestStorageFailures(t *testing.T) {
 	}
 }
 
-// The data model's capture states: a failed catalog read is no failure event,
-// because FR-038's Catalog write failed says the original was stored. The client
-// shows Unconfirmed.
+// A failed catalog read records no failure event, because Catalog write
+// failed means the original was stored. The client shows Unconfirmed.
 func TestRowReadFailure(t *testing.T) {
 	dataDir := t.TempDir()
 	createAdmin(t, dataDir)
@@ -173,9 +172,9 @@ func TestDefaultBuildIgnoresFaults(t *testing.T) {
 	}
 }
 
-// FR-023, risk 10: a read that fails after the check passed comes too late for an
-// error page, so the connection ends and the browser reports a failed download.
-// It still reaches the status and the log as a damaged original.
+// A read that fails after the check passed comes too late for an error page,
+// so the connection ends and the browser reports a failed download. It still
+// reaches the status and the log as a damaged original.
 func TestDownloadReadFailure(t *testing.T) {
 	dataDir := t.TempDir()
 	createAdmin(t, dataDir)

@@ -80,7 +80,7 @@ func (f *fixture) storedAccounts(t *testing.T) map[string]string {
 	return accounts
 }
 
-// FR-044: one @ with text on both sides, no whitespace, stored in lowercase.
+// One @ with text on both sides, no whitespace, stored in lowercase.
 func TestCreateAccountAddresses(t *testing.T) {
 	t.Run("stores the lowercase form", func(t *testing.T) {
 		f := newFixture(t)
@@ -139,8 +139,8 @@ func TestCreateAccountAddresses(t *testing.T) {
 	})
 }
 
-// FR-002: at least 12 characters, counted as code points, stored in a form
-// that can't be reversed.
+// At least 12 characters, counted as code points, stored in a form that can't
+// be reversed.
 func TestCreateAccountPasswords(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -191,8 +191,7 @@ func TestCreateAccountPasswords(t *testing.T) {
 	})
 }
 
-// FR-003: one error for a wrong password, an unknown address, and a
-// malformed one. User Story 1 scenarios 5 and 13.
+// One error for a wrong password, an unknown address, and a malformed one.
 func TestSignIn(t *testing.T) {
 	f := newFixture(t)
 	f.create(t, "Admin@example.test", goodPassword)
@@ -273,8 +272,8 @@ func (f *fixture) sessions(t *testing.T) []sessionRow {
 	return sessions
 }
 
-// FR-005: the catalog holds only the token's SHA-256, and a session ends 12
-// hours after sign-in.
+// The catalog holds only the token's SHA-256, and a session ends 12 hours
+// after sign-in.
 func TestSessions(t *testing.T) {
 	f := newFixture(t)
 	f.create(t, "Admin@example.test", goodPassword)

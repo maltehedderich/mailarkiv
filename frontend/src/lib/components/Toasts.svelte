@@ -85,7 +85,7 @@
   });
 </script>
 
-<!-- Always present, so screen readers hear each toast as it's added (FR-041). -->
+<!-- Always present, so screen readers hear each toast as it's added. -->
 <section
   bind:this={region}
   class="toasts {place}"

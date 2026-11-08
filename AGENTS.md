@@ -29,6 +29,12 @@ Other tasks are `setup`, `dev`, `dev:account`, `build`, `frontend:build`, `serve
 - When adding tooling, document its exact required check commands here in the same change. Feature plans must identify the checks that apply and the layer each runs at.
 - Report checks run and any that could not run, with the reason and remaining risk. Do not report an unconfigured check as passed.
 
+## Code comments
+
+Use clear names and simple code. Comment only on non-obvious decisions, constraints, invariants, safety rules, or public contracts. Keep comments short and self-contained; put longer rationale in maintained documentation. Update or delete stale comments when changing the code.
+
+Do not reference feature specs, plans, task lists, or their numbered requirements and scenarios in code comments (including tests). Those documents may be deleted, and identifiers such as `FR-003` are reused across features. State the relevant behavior or reason directly. Links to maintained documentation or external standards may supplement an explanation, but must not replace it.
+
 ## Writing
 
 These rules apply to everything you write: docs, UI copy, comments, commit messages, and replies.

@@ -2,8 +2,8 @@ import { describe, expect, test } from "vitest";
 
 import { choose } from "./choose";
 
-// FR-009 and FR-036: the browser takes one file of 1 to 150,000,000 bytes, and
-// refuses an empty file, a larger one, or several at once before any upload.
+// The browser takes one file of 1 to 150,000,000 bytes, and refuses an empty
+// file, a larger one, or several at once before any upload.
 
 const LIMIT = 150_000_000;
 

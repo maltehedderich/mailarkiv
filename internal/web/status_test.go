@@ -13,7 +13,7 @@ import (
 	"github.com/maltehedderich/mailarkiv/internal/opstatus"
 )
 
-// Times in the status contract's form, reasoned from testNow: 15:50:52.123 UTC.
+// RFC 3339 timestamps, reasoned from testNow: 15:50:52.123 UTC.
 const (
 	testNowPlus410ms = "2026-11-06T15:50:52.533Z"
 	testNowPlus20min = "2026-11-06T16:10:52.123Z"
@@ -133,7 +133,7 @@ func TestStatus(t *testing.T) {
 		assertJSONResponse(t, response, body, http.StatusOK, `{"problem_count":0}`)
 	})
 
-	// FR-027: no endpoint here changes the archive.
+	// No endpoint here changes the archive.
 	t.Run("reading the status changes nothing", func(t *testing.T) {
 		h := newHarness(t, Routes())
 		h.createAccount(t, account)
@@ -160,7 +160,7 @@ func TestStatus(t *testing.T) {
 	})
 }
 
-// FR-039: the count is failure events plus unreferenced originals.
+// The count is failure events plus unreferenced originals.
 func TestProblemCountAddsFailuresAndUnreferenced(t *testing.T) {
 	h := newHarness(t, Routes())
 	h.createAccount(t, "admin@example.test")

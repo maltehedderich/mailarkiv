@@ -22,8 +22,8 @@ type failureJSON struct {
 	Restored    bool    `json:"restored"`
 }
 
-// readStatus answers GET /api/status. It only reads opstatus, and no route here
-// changes the archive (FR-027).
+// readStatus answers GET /api/status. It only reads opstatus, and no route
+// here changes the archive.
 func readStatus(s *server, w http.ResponseWriter, _ *http.Request) {
 	snapshot := s.status.Snapshot()
 

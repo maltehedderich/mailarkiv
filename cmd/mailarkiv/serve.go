@@ -34,8 +34,8 @@ const (
 	shutdownGrace = 5 * time.Second
 )
 
-// Startup causes, logged in the "cause" field when the server refuses to start,
-// so the log names what failed (FR-026).
+// Startup causes, logged in the "cause" field when the server refuses to
+// start, so the log names what failed.
 const (
 	causeLock    = "lock"
 	causeStorage = "storage"
@@ -57,7 +57,7 @@ func serve(args []string) int {
 	}
 
 	// JSON lines on stderr, for the journal or a container runtime to collect.
-	// Nothing logs sign-in attempts or successful requests (FR-029).
+	// Nothing logs sign-in attempts or successful requests.
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 
 	// The umask set in main makes this 0700 too. MkdirAll leaves an existing

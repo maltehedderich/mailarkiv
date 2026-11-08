@@ -20,7 +20,7 @@ type Page struct {
 	Total int
 }
 
-// listQuery is the data model's list query: most recent import first.
+// Order messages by their most recent import.
 const listQuery = `
 SELECT m.id, m.content_hash, m.size, o.file_name, o.observed_at,
        (SELECT COUNT(*) FROM source_observation c WHERE c.message_id = m.id)
@@ -30,7 +30,7 @@ ORDER BY m.latest_observation_id DESC
 LIMIT ? OFFSET ?`
 
 // List returns page number page, counting from 1. A page past the end has no
-// items and the real total (FR-019).
+// items and the real total.
 func (a *Archive) List(ctx context.Context, page int) (Page, error) {
 	if page < 1 {
 		return Page{}, fmt.Errorf("list page %d: pages count from 1", page)

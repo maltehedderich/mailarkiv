@@ -387,7 +387,7 @@ func TestInternalError(t *testing.T) {
 	if entry["error"] != failure {
 		t.Errorf("error = %v, want %q", entry["error"], failure)
 	}
-	// FR-029: nothing the request supplied reaches the log.
+	// Nothing the request supplied reaches the log.
 	for _, value := range []string{"PATHVALUE", "QUERYVALUE", "COOKIEVALUE", "HEADERVALUE", "AGENTVALUE"} {
 		if strings.Contains(log, value) {
 			t.Errorf("log holds the request value %s: %s", value, log)
@@ -442,9 +442,8 @@ func TestFormatTime(t *testing.T) {
 
 const crossOrigin = `{"error":"cross_origin"}`
 
-// FR-007, User Story 2 scenario 3: a state-changing request from another site
-// is refused before any route runs, with or without a session, and stores
-// nothing.
+// A state-changing request from another site is refused before any route
+// runs, with or without a session, and stores nothing.
 func TestCrossOriginRequestsAreRefused(t *testing.T) {
 	h := newHarness(t, Routes())
 	h.createAccount(t, "admin@example.test")
@@ -512,7 +511,7 @@ func TestCrossOriginRequestsAreRefused(t *testing.T) {
 	}
 }
 
-// FR-007: a request from this site's own pages, or from a client that isn't a
+// A request from this site's own pages, or from a client that isn't a
 // browser, reaches its route.
 func TestSameOriginRequestsReachTheRoute(t *testing.T) {
 	var ran atomic.Bool

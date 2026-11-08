@@ -15,9 +15,9 @@
 
   let { children, data }: LayoutProps = $props();
 
-  // FR-039: failure events plus unreferenced originals, read at each page load.
-  // A failed read shows no count, and the page shows the failed-load state, so
-  // it never looks like zero (FR-045).
+  // Failure events plus unreferenced originals, read at each page load. A
+  // failed read shows no count, and the page shows the failed-load state, so
+  // it never looks like zero.
   const problemCount = $derived(
     data.session.kind === "ok" ? data.session.value.problemCount : 0,
   );
@@ -53,9 +53,9 @@
       return;
     }
     // A marked 401 means the session had already ended, so the browser is
-    // signed out either way. Clearing the flag keeps the session-ended message
-    // off this sign-in page. The push lets Back reach the list, whose load
-    // then opens sign-in again (US1 scenario 6).
+    // signed out either way. Clearing the flag keeps the session-ended
+    // message off this sign-in page. The push lets Back reach the list, whose
+    // load then opens sign-in again.
     clearSignedIn();
     await goto("/sign-in");
   }
@@ -111,7 +111,7 @@
 
   <div class="panel">
     <!-- Always the page, even when the session read failed. Swapping it out
-         would take an import's result with it (FR-032), so each page shows
+         would take an import's result with it, so each page shows
          the failed-load state itself. -->
     {@render children()}
   </div>
@@ -188,7 +188,7 @@
     color: var(--text-1);
   }
 
-  /* The problem count on the Status item (FR-039). */
+  /* The problem count on the Status item. */
   .count {
     display: inline-flex;
     align-items: center;

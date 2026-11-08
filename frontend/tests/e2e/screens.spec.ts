@@ -7,9 +7,9 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 
 import { startServer, type TestServer } from "./support/server";
 
-// FR-041, FR-042, FR-045, SC-008, and risk 17: every screen works by keyboard,
-// at 360 px with no sideways scroll, and meets WCAG 2.2 AA in both themes. Data
-// that didn't arrive says so and offers Try again, and never looks empty.
+// Every screen works by keyboard, at 360 px with no sideways scroll, and
+// meets WCAG 2.2 AA in both themes. Data that didn't arrive says so and
+// offers Try again, and never looks empty.
 
 const EMAIL = "admin@example.test";
 const PASSWORD = "correct horse battery";
@@ -82,7 +82,7 @@ async function tabTo(page: Page, target: Locator) {
   throw new Error(`Tab never reached ${target}`);
 }
 
-// SC-008: sign-in to download by keyboard alone.
+// Sign-in to download by keyboard alone.
 test("the whole flow works by keyboard", async ({ page }) => {
   await page.goto(server.origin);
   await tabTo(page, page.getByLabel("Email address"));
@@ -223,7 +223,7 @@ async function visitEveryScreen(
   await check("the failed-download toast");
 
   // Status's code hasn't loaded yet, so this navigation fails. The toast
-  // stays on the error page that replaces the signed-in layout (FR-032).
+  // stays on the error page that replaces the signed-in layout.
   await page.route(PAGE_CODE, (route) => route.abort());
   await page
     .getByRole("navigation", { name: "Main" })
@@ -442,8 +442,8 @@ test("Try again sends one request, then says when it tried", async ({
   await expect(page.getByText(FAILED_LOAD)).toBeVisible();
 });
 
-// FR-045: data that didn't arrive shows the failed-load state, never an empty
-// list or screen, and Try again loads it once the failure is gone.
+// Data that didn't arrive shows the failed-load state, never an empty list or
+// screen, and Try again loads it once the failure is gone.
 const FAILURES = {
   "a server error": {
     status: 500,

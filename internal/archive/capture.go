@@ -22,10 +22,10 @@ import (
 // copyBufferSize is how much of the body capture reads at a time.
 const copyBufferSize = 256 << 10
 
-// Import stores one file in the capture order from ARCHITECTURE.md rule 3: temp
-// file, fsync, rename, directory fsyncs, catalog commit. It returns a Stored
-// result only after all of these finish, so the result survives a power loss
-// (FR-012). Every other result leaves no list entry and no partial file (FR-013).
+// Import stores one file in the capture order from ARCHITECTURE.md rule 3:
+// temp file, fsync, rename, directory fsyncs, catalog commit. It returns a
+// Stored result only after all of these finish, so the result survives a
+// power loss. Every other result leaves no list entry and no partial file.
 //
 // An error means the server failed in a way no result covers, with nothing
 // stored. The caller answers 500, and the client shows Unconfirmed.
@@ -68,9 +68,9 @@ func (a *Archive) capture(ctx context.Context, head []byte, rest io.Reader, meta
 	}
 
 	// Read the row before checking the blob. Two imports of the same new bytes
-	// can both find no blob, and this separates that race from a blob that really
-	// went missing. This isn't Catalog write failed, because FR-038 says that one
-	// means the original was stored.
+	// can both find no blob, and this separates that race from a blob that
+	// really went missing. This isn't Catalog write failed, because that
+	// category means the original was stored.
 	rowBefore, err := a.messageExists(ctx, contentHash)
 	if err != nil {
 		a.removeTemp(temp.Name())
@@ -216,7 +216,7 @@ func (a *Archive) ensureBlob(tempPath, contentHash string) (blobState, error) {
 }
 
 // inspectBlob hashes the whole file. A file that can't be read counts as not
-// matching, because FR-038's Stored original damaged covers both.
+// matching, because Stored original damaged covers both.
 func inspectBlob(path, contentHash string) blobState {
 	file, _, err := openMatching(path, contentHash)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -248,9 +248,10 @@ func moveIntoPlace(tempPath, blob string) error {
 	return nil
 }
 
-// decideOutcome is the data model's outcome table. The second result is the
-// failure event to record, or noEvent. A row that was there before and is gone
-// at commit can't happen, because nothing deletes rows in this slice.
+// decideOutcome classifies the import from catalog and blob state. The second
+// result is the failure event to record, or noEvent. A row that was there
+// before and is gone at commit can't happen, because no operation deletes
+// message rows.
 func decideOutcome(rowBefore, rowAtCommit bool, blob blobState) (Outcome, opstatus.Category) {
 	switch {
 	case !rowAtCommit && blob == blobNotMatching:
@@ -331,9 +332,9 @@ func (a *Archive) commit(ctx context.Context, contentHash string, size int64, me
 	return message, rowAtCommit, nil
 }
 
-// fail records a failure event, which opstatus also logs (FR-028), and logs the
-// cause beside it for the operator. Neither line holds anything from the file
-// or the request.
+// fail records a failure event, which opstatus also logs, and logs the cause
+// beside it for the operator. Neither line holds anything from the file or
+// the request.
 func (a *Archive) fail(category opstatus.Category, contentHash string, cause error) Failed {
 	event := opstatus.FailureEvent{Category: category}
 	if contentHash != "" {

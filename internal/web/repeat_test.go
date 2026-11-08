@@ -40,11 +40,10 @@ func (h *harness) history(t *testing.T, session func(*http.Request), id int64) l
 	return history
 }
 
-// FR-014, FR-015, FR-020, SC-005, User Story 4 scenarios 1 and 2: repeat imports
-// add history and no copies.
+// Repeat imports add history and no copies.
 func TestRepeatImports(t *testing.T) {
 	h := newHarness(t, Routes())
-	// FR-044: created with a capital letter, and recorded in lowercase.
+	// Created with a capital letter, and recorded in lowercase.
 	h.createAccount(t, "Admin@example.test")
 	h.createAccount(t, "second@example.test")
 	admin := h.signIn(t, "admin@example.test")
@@ -147,7 +146,7 @@ func TestHistoryOfAnImportWithNoName(t *testing.T) {
 		id, hashOf(content), len(content), testTime))
 }
 
-// FR-016, User Story 4 scenario 3: bytes identify a message, and headers don't.
+// Bytes identify a message, and headers don't.
 func TestFilesDifferingByOneByteAreTwoMessages(t *testing.T) {
 	h := newHarness(t, Routes())
 	h.createAccount(t, "admin@example.test")

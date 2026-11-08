@@ -2,9 +2,9 @@ import { describe, expect, test } from "vitest";
 
 import { displayName, type DisplayName, type NamePart } from "./file-name";
 
-// FR-021 and risk 7: a supplied file name is hostile. It shows as plain text,
-// control and bidi characters show as codes, a long name loses its middle so
-// its ending stays visible, and a missing name is "(no file name)".
+// A supplied file name is hostile. It shows as plain text, control and bidi
+// characters show as codes, a long name loses its middle so its ending stays
+// visible, and a missing name is "(no file name)".
 
 /** The whole name's parts, with neighbouring text joined. */
 function parts(display: DisplayName): NamePart[] {

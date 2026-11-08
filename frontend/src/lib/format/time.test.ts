@@ -3,7 +3,7 @@ import { describe, expect, test } from "vitest";
 import { formatOffset, formatTime } from "./time";
 
 // `mise run frontend:test` sets TZ=Europe/Berlin. Expected values come from
-// FR-043 and that zone's rules: +01:00 in winter and +02:00 in summer.
+// Europe/Berlin uses +01:00 in winter and +02:00 in summer.
 describe("formatTime", () => {
   test("shows an absolute time with the UTC offset", () => {
     expect(formatTime("2026-11-02T08:14:55.000Z")).toBe(

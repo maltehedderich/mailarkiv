@@ -36,7 +36,7 @@ func crashWithNoAnswer(t *testing.T, dataDir, point string, content []byte) stri
 
 // restart starts the default binary on what a crash left. Recovery finishes
 // before the server listens, so comparing the blobs around the start shows
-// whether it deleted or added any (FR-024, risk 4).
+// whether it deleted or added any.
 func restart(t *testing.T, dataDir string) *serverProcess {
 	t.Helper()
 	before := blobFiles(t, dataDir)
@@ -80,11 +80,10 @@ func assertNoProblems(t *testing.T, status statusAnswer) {
 	}
 }
 
-// The plan's crash matrix (FR-012, FR-013, FR-018, FR-024, FR-025, SC-003): the
-// server stops at each capture step, and what the archive holds after a restart
-// must match what the client was told.
+// The server stops at each capture step, and what the archive holds after a
+// restart must match what the client was told.
 func TestCrashMatrix(t *testing.T) {
-	// User Story 3 scenario 2: capture stopped before the original was stored.
+	// Capture stopped before the original was stored.
 	beforeStored := []struct {
 		point string
 		// leftover is whether the stop leaves a temp file for recovery to remove.
@@ -118,8 +117,7 @@ func TestCrashMatrix(t *testing.T) {
 		})
 	}
 
-	// User Story 3 scenarios 3 and 4: the original is stored, with no catalog
-	// entry and no confirmation.
+	// The original is stored, with no catalog entry and no confirmation.
 	for _, point := range []string{"after-rename", "after-dir-fsync", "before-commit"} {
 		t.Run(point, func(t *testing.T) {
 			dataDir := t.TempDir()
@@ -150,7 +148,7 @@ func TestCrashMatrix(t *testing.T) {
 		})
 	}
 
-	// User Story 3 scenario 5: the entry is durable, and the answer never came.
+	// The entry is durable, and the answer never came.
 	t.Run("after-commit", func(t *testing.T) {
 		dataDir := t.TempDir()
 		content := crashFile("after-commit")
@@ -170,7 +168,7 @@ func TestCrashMatrix(t *testing.T) {
 		assertNoProblems(t, server.status(token))
 	})
 
-	// User Story 3 scenario 1: a confirmation the client received survives.
+	// A confirmation the client received survives.
 	t.Run("after-response", func(t *testing.T) {
 		dataDir := t.TempDir()
 		content := crashFile("after-response")
@@ -210,7 +208,7 @@ func TestCrashMatrix(t *testing.T) {
 		assertNoProblems(t, server.status(token))
 	})
 
-	// FR-025: recovery stopped partway gives the same result when it runs again.
+	// Recovery stopped partway gives the same result when it runs again.
 	t.Run("recovery-after-temp-removal", func(t *testing.T) {
 		dataDir := t.TempDir()
 		createAdmin(t, dataDir)

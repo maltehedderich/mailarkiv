@@ -8,9 +8,8 @@ const headSize = 4096
 
 var mboxFromLine = []byte("From ")
 
-// checkHead applies the file check to the start of a file (FR-010). A file
-// passes when it starts with a header line, optionally after one line starting
-// with "From ". Nothing else about the bytes is inspected (FR-011).
+// checkHead accepts a file starting with a header line, optionally after one
+// line starting with "From ". Nothing else about the bytes is inspected.
 func checkHead(head []byte) (reason Reason, refused bool) {
 	if len(head) == 0 {
 		return EmptyFile, true

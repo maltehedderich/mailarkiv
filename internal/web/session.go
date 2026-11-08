@@ -15,7 +15,7 @@ const (
 	// the email/password keys, quotes, and punctuation (at most 30,746 bytes).
 	maxSignInBody = 32 << 10
 
-	// sessionMaxAge matches the session's 12 hours in the catalog (FR-005).
+	// sessionMaxAge matches the session's 12 hours in the catalog.
 	sessionMaxAge = 12 * 60 * 60
 )
 
@@ -60,7 +60,7 @@ func signIn(s *server, w http.ResponseWriter, r *http.Request) {
 }
 
 // signOut answers DELETE /api/session. The guard has already checked the
-// session, so this ends it and clears the cookie (FR-005).
+// session, so this ends it and clears the cookie.
 func signOut(s *server, w http.ResponseWriter, r *http.Request) {
 	cookie, err := r.Cookie(sessionCookieName)
 	if err != nil {
@@ -89,7 +89,7 @@ func newSessionCookie(value string, maxAge int) *http.Cookie {
 }
 
 // readSession answers GET /api/session. The guard has already checked the
-// session, so this only reports the problem count (FR-039).
+// session, so this only reports the problem count.
 func readSession(s *server, w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, struct {
 		ProblemCount int `json:"problem_count"`

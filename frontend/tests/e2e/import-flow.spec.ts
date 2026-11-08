@@ -3,11 +3,10 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { startImportGate, type ImportGate } from "./support/proxy";
 import { startServer, type TestServer } from "./support/server";
 
-// User Story 1 scenarios 8 to 11, FR-034 to FR-037: import takes two steps,
-// shows progress and then a separate storing state, allows one submission,
-// keeps its result until the next import, and warns before the page is left.
-// The browser refuses an empty file and several dropped files without
-// uploading, and its file dialog takes one file.
+// Import takes two steps, shows progress and then a separate storing state,
+// allows one submission, keeps its result until the next import, and warns
+// before the page is left. The browser refuses an empty file and several
+// dropped files without uploading, and its file dialog takes one file.
 
 const EMAIL = "admin@example.test";
 const PASSWORD = "correct horse battery";
@@ -79,7 +78,6 @@ function result(page: Page) {
   return page.getByRole("region", { name: "Notifications" });
 }
 
-// Scenario 8, FR-034.
 test("choosing a file shows its name, exact size, and the warning, and stores nothing", async ({
   page,
 }) => {
@@ -102,7 +100,6 @@ test("choosing a file shows its name, exact size, and the warning, and stores no
   await expect(page.getByText("No mail yet")).toBeVisible();
 });
 
-// Scenario 9, FR-035.
 test("progress moves to a separate storing state, and a second submission isn't possible", async ({
   page,
 }) => {
@@ -138,7 +135,6 @@ test("progress moves to a separate storing state, and a second submission isn't 
   expect(gate.imports).toBe(1);
 });
 
-// Scenario 10, FR-032.
 test("the result stays until the next import starts", async ({ page }) => {
   await signIn(page);
   await page.getByLabel("Choose a file").setInputFiles(FILE);
@@ -169,7 +165,6 @@ test("the result stays until the next import starts", async ({ page }) => {
   await expect(result(page)).not.toContainText("synthetic.eml");
 });
 
-// Scenario 11, FR-037.
 test("leaving during an import asks first", async ({ page }) => {
   await signIn(page);
   gate.hold();
@@ -250,7 +245,6 @@ test("an import finishes after leaving without changing the destination page", a
   ).toBeVisible();
 });
 
-// FR-036.
 test.describe("the browser refuses before uploading", () => {
   // The dialog prevents several, so only a drop can bring them.
   test("the file dialog takes one file", async ({ page }) => {
@@ -278,7 +272,7 @@ test.describe("the browser refuses before uploading", () => {
     expect(imports()).toBe(0);
   });
 
-  // FR-041: dropping adds to the button. One file is chosen, two are refused.
+  // Dropping adds to the button. One file is chosen, two are refused.
   test("several dropped files, while one dropped file is chosen", async ({
     page,
   }) => {

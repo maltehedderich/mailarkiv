@@ -1,9 +1,9 @@
 <script lang="ts">
   import { displayName, type NamePart } from "#lib/format/file-name.js";
 
-  // FR-021: a supplied name is plain text, always. This component never uses
-  // {@html}, and it adds no whitespace between parts, so the visible text is
-  // the name with its codes in place.
+  // A supplied name is plain text, always. This component never uses {@html},
+  // and it adds no whitespace between parts, so the visible text is the name
+  // with its codes in place.
 
   let {
     name,

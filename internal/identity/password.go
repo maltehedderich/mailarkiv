@@ -27,8 +27,8 @@ const (
 
 // dummyHash is checked when an address has no account, so a wrong address
 // costs as much as a wrong password and timing doesn't reveal which accounts
-// exist (FR-003). It uses the same settings as a real hash. It was made once
-// from a random password that nobody kept.
+// exist. It uses the same settings as a real hash. It was made once from a
+// random password that nobody kept.
 const dummyHash = "$argon2id$v=19$m=65536,t=3,p=4$AdqoK30EWJl3L/XfTB7IjQ$dvWz38cxuZnHILcHJPZO56yPxtrLfSTfBOO5Ml0W0bw"
 
 var errMalformedHash = errors.New("the stored password hash isn't Argon2id in PHC format")

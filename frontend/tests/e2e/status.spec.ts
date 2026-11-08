@@ -6,9 +6,9 @@ import { expect, test, type Page } from "@playwright/test";
 
 import { startServer, type TestServer } from "./support/server";
 
-// User Story 5 scenarios 1 to 4, 7, and 8, FR-027, FR-038, FR-039: the status
-// screen lists what the server knows since its latest start, the Status item
-// counts the problems on every signed-in page, and a restart clears both.
+// The status screen lists what the server knows since its latest start, the
+// Status item counts the problems on every signed-in page, and a restart
+// clears both.
 
 const EMAIL = "admin@example.test";
 const PASSWORD = "correct horse battery";
@@ -17,21 +17,20 @@ const CONTENT = Buffer.from(
 );
 const HASH = createHash("sha256").update(CONTENT).digest("hex");
 
-// FR-027: what the screen covers, with the start time, and where older
-// failures are.
+// What the screen covers, with the start time, and where older failures are.
 const COVERS = "This screen covers only the time since the server started at";
 const OLDER = "Older failures are in the server log.";
 const NOTHING_FOUND =
   "Found no leftover temporary files and no unreferenced originals.";
 const NO_PROBLEMS =
   "No failures and no unreferenced originals since the latest start.";
-// FR-038's Stored original damaged row.
+// Unreadable originals and hash mismatches share this explanation.
 const DAMAGED = "Stored original damaged";
 const DAMAGED_MEANING =
   "The stored file can't be read or does not match its content hash.";
 const DAMAGED_NEXT_STEP =
   "Import the same file again, if you still have it, to restore the original.";
-// FR-038's next step for an unreferenced original.
+// An unreferenced original can be listed again by importing the same bytes.
 const UNREFERENCED_NEXT_STEP =
   "Importing the same file again puts it back in the list, and nothing is deleted.";
 
@@ -215,7 +214,7 @@ test("a restart after a crash lists the temp files removed and the unreferenced 
   expect((await groups.allTextContents()).join("")).toBe(HASH);
   await expect(original).toContainText(`${CONTENT.length} bytes`);
 
-  // Recovery never deletes a stored original (FR-024).
+  // Recovery never deletes a stored original.
   expect(await readdir(dirname(blob))).toEqual([HASH]);
   expect(await readdir(join(server.dataDir, "tmp"))).toEqual([]);
 });

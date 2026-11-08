@@ -4,8 +4,8 @@
   import { refreshAll } from "$app/navigation";
   import { formatTime } from "#lib/format/time.js";
 
-  // FR-045: data that didn't arrive leaves this block in place of the content,
-  // never an empty list.
+  // Data that didn't arrive leaves this block in place of the content, never
+  // an empty list.
 
   let {
     retry = refreshAll,

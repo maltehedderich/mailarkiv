@@ -10,8 +10,8 @@ import {
   type Fetch,
 } from "./api";
 
-// FR-045 and the contract: every call ends in success, session_ended for a
-// marked 401, or unavailable for anything else.
+// API results: every call ends in success, session_ended for a marked 401, or
+// unavailable for anything else.
 
 const HASH = "ea9449bf2f2e4ba3d3c4f3d61a1f6b8e0c3e5f8b0a9d2c7e6f5a4b3c2d1e0f9a";
 
@@ -207,7 +207,7 @@ describe("signIn", () => {
     });
   });
 
-  // FR-045: a failure must never show the wrong-password message.
+  // A failure must never show the wrong-password message.
   test.each([
     ["an unmarked 401", answer(401, "", { marked: false }).fetch],
     ["an unmarked 204", answer(204, undefined, { marked: false }).fetch],
@@ -239,7 +239,7 @@ describe("signOut", () => {
     expect(await signOut(fetch)).toEqual({ kind: "session_ended" });
   });
 
-  // FR-045: the administrator is told they're still signed in.
+  // The administrator is told they're still signed in.
   test.each([
     ["an unmarked 204", answer(204, undefined, { marked: false }).fetch],
     ["an unmarked 401", answer(401, "", { marked: false }).fetch],
@@ -411,7 +411,7 @@ describe("getStatus", () => {
     expect(calls[0].init?.signal).toBeInstanceOf(AbortSignal);
   });
 
-  test("reads every category FR-038 lists", async () => {
+  test("reads every failure category", async () => {
     const categories = [
       "storage_full",
       "storage_write_failed",

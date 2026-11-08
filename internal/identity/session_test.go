@@ -37,7 +37,7 @@ func (f *fixture) assertSession(t *testing.T, token, email string) {
 	}
 }
 
-// FR-005: sign-out deletes the session's row and no other.
+// Sign-out deletes the session's row and no other.
 func TestSignOut(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
@@ -64,7 +64,7 @@ func TestSignOut(t *testing.T) {
 	}
 }
 
-// FR-005: a session ends 12 hours after sign-in, and using it doesn't extend it.
+// A session ends 12 hours after sign-in, and using it doesn't extend it.
 func TestSessionEndsAfterTwelveHours(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
@@ -84,8 +84,8 @@ func TestSessionEndsAfterTwelveHours(t *testing.T) {
 	f.assertNoSession(t, token, "at 12 hours")
 }
 
-// FR-004, FR-005, User Story 2 scenario 7: setting a password ends that
-// account's sessions and lifts its address's block and failures.
+// Setting a password ends that account's sessions and lifts its address's
+// block and failures.
 func TestSetPassword(t *testing.T) {
 	t.Run("ends the account's sessions and lifts its block", func(t *testing.T) {
 		t.Parallel()
@@ -177,8 +177,8 @@ func TestSetPassword(t *testing.T) {
 	})
 }
 
-// FR-005: a sign-in that checked the old password while a new one was being set
-// can't start a session that outlives the change.
+// A sign-in that checked the old password while a new one was being set can't
+// start a session that outlives the change.
 func TestSessionCantStartFromAReplacedPassword(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)

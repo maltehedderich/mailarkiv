@@ -7,7 +7,7 @@
 
   const id = $props.id();
 
-  // Groups make the hash comparable by eye, so it's never shortened (FR-020).
+  // Groups make the hash comparable by eye, so it's never shortened.
   const groups = $derived(hash.match(/.{4}/g) ?? []);
 
   /** How long "Hash copied." stays. The clipboard can change after that. */

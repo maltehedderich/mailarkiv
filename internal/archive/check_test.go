@@ -5,9 +5,8 @@ import (
 	"testing"
 )
 
-// Cases from the file check in contracts/http-api.md (FR-010, FR-011): a body
-// passes when it starts with a header line, optionally after one line starting
-// with "From ".
+// File acceptance boundaries: a body passes when it starts with a header
+// line, optionally after one line starting with "From ".
 func TestCheckHead(t *testing.T) {
 	passes := []struct {
 		name string

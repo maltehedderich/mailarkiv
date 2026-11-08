@@ -41,7 +41,7 @@ func TestPasswordHashRoundTrip(t *testing.T) {
 }
 
 // Unknown addresses verify against the dummy hash, so it has to parse and use
-// the same settings as a real one (FR-003).
+// the same settings as a real one.
 func TestDummyHashCostsTheSame(t *testing.T) {
 	p := newPasswords()
 	real, err := p.hash(context.Background(), goodPassword)

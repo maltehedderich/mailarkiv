@@ -13,9 +13,9 @@ import (
 	"github.com/maltehedderich/mailarkiv/internal/opstatus"
 )
 
-// User Story 4 scenario 4, risk 14: two imports of the same new bytes both get a
-// confirmation, one Archived and one Already archived, whichever order they
-// finish in. Timing decides which interleaving a round gets, so it runs many.
+// Two imports of the same new bytes both get a confirmation, one Archived and
+// one Already archived, whichever order they finish in. Timing decides which
+// interleaving a round gets, so it runs many.
 func TestConcurrentImports(t *testing.T) {
 	f := newFixture(t)
 

@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	// minPasswordLength is counted in Unicode code points (FR-002).
+	// minPasswordLength is counted in Unicode code points.
 	minPasswordLength = 12
 
 	// MaxAddressBytes bounds both the submitted address and its lowercase form.
@@ -28,7 +28,7 @@ const (
 	// MaxPasswordBytes bounds the UTF-8 password, before JSON escaping.
 	MaxPasswordBytes = 4096
 
-	// sessionLifetime runs from sign-in and is never extended (FR-005).
+	// sessionLifetime runs from sign-in and is never extended.
 	sessionLifetime = 12 * time.Hour
 
 	tokenLength = 32
@@ -43,11 +43,11 @@ var (
 	ErrAccountExists    = errors.New("an account with that email address already exists")
 
 	// ErrInvalidCredentials is the one answer to a wrong password, an unknown
-	// address, and a malformed address, so a caller can't tell which (FR-003).
+	// address, and a malformed address, so a caller can't tell which.
 	ErrInvalidCredentials = errors.New("that email address and password don't match")
 
 	// ErrSignInBlocked means the address had 10 failed sign-ins within 15
-	// minutes, and the block hasn't ended (FR-004).
+	// minutes, and the block hasn't ended.
 	ErrSignInBlocked = errors.New("too many failed sign-ins for this address")
 
 	// ErrSignInUnavailable means both password slots are occupied. Sign-in
@@ -81,9 +81,9 @@ func New(db *sqlitedb.DB, now func() time.Time) *Identity {
 	return &Identity{db: db, now: now, passwords: newPasswords()}
 }
 
-// ParseAddress applies the address rule (FR-044): exactly one @, text on both
-// sides, and no whitespace. It returns the stored form, which is
-// strings.ToLower of the address given, and the only form ever stored.
+// ParseAddress applies the address rule: exactly one @, text on both sides,
+// and no whitespace. It returns the stored form, which is strings.ToLower of
+// the address given, and the only form ever stored.
 func ParseAddress(address string) (string, error) {
 	if len(address) > MaxAddressBytes {
 		return "", ErrAddressTooLong
@@ -100,7 +100,7 @@ func ParseAddress(address string) (string, error) {
 	return email, nil
 }
 
-// checkPassword applies the password rule (FR-002).
+// checkPassword enforces the minimum length in Unicode code points.
 func checkPassword(password string) error {
 	if len(password) > MaxPasswordBytes {
 		return ErrPasswordTooLong
@@ -148,7 +148,7 @@ func (id *Identity) CreateAccount(ctx context.Context, address, password string)
 
 // SignIn checks the password and starts a session. It returns the session
 // token, which only the caller's cookie holds. Within the credential size and
-// encoding limits, every address takes the same steps (FR-003, FR-004).
+// encoding limits, every address takes the same steps.
 func (id *Identity) SignIn(ctx context.Context, address, password string) (string, error) {
 	// No supported account has credentials outside these byte/encoding bounds.
 	// Reject them before allocating the lowercase address or hashing a password.
@@ -202,7 +202,7 @@ func (id *Identity) SignIn(ctx context.Context, address, password string) (strin
 //
 // checkedHash is the hash the password matched. If the account's password
 // changed during the check, the session isn't stored and the answer is
-// ErrInvalidCredentials, because setting a password ends every session (FR-005).
+// ErrInvalidCredentials, because setting a password ends every session.
 func (id *Identity) startSession(ctx context.Context, accountID int64, checkedHash string, key []byte) (string, error) {
 	random := make([]byte, tokenLength)
 	// crypto/rand.Read never returns an error. It crashes the program instead.
