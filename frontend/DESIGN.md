@@ -101,7 +101,7 @@ Every flow must work by keyboard and down to 360 px with no horizontal scroll.
 | 720 px and below    | The sidebar becomes a fixed bottom bar of `--tab-bar-height` tabs (icon over label). `scroll-padding-bottom` keeps focused controls clear of the bar and active toasts.                                            |
 | 720 px surfaces     | Page gutters narrow to `--space-16`. Drawers fill the width with no corner radius. Toasts fill the width above the bottom tab bar.                                                                                 |
 | 720 px controls     | Buttons and inputs grow to `--control-height-touch` (36 px). Inputs use `--size-input-touch` (16 px) so iOS Safari does not zoom on focus.                                                                         |
-| 720 px content flow | List rows stack into multi-line blocks separated by `--line`. Two-column sections stack labels above values. Drop zones move their button below the text at full width and drop decorative icons.                  |
+| 720 px content flow | List rows stack into multi-line blocks separated by `--line`: the name across the full width, then metadata lines with the trailing action beside them. Two-column sections stack labels above values. Drop zones move their button below the text at full width and drop decorative icons. |
 
 ## Elevation & Depth
 
@@ -160,9 +160,9 @@ Navigation links are 30 px tall with `--radius-medium`, medium weight, and a 16 
 
 ### Lists and rows
 
-List rows are `--row-height` (38 px) with `--radius-medium`, `--fill-1` on hover, and no dividers between rows. Rows share column tracks through CSS `subgrid` so fixed metadata columns (such as a 185 px timestamp column sized for the widest date in 12 px tabular Inter, a 62 px byte size, or a 72 px short hash) stay aligned and trailing actions line up with pagination controls below.
+List rows are `--row-height` (38 px) with `--radius-medium` and no dividers between rows. A row takes `--fill-1` on hover or while it holds keyboard focus, and `--fill-2` from a click until its drawer closes, so a slow load shows the click and the drawer's row stays marked beside it. Hover lights a row only where the pointer can hover, so a tap leaves nothing lit on a touch screen. Rows share column tracks through CSS `subgrid` so fixed metadata columns (such as a 185 px timestamp column sized for the widest date in 12 px tabular Inter, a 62 px byte size, or a 72 px short hash) stay aligned and trailing actions line up with pagination controls below.
 
-When a list uses non-table markup, hide the visual column header row from screen readers and attach visually hidden labels (`Imported`, `Hash`) to values that do not name themselves. A row with both a detail view and a secondary action has two keyboard stops: `Enter` on the row opens its details (calling `preventDefault()` so focus moving to Close does not immediately close the dialog), and the trailing icon button runs its action without opening the row.
+When a list uses non-table markup, hide the visual column header row from screen readers and attach visually hidden labels (`Imported`, `Hash`) to values that do not name themselves. A row with both a detail view and a secondary action has two keyboard stops: `Enter` on the row opens its details (calling `preventDefault()` so focus moving to Close does not immediately close the dialog), and the trailing icon button runs its action without opening the row. That icon rests in `--text-3`, so a column of them doesn't compete with the names, and turns `--text-2` with its row.
 
 Skeleton rows keep the real column widths and responsive row heights without animation, so the list never jumps when data arrives and a slow archive does not look busy. Pagers show the range and total (`1–50 of 7,000`) with Previous and Next, and append the page number to the document `<title>` past page 1 so screen readers announce page changes.
 

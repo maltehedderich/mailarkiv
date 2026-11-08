@@ -351,6 +351,42 @@ for (const width of [721, 1041]) {
   });
 }
 
+// DESIGN.md: at 720 px and below a row stacks. The name keeps the whole width,
+// and the download sits beside the two lines under it. On a line of its own,
+// the download made each row 97 px tall at 360 px.
+test("at 360 px a stacked row gives the name the whole width", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 360, height: 800 });
+  await signIn(page);
+  await importFile(page, "statement-29.eml");
+
+  const row = page
+    .getByRole("list", { name: "Messages" })
+    .getByRole("listitem")
+    .first();
+  const boxes = await row.evaluate((item) => {
+    const box = (element: Element) => {
+      const { left, right, top, bottom } = element.getBoundingClientRect();
+      return { left, right, top, bottom };
+    };
+    return {
+      row: item.getBoundingClientRect().height,
+      link: box(item.querySelector("a")!),
+      time: box(item.querySelector("time")!),
+      download: box(item.querySelector("button")!),
+    };
+  });
+  // The name's line runs past the download's left edge.
+  expect(boxes.link.right).toBeGreaterThan(boxes.download.left);
+  // The download starts below the name, level with the time, and after it.
+  expect(boxes.download.top).toBeGreaterThanOrEqual(boxes.link.bottom);
+  expect(boxes.download.top).toBeLessThanOrEqual(boxes.time.top);
+  expect(boxes.download.left).toBeGreaterThan(boxes.time.right);
+  expect(boxes.row).toBeLessThan(80);
+  await expectNoSidewaysScroll(page, "the stacked list at 360 px");
+});
+
 // A page whose code didn't arrive gets the error page, which offers Try again
 // like the failed-load state, and focus moves to the heading when it works.
 test("a page that didn't load shows the error page and loads again", async ({

@@ -369,7 +369,8 @@
   }
 
   /* DESIGN.md: the header row goes, and rows stack. The skeleton keeps the
-     stacked row's three lines, so the list doesn't jump when it arrives. */
+     stacked row's three lines, with the last two as tall as the download
+     beside them, so the list doesn't jump when it arrives. */
   @media (max-width: 720px) {
     header {
       padding: 0 var(--space-16);
@@ -392,14 +393,14 @@
     }
 
     .skeleton li {
-      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-columns: minmax(0, 1fr) auto var(--control-height-touch);
       grid-template-rows:
-        var(--leading-body) var(--leading-body)
-        var(--control-height-touch);
+        var(--leading-body)
+        repeat(2, calc((var(--control-height-touch) - var(--space-2)) / 2));
       grid-template-areas:
-        "name ."
-        "time size"
-        "hash .";
+        "name name name"
+        "time size ."
+        "hash . .";
       gap: var(--space-2) var(--space-12);
       height: auto;
       padding: var(--space-8) var(--space-4) var(--space-8) var(--space-8);

@@ -178,6 +178,41 @@ test("a click opens the history, and Close returns to the row", async ({
   await expect(rowLink(page)).toBeFocused();
 });
 
+// The drawer opens once its history has arrived. Until then the row shows the
+// click, and it stays marked while the drawer is open.
+test("the row stays marked from the click until the drawer closes", async ({
+  page,
+}) => {
+  await signInWithOneMessage(page);
+  const row = page
+    .getByRole("list", { name: "Messages" })
+    .getByRole("listitem");
+  const fill = () =>
+    row.evaluate((item) => getComputedStyle(item).backgroundColor);
+  await page.mouse.move(0, 0);
+  const rest = await fill();
+
+  let release = () => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  await page.route(/\/api\/messages\/\d+$/, async (route) => {
+    await held;
+    await route.fallback();
+  });
+  await rowLink(page).click();
+  await page.mouse.move(0, 0);
+  await expect.poll(fill).not.toBe(rest);
+  await expect(drawer(page)).toBeHidden();
+  const marked = await fill();
+
+  release();
+  await expect(drawer(page)).toBeVisible();
+  expect(await fill()).toBe(marked);
+
+  await drawer(page).getByRole("button", { name: "Close" }).click();
+  await expect(drawer(page)).toBeHidden();
+  await expect.poll(fill).not.toBe(marked);
+});
+
 test("the row's download button saves the file and opens nothing", async ({
   page,
 }) => {

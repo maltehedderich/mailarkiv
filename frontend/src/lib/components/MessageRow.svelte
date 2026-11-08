@@ -2,6 +2,7 @@
   import DownloadIcon from "~icons/lucide/download";
 
   import { goto } from "$app/navigation";
+  import { navigating, page } from "$app/state";
 
   import type { Message } from "#lib/api.js";
   import FileName from "#lib/components/FileName.svelte";
@@ -13,8 +14,19 @@
   let { message, historyHref }: { message: Message; historyHref: string } =
     $props();
 
+  const numbers = new Intl.NumberFormat("en-US");
+
   // The name with its codes in place, so a label can't be reordered either.
   const name = $derived(displayName(message.fileName).text);
+
+  // The drawer opens once its history has arrived, so the row stays marked
+  // from the click until then, and while the drawer is open. Beside the drawer,
+  // it shows which row the drawer is about.
+  const open = $derived(
+    [page.url, navigating.to?.url].some(
+      (url) => url?.searchParams.get("message") === String(message.id),
+    ),
+  );
 
   // DESIGN.md: the key press must end here. Otherwise it could reach Close once
   // the drawer has focus. With a modifier, the browser opens a new tab or window.
@@ -28,7 +40,7 @@
 </script>
 
 <!-- One row of the import list. The parent <ul> sets the columns. -->
-<li>
+<li class:open>
   <!-- Its ::after stretches over the row, so the whole row opens the history.
        Keeping focus and scroll lets the dialog give focus back to this link. -->
   <a
@@ -57,8 +69,9 @@
   >
   <span class="count">
     {#if message.importCount > 1}
-      <span aria-hidden="true">{message.importCount}×</span>
-      <span class="visually-hidden">{message.importCount} imports</span>
+      {@const count = numbers.format(message.importCount)}
+      <span aria-hidden="true">{count}×</span>
+      <span class="visually-hidden">{count} imports</span>
     {/if}
   </span>
   <!-- The page fetches the file, so a failure shows as a toast here. -->
@@ -85,8 +98,25 @@
     transition: background-color var(--motion-fade);
   }
 
-  li:hover {
+  /* DESIGN.md: a fill appears at once and fades out. Only a pointer that can
+     hover lights the row, so a tap doesn't leave it lit on a touch screen.
+     Keyboard focus on the row or its download lights it the same way. */
+  @media (hover: hover) {
+    li:hover {
+      background: var(--fill-1);
+      transition: none;
+    }
+  }
+
+  li:has(:focus-visible) {
     background: var(--fill-1);
+    transition: none;
+  }
+
+  /* Pressed, waiting for its history, or with its history open. */
+  li:has(.name:active),
+  li.open {
+    background: var(--fill-2);
     transition: none;
   }
 
@@ -115,10 +145,27 @@
     outline-offset: -2px;
   }
 
-  /* Above the name's ::after, so a click here doesn't open the history. */
+  /* Above the name's ::after, so a click here doesn't open the history.
+     Quiet at rest, so a column of icons doesn't compete with the names, and
+     raised with its row. Its own hover raises it again, as on any button. */
   .download {
     position: relative;
     z-index: 1;
+    color: var(--text-3);
+  }
+
+  li:is(:has(:focus-visible), :has(.name:active), .open) .download {
+    color: var(--text-2);
+  }
+
+  @media (hover: hover) {
+    li:hover .download {
+      color: var(--text-2);
+    }
+
+    li .download:hover {
+      color: var(--text-1);
+    }
   }
 
   .time,
@@ -187,15 +234,18 @@
     }
   }
 
-  /* DESIGN.md: each row stacks as name and count, then time and size, then
-     hash and download, with a line between rows. */
+  /* DESIGN.md: each row stacks as the name, then time and size, then hash
+     and count, with a line between rows. The name keeps the whole width, and
+     the download sits beside the two lines below it. On a line of its own it
+     made each row 97 px tall with its divider, and now rows are 75. Its fixed
+     column puts every size and count on one right edge. */
   @media (max-width: 720px) {
     li {
-      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-columns: minmax(0, 1fr) auto var(--control-height-touch);
       grid-template-areas:
-        "name count"
-        "time size"
-        "hash download";
+        "name name name"
+        "time size download"
+        "hash count download";
       gap: var(--space-2) var(--space-12);
       padding: var(--space-8) var(--space-4) var(--space-8) var(--space-8);
       border-radius: 0;
@@ -225,9 +275,15 @@
       grid-area: hash;
     }
 
+    .time,
+    .size,
+    .hash,
+    .count {
+      line-height: var(--leading-label);
+    }
+
     .download {
       grid-area: download;
-      justify-self: end;
     }
 
     .name:focus-visible::after {

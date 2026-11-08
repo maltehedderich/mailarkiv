@@ -88,3 +88,33 @@ test("a hostile name shows as text with its override as a code", async ({
     consoleErrors.filter((text) => /content security policy/i.test(text)),
   ).toEqual([]);
 });
+
+// A long name is cut 12 characters from its end, here just after a space. The
+// part before the cut is a flex item, which dropped the space it ended with,
+// so the row read "zum 1.Dezember.eml".
+test("a space where a long name is cut still shows", async ({ page }) => {
+  const name = "Vertrag zum 1. Dezember.eml";
+  await signIn(page);
+  const imported = await page.request.post(`${server.origin}/api/imports`, {
+    headers: { "MailArkiv-File-Name": encodeURIComponent(name) },
+    data: CONTENT,
+  });
+  expect(imported.status()).toBe(201);
+  await page.reload();
+
+  const width = await page
+    .getByRole("link", { name: `History of ${name}` })
+    .evaluate((link) => {
+      const walker = document.createTreeWalker(link, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const text = node.textContent ?? "";
+        if (!text.endsWith(" ")) continue;
+        const space = document.createRange();
+        space.setStart(node, text.length - 1);
+        space.setEnd(node, text.length);
+        return space.getBoundingClientRect().width;
+      }
+      return null;
+    });
+  expect(width).toBeGreaterThan(0);
+});

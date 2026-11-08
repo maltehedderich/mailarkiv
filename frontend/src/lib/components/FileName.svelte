@@ -40,13 +40,15 @@
 
   /* The start loses characters from its end, and the ending always shows, so
      the extension stays visible. bdi's dir="auto" orders the halves for a
-     right-to-left name. */
+     right-to-left name. Spaces show as typed: a flex item drops the space it
+     ends with, so with nowrap "zum 1. Dezember.eml" read "zum 1.Dezember.eml"
+     when the cut fell after the space. */
   .cut {
     display: inline-flex;
     max-width: 100%;
     min-width: 0;
     vertical-align: bottom;
-    white-space: nowrap;
+    white-space: pre;
   }
 
   .start {
@@ -59,8 +61,11 @@
     flex: none;
   }
 
+  /* Spaces show as typed here too, so the history and the row agree on a
+     name with two spaces in a row. */
   .full {
     overflow-wrap: anywhere;
+    white-space: pre-wrap;
   }
 
   /* A neutralized character, such as U+202E. The label leading keeps the
