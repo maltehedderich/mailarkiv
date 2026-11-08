@@ -1,0 +1,106 @@
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+
+import { expect, test, type Page } from "@playwright/test";
+
+import { startServer, type TestServer } from "./support/server";
+
+// Sign in, import one synthetic file, see it listed, and download the same
+// bytes.
+
+const PASSWORD = "correct horse battery";
+const MISMATCH = "That email address and password don't match.";
+const CONTENT = Buffer.from(
+  "From: sender@example.test\r\nTo: admin@example.test\r\nSubject: Synthetic\r\n\r\nHello.\r\n",
+);
+const CONTENT_HASH = createHash("sha256").update(CONTENT).digest("hex");
+
+let server: TestServer;
+
+test.beforeEach(async () => {
+  server = await startServer();
+});
+
+test.afterEach(async () => {
+  await server.stop();
+});
+
+async function submitSignIn(page: Page, email: string, password: string) {
+  await page.getByLabel("Email address").fill(email);
+  await page.getByLabel("Password").fill(password);
+  const answered = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/api/session" &&
+      response.request().method() === "POST",
+  );
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await answered;
+}
+
+test("an administrator imports one file and downloads the same bytes", async ({
+  page,
+}) => {
+  await server.createAccount("Admin@example.test", PASSWORD);
+
+  // With no session, the app opens sign-in.
+  await page.goto(server.origin);
+  await expect(page).toHaveURL(`${server.origin}/sign-in`);
+
+  // A wrong password and an unknown address look the same.
+  for (const [email, password] of [
+    ["admin@example.test", "wrong horse battery"],
+    ["nobody@example.test", PASSWORD],
+  ]) {
+    await submitSignIn(page, email, password);
+    await expect(page.getByText(MISMATCH)).toBeVisible();
+    // Mark and describe both fields to avoid revealing which credential is
+    // wrong.
+    for (const label of ["Email address", "Password"]) {
+      const field = page.getByLabel(label);
+      await expect(field).toHaveAttribute("aria-invalid", "true");
+      await expect(field).toHaveAccessibleDescription(MISMATCH);
+    }
+    await expect(page).toHaveURL(`${server.origin}/sign-in`);
+    await expect(page.getByText(/session ended/i)).toHaveCount(0);
+  }
+
+  // The lowercase address signs in to the account created as
+  // Admin@example.test.
+  await submitSignIn(page, "admin@example.test", PASSWORD);
+  await expect(page).toHaveURL(`${server.origin}/`);
+  await expect(page.getByText("No mail yet")).toBeVisible();
+  await expect(page.getByLabel("Choose a file")).toBeVisible();
+
+  await page.getByLabel("Choose a file").setInputFiles({
+    name: "synthetic.eml",
+    mimeType: "message/rfc822",
+    buffer: CONTENT,
+  });
+  await page.getByRole("button", { name: "Import" }).click();
+  await expect(
+    page.getByRole("region", { name: "Notifications" }),
+  ).toContainText("Archived");
+
+  // The new message is first, with its name, size, short hash, and a time
+  // that ends in its UTC offset.
+  const row = page
+    .getByRole("list", { name: "Messages" })
+    .getByRole("listitem")
+    .first();
+  await expect(row).toContainText("synthetic.eml");
+  await expect(row).toContainText(`${CONTENT.length} B`);
+  await expect(row).toContainText(CONTENT_HASH.slice(0, 8));
+  await expect(row.locator("time")).toHaveText(/[+-]\d\d:\d\d$/);
+  await expect(page.getByText("No mail yet")).toHaveCount(0);
+
+  // The page fetches the file and saves it, so the page stays where it is.
+  const before = page.url();
+  const downloading = page.waitForEvent("download");
+  await row.getByRole("button", { name: /download/i }).click();
+  const download = await downloading;
+  expect(download.suggestedFilename()).toBe(`${CONTENT_HASH}.eml`);
+
+  const saved = await readFile(await download.path());
+  expect(createHash("sha256").update(saved).digest("hex")).toBe(CONTENT_HASH);
+  expect(page.url()).toBe(before);
+});

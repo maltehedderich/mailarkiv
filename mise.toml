@@ -1,0 +1,122 @@
+min_version = "2026.11.2"
+
+[settings]
+lockfile = true
+
+[tools]
+go = "1.27"
+bun = "1.4"
+node = "26"
+"go:honnef.co/go/tools/cmd/staticcheck" = "2026.2.2"
+"go:golang.org/x/vuln/cmd/govulncheck" = "1.9.0"
+
+[tasks.setup]
+description = "Install project dependencies from the lockfiles"
+run = [
+  "cd frontend && bun install --frozen-lockfile && bunx playwright install chromium",
+  "go mod download",
+]
+
+[tasks."frontend:build"]
+description = "Build the web interface"
+dir = "frontend"
+run = "bun run build"
+
+# CGO_ENABLED=0 stays on this task only, because `go test -race` needs cgo.
+[tasks."server:build"]
+description = "Build the server binary with the embedded interface"
+depends = ["frontend:build"]
+env = { CGO_ENABLED = "0" }
+run = "go build -o bin/mailarkiv ./cmd/mailarkiv"
+
+[tasks.build]
+description = "Build the web interface and the server binary"
+depends = ["frontend:build", "server:build"]
+
+[tasks.dev]
+description = "Run the server and the frontend dev server with reload"
+depends = ["frontend:build"]
+run = [{ tasks = ["dev:server", "dev:frontend"] }]
+
+[tasks."dev:server"]
+description = "Run the server against the local development data"
+hide = true
+run = "go run ./cmd/mailarkiv serve --data-dir .data/dev"
+
+[tasks."dev:frontend"]
+description = "Run the frontend dev server"
+hide = true
+dir = "frontend"
+run = "bun run dev"
+
+# `go run` compiles the embedded interface, so it needs a frontend build.
+[tasks."dev:account"]
+description = "Create an account in the local development data"
+depends = ["frontend:build"]
+interactive = true
+usage = 'arg "<email>" help="Email address to sign in with"'
+run = 'go run ./cmd/mailarkiv account create --data-dir .data/dev "$usage_email"'
+
+[tasks.lint]
+description = "Run read-only static checks"
+depends = ["frontend:build"]
+run = [
+  # Bare `gofmt -l` always exits 0, and `.` would walk frontend/node_modules.
+  'test -z "$(gofmt -l cmd internal frontend/embed.go)"',
+  "go vet ./...",
+  "staticcheck ./...",
+  "cd frontend && bunx prettier --check .",
+]
+
+[tasks.format]
+description = "Format Go and frontend files"
+run = [
+  "gofmt -w cmd internal frontend/embed.go",
+  "cd frontend && bunx prettier --write .",
+]
+
+[tasks.typecheck]
+description = "Type-check the frontend"
+depends = ["frontend:build"]
+dir = "frontend"
+run = ["bunx svelte-kit sync", "bunx svelte-check --fail-on-warnings"]
+
+[tasks.audit]
+description = "Scan Go and frontend dependencies for known vulnerabilities"
+depends = ["frontend:build"]
+run = [
+  "govulncheck ./...",
+  # deepmerge only merges trusted Vite options at build time and isn't bundled.
+  # Remove this exception when a fixed version ships or the plugin drops it.
+  "cd frontend && bun audit --ignore=GHSA-gcqx-w48m-w2h4",
+]
+
+[tasks."server:test"]
+description = "Run the Go tests with the race detector"
+depends = ["frontend:build"]
+run = "go test -race ./..."
+
+[tasks."frontend:test"]
+description = "Run the frontend unit tests"
+depends = ["frontend:build"]
+dir = "frontend"
+env = { TZ = "Europe/Berlin" }
+run = "bunx vitest run"
+
+[tasks."test:e2e"]
+description = "Run the browser tests against the built binary"
+depends = ["build"]
+dir = "frontend"
+run = "bunx playwright test"
+
+[tasks.test]
+description = "Run the full test suite"
+depends = ["server:test", "frontend:test", "test:e2e"]
+
+[tasks.check]
+description = "Run everything CI gates on"
+depends = ["lint", "typecheck", "test", "audit"]
+
+[tasks.clean]
+description = "Delete generated files, and never the data in .data/"
+run = "rm -rf bin frontend/build frontend/.svelte-kit"

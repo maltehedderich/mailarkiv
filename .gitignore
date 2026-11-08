@@ -1,0 +1,10 @@
+/bin/
+/.data/
+/frontend/build/
+/frontend/.svelte-kit/
+/frontend/node_modules/
+/frontend/test-results/
+/frontend/playwright-report/
+mise.local.toml
+mise.*.local.toml
+.DS_Store

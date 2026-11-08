@@ -1,0 +1,242 @@
+/*
+ * Global rules. Values come from tokens.css, and frontend/DESIGN.md says which
+ * token to use where.
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body,
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+h1,
+h2,
+h3 {
+  font: inherit;
+}
+
+button,
+input {
+  color: inherit;
+  font: inherit;
+}
+
+/* iOS Safari otherwise enlarges text in landscape. The toasts set
+   --toast-room, so focus scrolls a control clear of them (WCAG 2.4.11). */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  scroll-padding-bottom: var(--toast-room, 0px);
+}
+
+body {
+  background: var(--canvas);
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: var(--size-body);
+  font-weight: var(--weight-regular);
+  line-height: var(--leading-body);
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* Classed links, such as buttons and nav items, set their own colour. */
+a {
+  color: var(--accent);
+  text-underline-offset: 2px;
+}
+
+/* Lucide draws at 2 px, which is heavy beside 13 px text. */
+.icon {
+  display: block;
+  flex: none;
+  width: var(--icon-size);
+  height: var(--icon-size);
+}
+
+.icon * {
+  stroke-width: 1.6;
+}
+
+/* Buttons, as frontend/DESIGN.md's Button section describes. */
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-6);
+  height: var(--control-height);
+  padding: 0 var(--space-10);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-medium);
+  background: transparent;
+  color: var(--text-2);
+  font-weight: var(--weight-medium);
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color var(--motion-fade),
+    color var(--motion-fade),
+    opacity var(--motion-fade);
+}
+
+.button.large {
+  height: var(--control-height-large);
+}
+
+/* Square. Pair it with ghost for Close and the row download. */
+.button.icon-only {
+  width: var(--control-height);
+  padding: 0;
+}
+
+.button.ghost {
+  border-color: transparent;
+}
+
+/* After the variants, so every variant gets them. */
+.button:hover {
+  background: var(--fill-2);
+  color: var(--text-1);
+  transition: none;
+}
+
+.button:active {
+  background: var(--fill-3);
+}
+
+.button.primary {
+  border-color: transparent;
+  background: var(--text-1);
+  color: var(--panel);
+}
+
+.button.primary:hover {
+  opacity: 0.86;
+}
+
+.button.primary:active {
+  opacity: 0.76;
+}
+
+/* Off. The colours fade to 45%, not the whole button, so a button that keeps
+   focus while busy keeps a full-strength focus ring. At 45% opacity the ring
+   measured 1.85:1. A label holding a disabled file input is off too. */
+.button:disabled,
+.button[aria-disabled="true"],
+.button:has(> input:disabled) {
+  border-color: color-mix(in oklab, var(--line-strong) 45%, transparent);
+  color: color-mix(in oklab, var(--text-2) 45%, transparent);
+  pointer-events: none;
+}
+
+.button.ghost:is(:disabled, [aria-disabled="true"]) {
+  border-color: transparent;
+}
+
+.button.primary:is(:disabled, [aria-disabled="true"]) {
+  border-color: transparent;
+  background: color-mix(in oklab, var(--text-1) 45%, transparent);
+  color: var(--panel);
+}
+
+/* A form field: label above, input below. */
+.field {
+  display: grid;
+  gap: var(--space-6);
+}
+
+.field > span {
+  color: var(--text-2);
+  font-size: var(--size-label);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-label);
+}
+
+/* A border, not an inset shadow, so the edge survives forced colours. */
+.field > input {
+  height: var(--control-height-large);
+  padding: 0 var(--space-10);
+  border: 1px solid var(--text-4);
+  border-radius: var(--radius-medium);
+  background: var(--fill-1);
+}
+
+/* Set with aria-describedby on the line that says what's wrong. */
+.field > input[aria-invalid="true"] {
+  border-color: var(--state-bad);
+}
+
+/* Focus wins over an error, or the focused field wouldn't change. The
+   transparent outline shows only in forced colours, where shadows go. */
+.field > input:focus {
+  outline: 2px solid transparent;
+  outline-offset: 1px;
+  border-color: var(--focus);
+  background: transparent;
+  box-shadow: 0 0 0 3px var(--accent-tint);
+}
+
+/* One line for an action that didn't finish. */
+.problem {
+  color: var(--state-bad-text);
+}
+
+/* Read by screen readers and not shown, such as the word after a count. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* DESIGN.md: controls grow for touch on narrow screens. */
+@media (max-width: 720px) {
+  .button,
+  .button.large,
+  .field > input {
+    height: var(--control-height-touch);
+  }
+
+  .button.icon-only {
+    width: var(--control-height-touch);
+  }
+
+  .field > input {
+    font-size: var(--size-input-touch);
+  }
+
+  /* The signed-in pages' tab bar covers the bottom of the page, so focus
+     scrolls a control clear of it too. The toasts' room already includes it,
+     and the sign-out line, when shown, sits above both. */
+  html {
+    scroll-padding-bottom: calc(
+      max(var(--tab-bar-height) + var(--space-8), var(--toast-room, 0px)) +
+        var(--sign-out-room, 0px)
+    );
+  }
+}
+
+/* DESIGN.md: with reduced motion, nothing animates or fades. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after,
+  ::backdrop {
+    animation: none !important;
+    transition: none !important;
+  }
+}
