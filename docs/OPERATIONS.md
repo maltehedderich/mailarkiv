@@ -157,7 +157,7 @@ Only the owning user can read the directory and its files.
 
 Keep the whole data directory on one local filesystem that honors flush requests. A network filesystem, a disk cache that drops flushes, or a mount option that skips them can lose a confirmed import in a power loss. Don't mount `tmp/` or `blobs/` separately: a finished import moves its file from `tmp/` into `blobs/`, and that move only works within one filesystem.
 
-MailArkiv has no backup until Slice 7. If you copy the data directory yourself, stop the server first and copy the whole directory, so the catalog and the originals match.
+MailArkiv has no backup until Slice 6. If you copy the data directory yourself, stop the server first and copy the whole directory, so the catalog and the originals match.
 
 ## Recovery
 
@@ -238,8 +238,8 @@ Safari may refuse the session cookie over plain HTTP on `localhost`. If signing 
 
 - **No tamper-proof storage.** Anyone who can write to the data directory can change or delete originals and the catalog. A changed original is caught when someone downloads it, not prevented.
 - **No encryption by MailArkiv.** Originals are plain files and the catalog is a plain SQLite database. Use disk encryption if you need it.
-- **No backup** until Slice 7.
-- **No deletion** until Slice 6. An imported message can't be removed through MailArkiv, and the import screen says so before each import.
+- **No backup** until Slice 6.
+- **No deletion** until Slice 5. An imported message can't be removed through MailArkiv, and the import screen says so before each import.
 - **No splitting of mbox files.** An mbox file is stored as one message.
 - **No email from MailArkiv,** so no password reset by email. The operator sets new passwords on the server.
 
