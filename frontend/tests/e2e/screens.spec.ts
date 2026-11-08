@@ -19,6 +19,10 @@ const CONTENT = Buffer.from(
 const HASH = createHash("sha256").update(CONTENT).digest("hex");
 const LONG_NAME = `${"quarterly-statement-".repeat(8)}final.eml`;
 const FAILED_LOAD = "This page couldn't be loaded.";
+/** The error page's heading when a page's code didn't arrive. */
+const PAGE_FAILED = "This page couldn't be loaded";
+/** The code SvelteKit fetches for a page the tab hasn't opened yet. */
+const PAGE_CODE = "**/_app/immutable/nodes/**";
 const WCAG_22_AA = [
   "wcag2a",
   "wcag2aa",
@@ -156,6 +160,12 @@ async function visitEveryScreen(
   await writeFile(blob, other);
   await server.restart();
 
+  await page.goto(`${server.origin}/no/such/page`);
+  await expect(
+    page.getByRole("heading", { name: "Page not found" }),
+  ).toBeVisible();
+  await check("the unknown-address page");
+
   await page.goto(server.origin);
   await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
   await check("sign-in");
@@ -212,10 +222,22 @@ async function visitEveryScreen(
   ).toBeVisible();
   await check("the failed-download toast");
 
+  // Status's code hasn't loaded yet, so this navigation fails. The toast
+  // stays on the error page that replaces the signed-in layout (FR-032).
+  await page.route(PAGE_CODE, (route) => route.abort());
   await page
     .getByRole("navigation", { name: "Main" })
     .getByRole("link", { name: /^Status/ })
     .click();
+  await expect(page.getByRole("heading", { name: PAGE_FAILED })).toBeVisible();
+  await expect(
+    page
+      .getByRole("region", { name: "Notifications" })
+      .getByText(/This message wasn't downloaded/),
+  ).toBeVisible();
+  await check("the page that didn't load");
+  await page.unroute(PAGE_CODE);
+  await page.getByRole("button", { name: "Try again" }).click();
   await expect(page.getByText("Stored original damaged")).toBeVisible();
   await expect(
     page
@@ -328,6 +350,29 @@ for (const width of [721, 1041]) {
     await expectNoSidewaysScroll(page, `the list at ${width} px`);
   });
 }
+
+// A page whose code didn't arrive gets the error page, which offers Try again
+// like the failed-load state, and focus moves to the heading when it works.
+test("a page that didn't load shows the error page and loads again", async ({
+  page,
+}) => {
+  await signIn(page);
+  await page.route(PAGE_CODE, (route) => route.abort());
+
+  await page
+    .getByRole("navigation", { name: "Main" })
+    .getByRole("link", { name: /^Status/ })
+    .click();
+  await expect(page.getByRole("heading", { name: PAGE_FAILED })).toBeVisible();
+  await expect(page).toHaveTitle(`${PAGE_FAILED} · MailArkiv`);
+
+  await page.unroute(PAGE_CODE);
+  await page.getByRole("button", { name: "Try again" }).press("Enter");
+  await expect(page.getByRole("region", { name: "Problems" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Status", level: 1 }),
+  ).toBeFocused();
+});
 
 // FR-045: data that didn't arrive shows the failed-load state, never an empty
 // list or screen, and Try again loads it once the failure is gone.

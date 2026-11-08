@@ -2,7 +2,7 @@
 
 This guide says which token to use where, and why. Exact values live in [`src/lib/styles/tokens.css`](src/lib/styles/tokens.css), so change them there and nowhere else.
 
-It covers the Slice 1 screens: sign-in, the import list with the import box, file history, and status, plus the toasts that report imports and downloads. Behavior and failure wording come from [the Slice 1 spec](../specs/001-import-browse-retrieve/spec.md). If this file conflicts with the spec or [the constitution](../.specify/memory/constitution.md), they win.
+It covers the Slice 1 screens: sign-in, the import list with the import box, file history, status, and the error page, plus the toasts that report imports and downloads. Behavior and failure wording come from [the Slice 1 spec](../specs/001-import-browse-retrieve/spec.md). If this file conflicts with the spec or [the constitution](../.specify/memory/constitution.md), they win.
 
 ## Character
 
@@ -111,6 +111,7 @@ The theme follows the system setting through `prefers-color-scheme` in `tokens.c
 | Evidence | `--size-evidence`, `--leading-body` (12.5/20) | regular, mono                                  | The full hash                                          |
 | Body     | `--size-body`, `--leading-body` (13/20)       | regular, or medium for names and button labels | Everything else                                        |
 | Section  | `--size-section`, `--leading-body` (14/20)    | strong, `--tracking-section`                   | View titles and status headings                        |
+| Title    | `--size-title`, `--leading-title` (20/26)     | strong, `--tracking-title`                     | The error page's heading, and later the message subject |
 
 Inter sets everything except hashes. Its variable file gives the 510 and 590 weights in the tokens. Geist Mono sets hashes, and it has no Greek, which hashes don't need. Linear's `cv01` and `ss03` alternates aren't in the bundled Inter, so don't add those feature settings: they do nothing.
 
@@ -146,7 +147,7 @@ A shadow means something sits above the page. The panel gets `--shadow-panel`, d
 
 Signed-in pages have a sidebar on `--canvas` and one `--panel` beside it, inset 8 px. The sidebar stays in view while the page scrolls, with Sign out at its foot. Its logo row is `--header-height` tall, so the logo lines up with the view title. When sign-out doesn't finish, the line saying so goes above Sign out, so the button stays under the pointer for the second try. A view has a 52 px header with its title, then a scrolling body. Import and status centre their content in `--content-width`. The page itself never scrolls sideways.
 
-Sign-in is standalone: a `--form-width` column on `--panel` with no sidebar, centred across and set 20% of the way down. It isn't centred vertically, because then a line added to the form, such as an error, would move the fields.
+Sign-in is standalone: a `--form-width` column on `--panel` with no sidebar, centred across and set 20% of the way down. It isn't centred vertically, because then a line added to the form, such as an error, would move the fields. The error page has its own layout, described [below](#error-page).
 
 | At 720 px and below | Change                                                                                                                                       |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -265,6 +266,27 @@ Standalone. The stacked logo heads the column, centred and 32 px above the form:
 
 A notice is a `--fill-1` box with `--radius-medium` and a transparent border for forced colours, so it reads as a message and not as part of the form. Problems from the last try stay in the line below the button, so the fields don't move.
 
+### Error page
+
+[`+error.svelte`](src/routes/+error.svelte) has no sidebar. An address that matches no route gets no layout, so the page can't tell whether anyone is signed in. The 18 px horizontal logo sits top left in a `--header-height` row, where the sidebar puts it. Below, centred across and down, lifted by the header's height: the drawing, then the heading in the title style, the next step in `--text-3`, and one primary action at its own width, full width at 720 px and below. Bottom padding grows to `--toast-room`, so toasts never cover the action.
+
+| Cause                             | Drawing           | Above the heading | Heading                        | Next step                                           | Action                                                                     |
+| --------------------------------- | ----------------- | ----------------- | ------------------------------ | --------------------------------------------------- | -------------------------------------------------------------------------- |
+| Unknown address (404)             | The drawer, open and empty | `404` in mono, `--text-3` | "Page not found"               | "Check the address for a typo."                     | Open the message list: a link to `/`, which opens sign-in when signed out |
+| A page's code didn't arrive (500) | The drawer, stuck | Nothing           | "This page couldn't be loaded" | "Try again. If this repeats, check the server log." | Try again, which reruns the navigation with `refreshAll`                   |
+
+The drawing, [`CatalogDrawer.svelte`](src/lib/components/CatalogDrawer.svelte), is a card catalogue of 4 × 3 drawers whose fronts are the mark's tile, unchanged. It's the page's one brand moment: the mark is a drawer, and here one is pulled out with nothing in it. It is 196 px wide, 168 px at 720 px and below, and hidden from screen readers.
+
+- **Drawn in perspective.** The drawer moves toward the viewer, seen from above and to its left, so its side and floor show. Every point is projected each frame, so it stays true while it moves.
+- **Colours are roles.** The cabinet is `--fill-3` with a `--fill-1` top, closed fronts are `--panel`, and the moving front is `--text-1`, as the logo is. Shadows use `--scrim`, the one role that darkens in both themes: twice for the opening, once for the far wall. The floor and side are solid `--panel` under a fill, so the cabinet doesn't show through them.
+- **Last tried.** Under Try again, "Last tried" and the time in the [date form](#type), in `--text-3` at label size. It's set when the failure shows and after each failed Try again, so a person sees the try happened and knows when to look in the server log. It's a `role="status"`, so a screen reader hears the new time.
+
+- **Nothing else lands here.** Every load returns its failures as data, and the [failed-load](#failed-load) block shows them. The second row happens when the server or the network goes down before a page's code has loaded in this tab.
+- **Announcing:** the tab title repeats the heading, so SvelteKit announces it after the navigation.
+- **Try again** keeps focus while it fails. When the page arrives, focus moves to its heading, as after a failed load's Try again: `refreshAll` isn't a navigation, so nothing else is announced.
+- **The address isn't repeated,** so a crafted link can't put its own words on a MailArkiv page.
+- **Toasts show here too.** A failed navigation replaces the signed-in layout, and an import that was running must still show its result (FR-032).
+
 ### Loading
 
 Skeleton rows keep the real columns, and the real row's lines and height at each width, so the list doesn't jump when it arrives. They don't animate, so a slow archive doesn't look busy.
@@ -287,6 +309,8 @@ Data that didn't arrive leaves one block in place of the content: what happened 
 ## Motion
 
 Motion confirms a change and never decorates it. A hover fill appears at once and fades over `--motion-fade` (140 ms) when it leaves. The drawer slides in over `--motion-slide` (200 ms) with `--ease-enter`. A toast rises 8 px and fades in over `--motion-enter` (160 ms) with `--ease-enter`. With `prefers-reduced-motion: reduce`, remove animations and transitions.
+
+The error page's drawing is the one exception, because its movement is the message. On a 404 the drawer slides out once, after 180 ms, over 950 ms with `cubicOut`, and stops. A stuck drawer jerks out 12 units and back in 350 ms when the page shows and on each Try again, which confirms the press. Reduced motion shows the end state at once. These timings live in the component, since nothing else uses them.
 
 ## Fonts and icons
 
@@ -330,7 +354,7 @@ Use Lucide for every icon, imported as `~icons/lucide/download`, at `--icon-size
 
 Slice 1 uses `archive`, `upload`, `activity`, `file-up`, `file-text`, `download`, `x`, `arrow-left`, `log-out`, and `copy`.
 
-The MailArkiv logo is the one drawing that isn't from Lucide: a solid tile with a drawer grip cut out of it, and the name in outlined Archivo. [`Logo.svelte`](src/lib/components/Logo.svelte) holds two layouts: the 18 px horizontal lockup for the sidebar, and with `stacked` the name under a 40 px tile for standalone pages such as sign-in. 40 px is the smallest tile the brand guide allows for the stacked lockup. It fills with `currentColor` and the grip is a real hole, so both themes use the same drawing.
+Two drawings aren't from Lucide: the MailArkiv logo, and the error page's [drawing](#error-page), which repeats the logo's tile as drawer fronts. The logo is a solid tile with a drawer grip cut out of it, and the name in outlined Archivo. [`Logo.svelte`](src/lib/components/Logo.svelte) holds two layouts: the 18 px horizontal lockup for the sidebar, and with `stacked` the name under a 40 px tile for standalone pages such as sign-in. 40 px is the smallest tile the brand guide allows for the stacked lockup. It fills with `currentColor` and the grip is a real hole, so both themes use the same drawing.
 
 Don't type the name beside the mark in Inter. Archivo appears only as these outlines, so the app ships no extra font.
 
@@ -356,7 +380,8 @@ Search, the message reader, and delete use these values. Add each to `tokens.css
 | `--sheet-dim`    | `1`                                 | `0.93`                               | Brightness of the white message preview |
 | `--bad-solid`    | `oklch(0.52 0.18 27)`               | `oklch(0.52 0.17 27)`                | Delete button fill, with white text     |
 | `--warn-text`    | `oklch(0.47 0.1 70)`                | `oklch(0.82 0.11 78)`                | Warning text                            |
-| Title type       | 20/26, 590, −0.014em                | Same                                 | Message subject                         |
+
+The message subject uses the [title type](#type), which the error page added.
 
 From 1041 px up, the archive list has one-line rows. At 1040 px and below, rows take two lines at 54 px and the reader stacks over its details.
 

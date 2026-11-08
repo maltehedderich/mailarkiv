@@ -3,7 +3,15 @@
 
   import Logo from "#lib/components/Logo.svelte";
 
-  let { title, children }: { title: string; children: Snippet } = $props();
+  let {
+    title,
+    children,
+  }: {
+    /** A heading for screen readers only. Leave it out when the content
+        starts with its own visible h1. */
+    title?: string;
+    children: Snippet;
+  } = $props();
 </script>
 
 <!-- A page with no sidebar, from DESIGN.md: sign-in. -->
@@ -13,7 +21,9 @@
       <Logo stacked />
       <!-- The logo heads the page. Shown under it, the title read as a
            tagline, so it's for screen readers. Pages set the tab title. -->
-      <h1 class="visually-hidden">{title}</h1>
+      {#if title !== undefined}
+        <h1 class="visually-hidden">{title}</h1>
+      {/if}
     </div>
     {@render children()}
   </div>

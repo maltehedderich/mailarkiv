@@ -27,6 +27,9 @@
   --weight-medium: 510;
   --weight-strong: 590;
   --tracking-section: -0.006em;
+  --size-title: 20px;
+  --leading-title: 26px;
+  --tracking-title: -0.014em;
   /* Form inputs at 720 px and below. iOS Safari zooms into smaller text. */
   --size-input-touch: 16px;
 
