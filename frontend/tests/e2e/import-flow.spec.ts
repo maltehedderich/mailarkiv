@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 import { startImportGate, type ImportGate } from "./support/proxy";
 import { startServer, type TestServer } from "./support/server";
@@ -6,7 +6,8 @@ import { startServer, type TestServer } from "./support/server";
 // User Story 1 scenarios 8 to 11, FR-034 to FR-037: import takes two steps,
 // shows progress and then a separate storing state, allows one submission,
 // keeps its result until the next import, and warns before the page is left.
-// The browser refuses an empty file and several files without uploading.
+// The browser refuses an empty file and several dropped files without
+// uploading, and its file dialog takes one file.
 
 const EMAIL = "admin@example.test";
 const PASSWORD = "correct horse battery";
@@ -86,14 +87,14 @@ test("choosing a file shows its name, exact size, and the warning, and stores no
   const imports = countImports(page);
   await expect(importBox(page)).toContainText("Drop one .eml file here");
   await expect(importBox(page)).toContainText(WARNING);
-  await expect(importButton(page)).toHaveCount(0);
+  await expect(importButton(page)).toBeDisabled();
 
   await page.getByLabel("Choose a file").setInputFiles(FILE);
 
   await expect(importBox(page)).toContainText("synthetic.eml");
   await expect(importBox(page)).toContainText(`${CONTENT.length} bytes`);
   await expect(importBox(page)).toContainText(WARNING);
-  await expect(importButton(page)).toBeVisible();
+  await expect(importButton(page)).toBeEnabled();
   // The choice alone sends nothing, and the list stays empty after a reload.
   await page.waitForTimeout(500);
   expect(imports()).toBe(0);
@@ -114,7 +115,7 @@ test("progress moves to a separate storing state, and a second submission isn't 
 
   const progress = importBox(page).getByRole("progressbar");
   await expect(progress).toBeVisible();
-  await expect(importBox(page)).toContainText(/Uploading, \d+%/);
+  await expect(importBox(page)).toContainText(/Uploading\s+\d+%/);
   expect(Number(await progress.getAttribute("aria-valuenow"))).toBeLessThan(
     100,
   );
@@ -251,20 +252,14 @@ test("an import finishes after leaving without changing the destination page", a
 
 // FR-036.
 test.describe("the browser refuses before uploading", () => {
-  test("several files", async ({ page }) => {
+  // The dialog prevents several, so only a drop can bring them.
+  test("the file dialog takes one file", async ({ page }) => {
     await signIn(page);
-    const imports = countImports(page);
 
-    await page
-      .getByLabel("Choose a file")
-      .setInputFiles([FILE, { ...FILE, name: "second.eml" }]);
-
-    await expect(importBox(page)).toContainText(
-      "Choose one file at a time. Nothing was uploaded.",
+    await expect(page.getByLabel("Choose a file")).toHaveJSProperty(
+      "multiple",
+      false,
     );
-    await expect(importBox(page)).not.toContainText("synthetic.eml");
-    await expect(importButton(page)).toHaveCount(0);
-    expect(imports()).toBe(0);
   });
 
   test("an empty file", async ({ page }) => {
@@ -279,7 +274,7 @@ test.describe("the browser refuses before uploading", () => {
     await expect(importBox(page)).toContainText(
       "This file is empty. Nothing was uploaded.",
     );
-    await expect(importButton(page)).toHaveCount(0);
+    await expect(importButton(page)).toBeDisabled();
     expect(imports()).toBe(0);
   });
 
@@ -292,20 +287,163 @@ test.describe("the browser refuses before uploading", () => {
 
     await drop(page, ["dropped.eml"]);
     await expect(importBox(page)).toContainText("dropped.eml");
-    await expect(importButton(page)).toBeVisible();
+    await expect(importButton(page)).toBeEnabled();
 
     await drop(page, ["one.eml", "two.eml"]);
     await expect(importBox(page)).toContainText(
       "Choose one file at a time. Nothing was uploaded.",
     );
-    await expect(importButton(page)).toHaveCount(0);
+    await expect(importBox(page)).not.toContainText("dropped.eml");
+    await expect(importButton(page)).toBeDisabled();
     expect(imports()).toBe(0);
+  });
+
+  test("a file dragged beside the box is neither taken nor opened", async ({
+    page,
+  }) => {
+    await signIn(page);
+    const heading = page.getByRole("heading", { name: "Messages" });
+
+    // Cancelled everywhere, and only the box offers to copy the file.
+    expect(await dragOver(importBox(page))).toEqual({
+      cancelled: true,
+      effect: "copy",
+    });
+    expect(await dragOver(heading)).toEqual({
+      cancelled: true,
+      effect: "none",
+    });
+
+    await drop(page, ["beside.eml"], heading);
+    await expect(importBox(page)).not.toContainText("beside.eml");
+    await expect(importButton(page)).toBeDisabled();
   });
 });
 
-/** Drops files with mail content on the import box. */
-async function drop(page: Page, names: string[]) {
-  const transfer = await page.evaluateHandle((names) => {
+// The two steps exist so a wrong file isn't imported. When Import appeared
+// only after a choice, it took the place of Choose a file, so a second click
+// meant to change the file imported it instead.
+test("choosing a file moves neither button, and the box keeps its height through an import", async ({
+  page,
+}) => {
+  await signIn(page);
+  const choose = page.locator("label", { hasText: "Choose a file" });
+  const ready = {
+    choose: await choose.boundingBox(),
+    import: await importButton(page).boundingBox(),
+    box: await importBox(page).boundingBox(),
+  };
+
+  gate.hold();
+  await page.getByLabel("Choose a file").setInputFiles(largeFile());
+  expect(await choose.boundingBox()).toEqual(ready.choose);
+  expect(await importButton(page).boundingBox()).toEqual(ready.import);
+  expect(await importBox(page).boundingBox()).toEqual(ready.box);
+
+  await importButton(page).click();
+  await expect(importBox(page).getByRole("progressbar")).toBeVisible();
+  expect(await importBox(page).boundingBox()).toEqual(ready.box);
+
+  gate.sendBody();
+  await expect(importBox(page)).toContainText("Storing");
+  expect(await importBox(page).boundingBox()).toEqual(ready.box);
+
+  gate.answer();
+  await expect(result(page)).toContainText("Archived");
+  await page.getByLabel("Choose a file").setInputFiles({
+    ...FILE,
+    buffer: Buffer.alloc(0),
+  });
+  await expect(importBox(page)).toContainText("This file is empty.");
+  expect(await importBox(page).boundingBox()).toEqual(ready.box);
+});
+
+// WCAG 4.1.3: each step is heard without moving focus. The percentage isn't
+// announced, because the bar holds it.
+test("a screen reader hears the choice, each slow step, and each refusal", async ({
+  page,
+}) => {
+  await signIn(page);
+  const said = importBox(page).getByRole("status");
+
+  await page.getByLabel("Choose a file").setInputFiles(FILE);
+  await expect(said).toHaveText(
+    `synthetic.eml, ${CONTENT.length} bytes. ${WARNING}`,
+  );
+
+  // Large, so the held upload stops partway.
+  gate.hold();
+  await page.getByLabel("Choose a file").setInputFiles(largeFile());
+  await importButton(page).click();
+  await expect(said).toHaveText("Uploading");
+  gate.sendBody();
+  await expect(said).toHaveText("Storing the file");
+  gate.answer();
+  await expect(result(page)).toContainText("Archived");
+  // The result toast speaks for a finished import.
+  await expect(said).toHaveText("");
+
+  // The same refusal twice is heard twice: the line is cleared between them.
+  await said.evaluate((line) => {
+    const heard: string[] = [];
+    (window as unknown as { heard: string[] }).heard = heard;
+    new MutationObserver(() => heard.push(line.textContent ?? "")).observe(
+      line,
+      { childList: true, characterData: true, subtree: true },
+    );
+  });
+  const empty = { ...FILE, buffer: Buffer.alloc(0) };
+  const refusal = "This file is empty. Nothing was uploaded.";
+  await page.getByLabel("Choose a file").setInputFiles(empty);
+  await expect(said).toHaveText(refusal);
+  await page.getByLabel("Choose a file").setInputFiles(empty);
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (window as unknown as { heard: string[] }).heard.filter(
+          (text) => text !== "",
+        ),
+      ),
+    )
+    .toEqual([refusal, refusal]);
+});
+
+test("an import ending moves focus only if Import had it", async ({
+  page,
+}) => {
+  await signIn(page);
+  await page.getByLabel("Choose a file").setInputFiles(FILE);
+  await importButton(page).click();
+  await expect(result(page)).toContainText("Archived");
+
+  // Focus left for a row during the upload, and stays there.
+  gate.hold();
+  await page.getByLabel("Choose a file").setInputFiles(largeFile());
+  await importButton(page).click();
+  const row = page.getByRole("link", { name: /history of synthetic.eml/i });
+  await row.focus();
+  gate.sendBody();
+  gate.answer();
+  await expect(result(page)).toContainText("large.eml");
+  await expect(row).toBeFocused();
+
+  // Focus on Import moves to Choose a file when Import turns off, after an
+  // import and after a refusal replaces the choice.
+  await page.getByLabel("Choose a file").setInputFiles(FILE);
+  await importButton(page).press("Enter");
+  await expect(result(page)).toContainText("Already archived");
+  await expect(page.getByLabel("Choose a file")).toBeFocused();
+
+  await page.getByLabel("Choose a file").setInputFiles(FILE);
+  await importButton(page).focus();
+  await drop(page, ["one.eml", "two.eml"]);
+  await expect(importBox(page)).toContainText("Choose one file at a time.");
+  await expect(page.getByLabel("Choose a file")).toBeFocused();
+});
+
+/** Files with mail content, as a drag from the desktop carries them. */
+function transfer(page: Page, names: string[]) {
+  return page.evaluateHandle((names) => {
     const data = new DataTransfer();
     for (const name of names) {
       data.items.add(
@@ -316,8 +454,32 @@ async function drop(page: Page, names: string[]) {
     }
     return data;
   }, names);
-  const box = importBox(page);
-  await box.dispatchEvent("dragenter", { dataTransfer: transfer });
-  await box.dispatchEvent("dragover", { dataTransfer: transfer });
-  await box.dispatchEvent("drop", { dataTransfer: transfer });
+}
+
+/** Drops files on the target, the import box unless given. */
+async function drop(page: Page, names: string[], target = importBox(page)) {
+  const dataTransfer = await transfer(page, names);
+  await target.dispatchEvent("dragenter", { dataTransfer });
+  await target.dispatchEvent("dragover", { dataTransfer });
+  await target.dispatchEvent("drop", { dataTransfer });
+}
+
+/**
+ * Drags a file over the target. Returns whether the page cancelled the event,
+ * which stops the browser opening a dropped file, and the drop effect it set,
+ * which the cursor shows.
+ */
+function dragOver(target: Locator) {
+  return target.evaluate((element) => {
+    // A constructed DataTransfer ignores dropEffect, so this stands in for
+    // the one a real drag carries.
+    const data = { types: ["Files"], dropEffect: "none" };
+    const event = new DragEvent("dragover", {
+      bubbles: true,
+      cancelable: true,
+    });
+    Object.defineProperty(event, "dataTransfer", { value: data });
+    element.dispatchEvent(event);
+    return { cancelled: event.defaultPrevented, effect: data.dropEffect };
+  });
 }

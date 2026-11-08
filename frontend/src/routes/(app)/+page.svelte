@@ -25,7 +25,6 @@
 
   let { data }: PageProps = $props();
 
-  let box: ReturnType<typeof ImportBox>;
   let heading: HTMLHeadingElement;
   let mounted = true;
   onDestroy(() => {
@@ -138,12 +137,12 @@
       await goto(signInPath(page.url));
       return;
     }
+    // The box moves focus to Choose a file if Import had it, and leaves focus
+    // anywhere else alone.
     step = { kind: "ready" };
     showToast({ kind: "import", fileName: file.name, result });
-    // Import goes away with the chosen file, so focus moves on purpose.
-    await tick();
+    // Left for another page, so this one doesn't navigate.
     if (!mounted) return;
-    box.focus();
     // The newest message is first, so the list goes back to page 1. An open
     // history stays open.
     const url = new URL(page.url.href);
@@ -193,7 +192,6 @@
 
   <div class="body">
     <ImportBox
-      bind:this={box}
       {step}
       onchoose={chooseFiles}
       onimport={startImport}

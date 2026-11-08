@@ -1,3 +1,0 @@
-{"VmHWM_MiB":201,"VmRSS_MiB":73,"async_errors":0,"batch":5000,"close_s":0.19057761699991715,"dir_MiB":3375,"docs":1000000,"docs_per_s":503.2395889061725,"engine":"fts","index_s":1986.934485101,"stage":"index"}
-du_MiB 3376	$SCRATCH/data/m/fts
-{"batch100_p50_ms":301.52,"batch100_p95_ms":796.399,"delete_one_avg_ms":5.9711333333333325,"engine":"fts","stage":"update"}

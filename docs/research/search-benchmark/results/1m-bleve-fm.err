@@ -1,5 +1,0 @@
-t=20s write_MiB=405 async_errors=0
-t=40s write_MiB=1200 async_errors=0
-t=60s write_MiB=1935 async_errors=0
-t=80s write_MiB=2184 async_errors=0
-t=100s write_MiB=2569 async_errors=0

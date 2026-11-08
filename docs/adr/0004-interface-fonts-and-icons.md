@@ -15,7 +15,7 @@ The interface needs a typeface, a mono face for hashes, and icons. MailArkiv is 
 | Icon build step | `unplugin-icons` | 24.0.0 | MIT. Inlines each imported icon at build time. Published 2026-09-11 |
 | Icon set | `@iconify-json/lucide` | 1.2.151 | ISC. One consistent line style, used at build time only. Published 2026-11-03 |
 
-All four are development dependencies at build time, and their output is embedded in the binary. Pin exact versions when the frontend is scaffolded. Setup is in [the design guide](../../frontend/DESIGN.md#fonts-and-icons).
+All four are development dependencies at build time, and their output is embedded in the binary. Pin exact versions when the frontend is scaffolded. Font imports live in [the root layout](../../frontend/src/routes/+layout.svelte), icon setup in [the Vite config](../../frontend/vite.config.ts), and shared styling in [global.css](../../frontend/src/lib/styles/global.css).
 
 We rejected:
 

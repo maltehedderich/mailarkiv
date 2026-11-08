@@ -111,7 +111,7 @@ test("the whole flow works by keyboard", async ({ page }) => {
   await expect(
     page.getByRole("region", { name: "Notifications" }),
   ).toContainText("Archived");
-  // Focus moved on purpose when the Import button went away.
+  // Focus moved on purpose when the Import button turned off.
   expect(
     await page.evaluate(() => document.activeElement === document.body),
   ).toBe(false);

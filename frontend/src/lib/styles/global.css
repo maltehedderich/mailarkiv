@@ -130,10 +130,25 @@ a {
   opacity: 0.76;
 }
 
+/* Off. The colours fade to 45%, not the whole button, so a button that keeps
+   focus while busy keeps a full-strength focus ring. At 45% opacity the ring
+   measured 1.85:1. A label holding a disabled file input is off too. */
 .button:disabled,
-.button[aria-disabled="true"] {
-  opacity: 0.45;
+.button[aria-disabled="true"],
+.button:has(> input:disabled) {
+  border-color: color-mix(in oklab, var(--line-strong) 45%, transparent);
+  color: color-mix(in oklab, var(--text-2) 45%, transparent);
   pointer-events: none;
+}
+
+.button.ghost:is(:disabled, [aria-disabled="true"]) {
+  border-color: transparent;
+}
+
+.button.primary:is(:disabled, [aria-disabled="true"]) {
+  border-color: transparent;
+  background: color-mix(in oklab, var(--text-1) 45%, transparent);
+  color: var(--panel);
 }
 
 /* A form field: label above, input below. */

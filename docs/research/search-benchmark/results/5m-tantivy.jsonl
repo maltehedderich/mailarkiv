@@ -1,8 +1,0 @@
-{"engine":"tantivy","stage":"index","docs":5000000,"batch":5000,"index_s":1819.9,"close_s":3.5,"docs_per_s":2742,"dir_MiB":5737,"VmHWM_MiB":2667,"VmRSS_MiB":69}
-du_MiB 5739	$SCRATCH/data/m/t5
-segments 13
-count 5000000 ok
-validate Ok({})
-validate_s 17
-{"engine":"tantivy","stage":"update","batch100_p50_ms":104.8,"batch100_p95_ms":141.1,"delete_one_avg_ms":22.7}
-{"engine":"tantivy","stage":"forcemerge","segments_in":13,"seconds":502.0,"error":"none","wait_err":None,"write_MiB":5502,"count":5000000,"dir_MiB":5502}
