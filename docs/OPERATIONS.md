@@ -61,7 +61,7 @@ A systemd unit at `/etc/systemd/system/mailarkiv.service`:
 
 ```ini
 [Unit]
-Description=MailArkiv email archive
+Description=MailArkiv
 After=network.target
 
 [Service]
@@ -94,12 +94,12 @@ At each start, `serve`:
 
 If a step fails, the server exits with code 1 and logs `startup failed` with a `cause`:
 
-| `cause` | What failed |
-| ------- | ----------- |
+| `cause`   | What failed                                                                |
+| --------- | -------------------------------------------------------------------------- |
 | `storage` | The data directory, `tmp/`, or `blobs/` can't be created, written, or read |
-| `catalog` | The catalog can't be opened, or a newer version of MailArkiv wrote it |
-| `lock` | Another server holds the lock on this data directory |
-| `port` | The listen address is taken or not valid |
+| `catalog` | The catalog can't be opened, or a newer version of MailArkiv wrote it      |
+| `lock`    | Another server holds the lock on this data directory                       |
+| `port`    | The listen address is taken or not valid                                   |
 
 Code 2 means the arguments were wrong, and the usage text follows.
 
@@ -129,14 +129,14 @@ Administrators import one file at a time, up to 150 MB, which here means 150,000
 
 Every import ends in one of six results:
 
-| Result | What it means |
-| ------ | ------------- |
-| Archived | The message is stored. The original bytes and the catalog entry were flushed to disk before the server answered, so a crash or power loss after this result loses neither |
-| Already archived | The same bytes were archived before. The import was added to the message's history, and no second copy was stored |
-| Restored | The same bytes arrived while the stored original was missing or damaged. The stored copy was replaced from this file and flushed to disk like an Archived one |
-| Refused | The file is empty, over the limit, or has no mail header line. Nothing was stored |
-| Failed | The import didn't finish, and the file is not archived. The status screen and the log say why |
-| Unconfirmed | The browser got no answer from MailArkiv, for example after a dropped connection or a proxy timeout. The file may be archived. Importing it again is safe and never stores a second copy |
+| Result           | What it means                                                                                                                                                                            |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Archived         | The message is stored. The original bytes and the catalog entry were flushed to disk before the server answered, so a crash or power loss after this result loses neither                |
+| Already archived | The same bytes were archived before. The import was added to the message's history, and no second copy was stored                                                                        |
+| Restored         | The same bytes arrived while the stored original was missing or damaged. The stored copy was replaced from this file and flushed to disk like an Archived one                            |
+| Refused          | The file is empty, over the limit, or has no mail header line. Nothing was stored                                                                                                        |
+| Failed           | The import didn't finish, and the file is not archived. The status screen and the log say why                                                                                            |
+| Unconfirmed      | The browser got no answer from MailArkiv, for example after a dropped connection or a proxy timeout. The file may be archived. Importing it again is safe and never stores a second copy |
 
 The guarantee behind Archived and Restored holds only on a filesystem that honors flush requests.
 
@@ -146,12 +146,12 @@ Before a download starts, the server checks the stored original against its cont
 
 Everything lives in the data directory:
 
-| Path | Holds |
-| ---- | ----- |
-| `catalog.db`, `catalog.db-wal`, `catalog.db-shm` | The catalog, in SQLite: accounts, sessions, messages, and each message's import history |
-| `blobs/ab/cd/<hash>` | Each original's exact bytes, named by the SHA-256 of those bytes. `sha256sum` on a file prints its name |
-| `tmp/` | Imports in progress. Recovery removes anything left here |
-| `lock` | Held by the running server |
+| Path                                             | Holds                                                                                                   |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| `catalog.db`, `catalog.db-wal`, `catalog.db-shm` | The catalog, in SQLite: accounts, sessions, messages, and each message's import history                 |
+| `blobs/ab/cd/<hash>`                             | Each original's exact bytes, named by the SHA-256 of those bytes. `sha256sum` on a file prints its name |
+| `tmp/`                                           | Imports in progress. Recovery removes anything left here                                                |
+| `lock`                                           | Held by the running server                                                                              |
 
 Only the owning user can read the directory and its files.
 
@@ -174,14 +174,14 @@ The status screen shows the latest start, what recovery found, unreferenced orig
 
 The log is JSON lines on stderr, one object per event, with `time`, `level`, and `msg`. Failures have `"msg":"failure"` and a `category`:
 
-| `category` | Next step |
-| ---------- | --------- |
-| `storage_full` | Free disk space, then import the file again |
-| `storage_write_failed` | Fix the storage location, such as its permissions, then import the file again |
-| `catalog_write_failed` | Import the same file again. If this repeats, check the rest of the log |
-| `stored_original_missing` | Import the same file again, if you still have it, to restore the original |
-| `stored_original_damaged` | Import the same file again, if you still have it, to restore the original |
-| `temp_file_not_removed` | Check the permissions on `tmp/`. The file is harmless, and recovery tries again at the next start |
+| `category`                | Next step                                                                                         |
+| ------------------------- | ------------------------------------------------------------------------------------------------- |
+| `storage_full`            | Free disk space, then import the file again                                                       |
+| `storage_write_failed`    | Fix the storage location, such as its permissions, then import the file again                     |
+| `catalog_write_failed`    | Import the same file again. If this repeats, check the rest of the log                            |
+| `stored_original_missing` | Import the same file again, if you still have it, to restore the original                         |
+| `stored_original_damaged` | Import the same file again, if you still have it, to restore the original                         |
+| `temp_file_not_removed`   | Check the permissions on `tmp/`. The file is harmless, and recovery tries again at the next start |
 
 Where they apply, entries carry `message_id` and `content_hash`. Recovery logs `recovery finished` with its counts and `duration_ms`, and one `unreferenced original` line for each.
 

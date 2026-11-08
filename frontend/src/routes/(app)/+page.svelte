@@ -191,11 +191,7 @@
   </header>
 
   <div class="body">
-    <ImportBox
-      {step}
-      onchoose={chooseFiles}
-      onimport={startImport}
-    />
+    <ImportBox {step} onchoose={chooseFiles} onimport={startImport} />
 
     {#if data.session.kind !== "ok" || list?.kind === "unavailable"}
       <FailedLoad />

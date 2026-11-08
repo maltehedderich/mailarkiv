@@ -1,394 +1,200 @@
 # MailArkiv interface design
 
-This guide says which token to use where, and why. Exact values live in [`src/lib/styles/tokens.css`](src/lib/styles/tokens.css), so change them there and nowhere else.
+This guide defines the MailArkiv visual system and says which token role to use where. Exact values live in [`src/lib/styles/tokens.css`](src/lib/styles/tokens.css); change them there and nowhere else. Feature behavior and exact UI copy come from the feature specs under [`specs/`](../specs/). If this file conflicts with a spec or [the constitution](../.specify/memory/constitution.md), they win.
 
-It covers the Slice 1 screens: sign-in, the import list with the import box, file history, status, and the error page, plus the toasts that report imports and downloads. Behavior and failure wording come from [the Slice 1 spec](../specs/001-import-browse-retrieve/spec.md). If this file conflicts with the spec or [the constitution](../.specify/memory/constitution.md), they win.
+## Overview
 
-## Character
+Administrators use MailArkiv to confirm that mail is stored and to get it back. The interface reads like an archival ledger: dense, calm, and exact about what it knows. It is built for scanning long lists and comparing technical evidence by eye.
 
-Administrators use MailArkiv to confirm that mail is stored and to get it back. The interface reads like a precise record: dense, calm, and exact about what it knows.
+| Principle                          | What it means on screen                                                                                          | Why                                                                                    |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Say only what was checked          | Status views list facts with their times and counts. They never say "healthy" or show a summary tick.            | [Architecture rule 7](../docs/ARCHITECTURE.md) forbids overclaiming                    |
+| Evidence looks like evidence       | Hashes use the monospace font. Sizes, counts, and timestamps use tabular numerals.                               | Administrators compare these values by eye                                             |
+| Colour marks state and little else | A state is a 6 px dot beside a word, and the word carries the meaning. One accent hue marks links and focus.     | Colour stays noticeable when something is wrong, and no state depends on seeing colour |
+| Mail content is hostile            | File names and mail metadata render as plain text isolated with `<bdi>`, with control characters shown as codes. | Untrusted input must never spoof layout or execute script                              |
+| Density serves scanning            | 13 px body text and 38 px rows, with no dividers between rows and no cards around them.                          | Administrators scan long lists                                                         |
 
-| Rule                               | What it means on screen                                                                                        | Why                                                                                    |
-| ---------------------------------- | -------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| Say only what was checked          | Status lists facts with their times. It never says "healthy" and has no summary tick.                          | [Architecture rule 7](../docs/ARCHITECTURE.md) and FR-027 forbid overclaiming          |
-| Evidence looks like evidence       | Hashes use the mono font. Sizes, counts, and times use tabular numerals.                                       | People compare these values by eye                                                     |
-| Colour marks state and little else | A state is a 6 px dot beside a word. The word carries the meaning. One accent hue is used for focus and links. | Colour stays noticeable when something is wrong, and no state depends on seeing colour |
-| Mail content is hostile            | File names are plain text, with control and bidi characters shown as codes.                                    | FR-021                                                                                 |
-| Density serves scanning            | 13 px text, 38 px rows, no separators between rows, no cards around rows.                                      | Administrators scan long lists                                                         |
+## Colors
 
-## Colour
-
-Two hues in OKLCH, `--hue-neutral` and `--hue-accent`, feed both themes. Use roles, never raw colours.
+Two OKLCH hues in [`tokens.css`](src/lib/styles/tokens.css), `--hue-neutral` (cool slate) and `--hue-accent` (blue), feed both themes. Always style with semantic role tokens, never raw colour values.
 
 | Token                                       | Use for                                                                   |
 | ------------------------------------------- | ------------------------------------------------------------------------- |
-| `--canvas`                                  | The shell and sidebar, behind everything                                  |
+| `--canvas`                                  | The app shell and sidebar, behind everything                              |
 | `--panel`                                   | The main work surface and standalone pages                                |
-| `--raised`                                  | Drawers and dialogs                                                       |
-| `--scrim`                                   | Behind a drawer or dialog                                                 |
-| `--text-1`                                  | File names, values, headings, and the primary button fill                 |
+| `--raised`                                  | Drawers, dialogs, and toasts                                              |
+| `--scrim`                                   | Backdrop behind a modal drawer or dialog                                  |
+| `--text-1`                                  | File names, primary values, headings, and the primary button fill         |
 | `--text-2`                                  | Button and field labels, secondary values, counts in the current nav item |
 | `--text-3`                                  | Dates, column heads, notes, next steps, short hashes                      |
-| `--text-4`                                  | Form input edges and decorative marks. Never text                         |
-| `--line`, `--line-strong`                   | Dividers, and edges of controls that don't need 3:1                       |
-| `--fill-1`                                  | Inputs, the import box, and row hover                                     |
+| `--text-4`                                  | Form input edges and neutral state dots. Never text                       |
+| `--line`, `--line-strong`                   | Dividers, and edges of controls that don't need 3:1 contrast              |
+| `--fill-1`                                  | Text inputs, drop zones, notice boxes, and row hover                      |
 | `--fill-2`                                  | Control hover                                                             |
 | `--fill-3`                                  | Control press and the current nav item                                    |
-| `--accent`                                  | Links. `global.css` sets it on every `<a>`                                |
-| `--focus`                                   | Focus rings and the drop-target edge                                      |
-| `--accent-tint`                             | The drop-target fill and the glow around a focused input                  |
-| `--state-ok`, `--state-warn`, `--state-bad` | State dots only                                                           |
-| `--state-bad-text`, `--state-bad-fill`      | Error text, and the problem-count badge                                   |
+| `--accent`                                  | Links (`global.css` sets it on every `<a>`)                               |
+| `--focus`                                   | Focus rings and active drop-target edges                                  |
+| `--accent-tint`                             | Active drop-target fill and the glow around a focused input               |
+| `--state-ok`, `--state-warn`, `--state-bad` | 6 px state dots and invalid input edges only                              |
+| `--state-bad-text`, `--state-bad-fill`      | Error text and the navigation problem-count pill                          |
 
-### Approved pairs
+### Theme and contrast
 
-FR-041 requires WCAG 2.2 AA: 4.5:1 for text and 3:1 for meaningful non-text. Use these pairs, and measure any new one first. The values were measured from pixels Chromium painted, with every translucent layer composited in order.
+The theme follows the system setting through `prefers-color-scheme` in `tokens.css`, with no manual switch in the app. Check every screen in both themes.
 
-| Text               | On                                                | Light | Dark  |
-| ------------------ | ------------------------------------------------- | ----- | ----- |
-| `--text-1`         | `--panel`                                         | 17.32 | 16.49 |
-| `--text-1`         | `--raised`                                        | 17.46 | 14.87 |
-| `--text-1`         | `--fill-1` on `--panel`                           | 16.18 | 15.22 |
-| `--text-1`         | `--fill-2` on `--panel` (button hover)            | 15.31 | 13.84 |
-| `--text-1`         | `--fill-3` on `--panel` (button press)            | 14.24 | 12.09 |
-| `--text-1`         | `--fill-2` on `--raised` (button hover)           | 15.44 | 12.09 |
-| `--text-1`         | `--fill-3` on `--canvas`                          | 12.85 | 13.33 |
-| `--text-2`         | `--panel`                                         | 10.53 | 11.21 |
-| `--text-2`         | `--raised`                                        | 10.61 | 10.11 |
-| `--text-2`         | `--canvas`                                        | 9.48  | 11.93 |
-| `--text-2`         | `--fill-1` on `--panel`                           | 9.83  | 10.35 |
-| `--text-2`         | `--fill-3` on `--canvas`                          | 7.81  | 9.07  |
-| `--text-3`         | `--panel`                                         | 5.98  | 6.82  |
-| `--text-3`         | `--raised`                                        | 6.03  | 6.15  |
-| `--text-3`         | `--canvas`                                        | 5.39  | 7.26  |
-| `--text-3`         | `--fill-1` on `--panel`                           | 5.59  | 6.30  |
-| `--text-3`         | `--fill-2` on `--panel`                           | 5.29  | 5.73  |
-| `--panel`          | `--text-1` (primary button)                       | 17.32 | 16.49 |
-| `--panel`          | `--text-1` at 86% (primary hover)                 | 11.33 | 12.33 |
-| `--panel`          | `--text-1` at 76% (primary press)                 | 7.92  | 9.84  |
-| `--accent`         | `--panel`                                         | 6.50  | 9.31  |
-| `--accent`         | `--raised`                                        | 6.55  | 8.40  |
-| `--state-bad-text` | `--panel`                                         | 7.72  | 8.10  |
-| `--state-bad-text` | `--raised`                                        | 7.78  | 7.30  |
-| `--state-bad-text` | `--canvas`                                        | 6.95  | 8.62  |
-| `--state-bad-text` | `--fill-1` on `--panel` (refusal in the box)      | 7.21  | 7.48  |
-| `--state-bad-text` | `--state-bad-fill` on `--canvas`                  | 5.54  | 7.05  |
-| `--state-bad-text` | `--state-bad-fill` on `--fill-2` on `--canvas`    | 4.92  | 5.82  |
-| `--state-bad-text` | `--state-bad-fill` on `--fill-3` on `--canvas`    | 4.62  | 5.18  |
+Every pairing must meet WCAG 2.2 AA across all composited translucent layers: **4.5:1** for text and **3:1** for meaningful non-text (`--text-4` input borders and neutral dots, `--focus`, and `--state-*` dots).
 
-The last two are the problem count while Status is hovered or current. They set `--state-bad-text` in light to L 0.46: at 0.48 the current item measured 4.23.
+- `--text-3` on `--fill-3` over `--canvas` measures 4.44:1 in light mode, so a count inside the current navigation item uses `--text-2`.
+- `--state-bad-text` on `--state-bad-fill` stays above 4.5:1 even when its parent navigation item is hovered (`--fill-2`) or current (`--fill-3`).
+- Measure any new foreground-on-surface combination in Chromium with translucent fills composited before shipping it.
 
-| Non-text                                | On                      | Light | Dark |
-| --------------------------------------- | ----------------------- | ----- | ---- |
-| `--text-4` (input edge, neutral dot)    | `--panel`               | 3.35  | 3.95 |
-| `--text-4` (neutral dot in the outcome) | `--fill-1` on `--panel` | 3.13  | 3.64 |
-| `--text-4` (timeline dot)               | `--raised`              | 3.37  | 3.56 |
-| `--focus`                               | `--panel`               | 4.40  | 7.53 |
-| `--focus`                               | `--raised`              | 4.43  | 6.79 |
-| `--focus`                               | `--canvas`              | 3.96  | 8.02 |
-| `--focus` (Choose a file in the box)    | `--fill-1` on `--panel` | 4.11  | 6.96 |
-| `--state-ok`                            | `--panel`               | 3.70  | 8.08 |
-| `--state-ok`                            | `--raised`              | 3.73  | 7.29 |
-| `--state-ok`                            | `--fill-1` on `--panel` | 3.46  | 7.46 |
-| `--state-warn`                          | `--panel`               | 3.31  | 9.66 |
-| `--state-warn`                          | `--raised`              | 3.34  | 8.71 |
-| `--state-warn`                          | `--fill-1` on `--panel` | 3.09  | 8.92 |
-| `--state-bad`                           | `--panel`               | 4.68  | 6.35 |
-| `--state-bad`                           | `--raised`              | 4.72  | 5.73 |
-| `--state-bad`                           | `--fill-1` on `--panel` | 4.37  | 5.87 |
+## Typography
 
-`--text-3` on `--fill-3` on `--canvas` fails in light at 4.44, so a count in the current nav item uses `--text-2`.
+**Inter Variable** (`--font-sans`, weights `--weight-regular` 400, `--weight-medium` 510, `--weight-strong` 590) sets all interface copy. **Geist Mono Variable** (`--font-mono`) sets hashes and technical codes. Both are bundled at build time ([ADR 0004](../docs/adr/0004-interface-fonts-and-icons.md)) so the app makes no external network requests. The bundled Inter omits the `cv01` and `ss03` alternates, so don't set those font features.
 
-### Theme
+| Role     | Size and line                                 | Weight                                         | Use for                                         |
+| -------- | --------------------------------------------- | ---------------------------------------------- | ----------------------------------------------- |
+| Label    | `--size-label`, `--leading-label` (12/16)     | regular or medium                              | Dates, sizes, column heads, field labels, notes |
+| Evidence | `--size-evidence`, `--leading-body` (12.5/20) | regular, mono                                  | Full SHA-256 hashes                             |
+| Body     | `--size-body`, `--leading-body` (13/20)       | regular, or medium for names and button labels | List rows, prose, and controls                  |
+| Section  | `--size-section`, `--leading-body` (14/20)    | strong, `--tracking-section`                   | View titles, drawer headers, section headings   |
+| Title    | `--size-title`, `--leading-title` (20/26)     | strong, `--tracking-title`                     | Standalone page headings and message subjects   |
 
-The theme follows the system setting through `prefers-color-scheme` in `tokens.css`. Slice 1 has no switch in the app, because nothing requires one (constitution principle I). Check every screen in both themes. A dark surface gets lighter as it rises, so `--shadow-panel` in dark is only an edge.
+### Formatting data and copy
 
-## Type
-
-| Role     | Size and line                                 | Weight                                         | Use for                                                |
-| -------- | --------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------ |
-| Label    | `--size-label`, `--leading-label` (12/16)     | regular or medium                              | Dates, sizes, column heads, field labels, notes        |
-| Evidence | `--size-evidence`, `--leading-body` (12.5/20) | regular, mono                                  | The full hash                                          |
-| Body     | `--size-body`, `--leading-body` (13/20)       | regular, or medium for names and button labels | Everything else                                        |
-| Section  | `--size-section`, `--leading-body` (14/20)    | strong, `--tracking-section`                   | View titles and status headings                        |
-| Title    | `--size-title`, `--leading-title` (20/26)     | strong, `--tracking-title`                     | The error page's heading, and later the message subject |
-
-Inter sets everything except hashes. Its variable file gives the 510 and 590 weights in the tokens. Geist Mono sets hashes, and it has no Greek, which hashes don't need. Linear's `cv01` and `ss03` alternates aren't in the bundled Inter, so don't add those feature settings: they do nothing.
-
-- **Numbers:** sizes and counts use `font-variant-numeric: tabular-nums` and align right. Times use tabular numerals too.
-- **Short hash:** the first 8 characters, in the mono font at `--size-label`, coloured `--text-3`.
-- **Full hash:** all 64 characters as 16 groups of 4, in 4 columns, with `font-variant-ligatures: none`. A copy button next to it copies the 64 characters without spaces. Groups make the hash comparable by eye, so don't shorten it (FR-020).
-- **File names:** the medium weight in `--text-1`, isolated with `<bdi>`. Long names lose their middle, so the start and the extension both stay visible (FR-021). A control or bidi character shows as a small code such as `U+202E`. A missing name is `(no file name)` in `--text-3` at regular weight.
-- **Dates:** `2 Nov 2026, 09:14:55 +01:00`, in the viewer's time zone with its UTC offset (FR-043). Use the same form everywhere a person compares times.
-
-## Space, size, and shape
-
-Space tokens are named for their pixel value: `--space-2` through `--space-32`. Use them for all gaps and padding.
-
-| Token                    | Value  | Use for                                |
-| ------------------------ | ------ | -------------------------------------- |
-| `--control-height`       | 28 px  | Buttons in views and row actions       |
-| `--control-height-large` | 32 px  | Form inputs and form or drawer buttons |
-| `--control-height-touch` | 36 px  | Buttons and inputs at 720 px and below |
-| `--row-height`           | 38 px  | List rows                              |
-| `--header-height`        | 52 px  | View and drawer headers                |
-| `--sidebar-width`        | 224 px | Sidebar                                |
-| `--tab-bar-height`       | 44 px  | Bottom tab bar at 720 px and below     |
-| `--content-width`        | 880 px | Centred content column                 |
-| `--drawer-width`         | 440 px | File history                           |
-| `--form-width`           | 300 px | Sign-in                                |
-| `--toast-width`          | 380 px | Toasts on the page                     |
-
-Radii: `--radius-small` for codes and small marks, `--radius-medium` for controls and rows, `--radius-large` for panels, the import box, and the drawer.
-
-A shadow means something sits above the page. The panel gets `--shadow-panel`, drawers, dialogs, and toasts get `--shadow-pop`, and nothing else gets one.
+- **Numbers:** Sizes, counts, and times use `font-variant-numeric: tabular-nums`. Counts use thousands separators (`1,284`), and numeric list columns align right.
+- **Short hash:** The first 8 characters in `--font-mono` at `--size-label`, coloured `--text-3`.
+- **Full hash:** All 64 characters as 16 groups of 4 across 4 columns, with `font-variant-ligatures: none` and a copy button that copies the 64 characters without spaces. Grouping makes the hash comparable by eye; never truncate a full hash.
+- **Untrusted names:** Medium weight in `--text-1`, isolated with `<bdi>`. Long names truncate in the middle so the start and file extension both stay visible. Control and bidi characters render as small `--radius-small` code badges (`U+202E`). A missing name reads `(no file name)` in `--text-3` at regular weight.
+- **Dates:** `2 Nov 2026, 09:14:55 +01:00`, in the viewer's time zone with an explicit UTC offset. Use this exact format everywhere a person compares times.
+- **UI copy:** Follow the Writing rules in [AGENTS.md](../AGENTS.md). Use sentence case and start button labels with a verb. A failure message states what happened first, then what to do next.
 
 ## Layout
 
-Signed-in pages have a sidebar on `--canvas` and one `--panel` beside it, inset 8 px. The sidebar stays in view while the page scrolls, with Sign out at its foot. Its logo row is `--header-height` tall, so the logo lines up with the view title. When sign-out doesn't finish, the line saying so goes above Sign out, so the button stays under the pointer for the second try. A view has a 52 px header with its title, then a scrolling body. Import and status centre their content in `--content-width`. The page itself never scrolls sideways.
+Spacing tokens are named for their pixel values, `--space-2` through `--space-32`, and govern all gaps and padding.
 
-Sign-in is standalone: a `--form-width` column on `--panel` with no sidebar, centred across and set 20% of the way down. It isn't centred vertically, because then a line added to the form, such as an error, would move the fields. The error page has its own layout, described [below](#error-page).
+| Token                    | Value  | Use for                                   |
+| ------------------------ | ------ | ----------------------------------------- |
+| `--control-height`       | 28 px  | Buttons in views and row actions          |
+| `--control-height-large` | 32 px  | Form inputs and form or drawer buttons    |
+| `--control-height-touch` | 36 px  | Buttons and inputs at 720 px and below    |
+| `--row-height`           | 38 px  | Single-line list rows                     |
+| `--header-height`        | 52 px  | Sidebar brand row, view headers, drawers  |
+| `--sidebar-width`        | 224 px | Desktop navigation sidebar                |
+| `--tab-bar-height`       | 44 px  | Bottom tab bar at 720 px and below        |
+| `--content-width`        | 880 px | Centred reading and status column         |
+| `--drawer-width`         | 440 px | Right-hand modal detail drawer            |
+| `--form-width`           | 300 px | Standalone forms and error messages       |
+| `--toast-width`          | 380 px | Desktop toast notifications               |
 
-| At 720 px and below | Change                                                                                                                                       |
-| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| Sidebar             | Becomes a bottom bar of `--tab-bar-height` tabs, icon over label, with all icons on one line. The problem count sits beside the Status icon. Sign out becomes an icon tab with an `aria-label`, and its error line shows above the bar and any toasts. `scroll-padding-bottom` keeps a focused control clear of the bar |
-| Import list         | The header row goes. Each row stacks as name and count, then time and size, then hash and download, with a line between rows. From 721 to 1040 px rows take two lines, as [Import list row](#import-list-row) says |
-| Import box          | The button moves below the text and fills the width. The file icon goes                                                                      |
-| View header         | Title and count stay on one line. The update time moves to its own line below                                                                |
-| Status sections     | Label moves above content. Values move below their label and align left                                                                      |
-| Drawer              | Full width, no radius                                                                                                                        |
-| Buttons and inputs  | `--control-height-touch`. Input text grows to `--size-input-touch`, because iOS Safari zooms into anything smaller                           |
-| Page gutters        | 16 px                                                                                                                                        |
+### Page archetypes
 
-SC-008 requires the whole flow by keyboard and at 360 px with no sideways scroll, so test at 360 px.
+- **Signed-in workspace:** A sticky `--sidebar-width` sidebar on `--canvas` sits beside a single `--panel` surface inset by `--space-8`. The sidebar's logo row and the view's header are both `--header-height` (52 px) so the logo aligns with the view title. Sign out sits at the foot of the sidebar; if sign-out fails, the error line appears above the button so the button stays under the pointer for a retry. Focused views centre their body in `--content-width`.
+- **Standalone pages:** Sign-in and full-page errors render directly on `--panel` with no sidebar, constrained to `--form-width`. Forms sit 20% from the top rather than vertically centred so inline error messages never shift the input fields.
+
+### Responsive breakpoints
+
+Every flow must work by keyboard and down to a **360 px** viewport without horizontal scrolling.
+
+- **721 to 1040 px:** Beside the sidebar, multi-column list rows wrap to two lines (54 px tall: primary name on the first line, metadata columns on the second, trailing count and action spanning both) and hide the column header row.
+- **720 px and below:**
+  - **Navigation:** The sidebar becomes a fixed bottom bar of `--tab-bar-height` tabs (icon over label). `scroll-padding-bottom` keeps focused controls clear of the bar and any active toasts.
+  - **Surfaces and gutters:** Page gutters narrow to `--space-16`. Drawers take the full viewport width with no corner radius. Toasts span the full width above the bottom tab bar.
+  - **Controls:** Buttons and inputs grow to `--control-height-touch` (36 px). Text inputs use `--size-input-touch` (16 px) so iOS Safari does not zoom on focus.
+  - **Reflow:** List rows stack into multi-line blocks separated by `--line`. Two-column key-value sections stack labels above values. Drop zones move their action button below the text at full width and hide decorative icons. View headers move secondary timestamps onto a second line.
+
+## Elevation & Depth
+
+Hierarchy comes from three tonal surface layers (`--canvas` behind `--panel` behind `--raised`) and 1 px hairline borders (`--line`, `--line-strong`).
+
+A shadow means an element sits above the page:
+
+- `--shadow-panel` frames the main `--panel` surface with a 1 px `--line` border and a subtle drop shadow. In dark mode, surfaces get lighter as they rise, so `--shadow-panel` is only the 1 px `--line` edge.
+- `--shadow-pop` lifts modal drawers, dialogs, and toasts on `--raised`, paired with `--scrim` behind modal dialogs.
+- Nothing else gets a shadow.
+
+Windows High Contrast removes `box-shadow`. Draw every boundary that matters (inputs, notices, toasts) with a `border`, and pair shadow focus rings with a transparent `outline` so forced-colour modes still paint the edge.
+
+## Shapes
+
+Corner radii stay tight and mechanical to match the logo's cabinet geometry:
+
+- `--radius-small` (4 px): Inline character-code marks and small badges.
+- `--radius-medium` (6 px): Buttons, inputs, navigation items, list rows, and inline notices.
+- `--radius-large` (10 px): The main `--panel`, drop zones, drawers, and toasts.
+- Pills (`9999px`): Navigation problem-count badges (18 px tall).
+
+### Icons and brand marks
+
+All fonts and icons are bundled at build time ([ADR 0004](../docs/adr/0004-interface-fonts-and-icons.md)).
+
+- **Interface icons:** Imported from Lucide (`~icons/lucide/...`) with `unplugin-icons` (`autoInstall` off so mistyped names fail the build). Icons render at `--icon-size` (16 px), or `--icon-size-small` (14 px) in tight spaces, with `stroke-width: 1.6` to match 13 px Inter text and `aria-hidden="true"` set by the build plugin. Give icon-only buttons an explicit `aria-label`.
+- **Logo and illustrations:** [`Logo.svelte`](src/lib/components/Logo.svelte) renders the MailArkiv mark—a solid tile in `currentColor` with a cut-out drawer grip and outlined Archivo wordmark—as an 18 px horizontal lockup in headers/sidebars or a stacked lockup (40 px minimum tile) on standalone pages. Never type "MailArkiv" in Inter beside the mark. Full rules live in [the brand guide](../docs/brand/README.md). Custom illustrations (such as [`CatalogDrawer.svelte`](src/lib/components/CatalogDrawer.svelte) on the error page) reuse the mark's tile geometry and semantic surface/text tokens rather than introducing new colours.
 
 ## Components
 
 ### Button
 
-| Variant | Class                    | Look                                        | Use                                              |
-| ------- | ------------------------ | ------------------------------------------- | ------------------------------------------------ |
-| Default | `button`                 | 1 px `--line-strong` edge, `--text-2` label | Most actions                                     |
-| Primary | `button primary`         | `--text-1` fill, `--panel` label            | One per view, for the action the view exists for |
-| Ghost   | `button ghost`           | No edge                                     | Clear, Close, and icon buttons                   |
-| Icon    | add `icon-only`          | Square, ghost or default, with `aria-label` | Row download, Copy, Close, Dismiss               |
-| Large   | add `large`              | `--control-height-large`                    | Form and drawer buttons                          |
+| Variant | Class            | Look                                        | Use                                              |
+| ------- | ---------------- | ------------------------------------------- | ------------------------------------------------ |
+| Default | `button`         | 1 px `--line-strong` edge, `--text-2` label | Most actions                                     |
+| Primary | `button primary` | `--text-1` fill, `--panel` label            | At most one per view, for its main action        |
+| Ghost   | `button ghost`   | No edge                                     | Clear, Close, Copy, Dismiss, and row icon links  |
+| Icon    | add `icon-only`  | Square, ghost or default, with `aria-label` | Row download, Copy, Close, Dismiss               |
+| Large   | add `large`      | `--control-height-large`                    | Form, standalone, and drawer actions             |
 
-Default and ghost hover to `--fill-2` with `--text-1`, and press to `--fill-3`. Primary drops to 86% opacity on hover and 76% on press. Disabled is 45% opacity with no pointer events. Use `disabled` on a button and `aria-disabled="true"` on a link, or on a button that must keep focus while busy. Long work shows in the import box, so buttons don't spin.
+Default and ghost buttons hover to `--fill-2` with `--text-1` and press to `--fill-3`. Primary buttons drop to 86% opacity on hover and 76% on press. Disabled controls use 45% opacity and `pointer-events: none`: use `disabled` on buttons, or `aria-disabled="true"` on links and on busy submit buttons that must keep keyboard focus while a request runs. Buttons never spin; long work reports progress inline or in a toast.
 
-### Form field
+### Form field and notice
 
-Label above in the label size, medium, `--text-2`. The input is `--control-height-large` on `--fill-1`, with a 1 px `--text-4` border. Focus clears the fill and adds a `--focus` edge with a 3 px `--accent-tint` glow. An error is `aria-invalid="true"` on the input: it sets the edge to `--state-bad`, and one line in `--state-bad-text` below names the problem through `aria-describedby`. Focus wins over an error, so the focused field still changes.
+Use the `field` class on a `<label>` wrapping a `<span>` label (`--size-label`, medium, `--text-2`) above an `<input>` (`--control-height-large`, `--fill-1` fill, 1 px `--text-4` border, `--radius-medium`).
 
-Use the `field` class on a `<label>` that holds a `<span>` and the `<input>`.
+- **Focus:** Clears the fill, sets the border to `--focus`, and adds a 3 px `--accent-tint` ring.
+- **Invalid:** `aria-invalid="true"` sets the border to `--state-bad`, and one line in `--state-bad-text` below names the problem via `aria-describedby`. Focus styling overrides the invalid border so the active field still changes visibly.
+- **Notices:** Contextual callouts above a form use a `--fill-1` box with `--radius-medium` and a 1 px transparent border for forced colours. Action errors from the last attempt stay below the submit button so the form fields never shift.
 
 ### Navigation item
 
-30 px tall, medium weight, 16 px icon. Rest is `--text-2` with a `--text-3` icon. Hover is `--fill-2`. Current is `--fill-3` in `--text-1`. The Status item carries the problem count on every signed-in page (FR-039): an 18 px pill, `--state-bad-fill` with `--state-bad-text`. The count has thousands separators, as the pager's totals do: `1,284`.
+Navigation links are 30 px tall with `--radius-medium`, medium weight, and a 16 px icon (`--text-3` at rest). Text is `--text-2` at rest, `--fill-2` on hover, and `--fill-3` with `--text-1` when current. A status item with active problems carries an 18 px pill in `--state-bad-fill` with `--state-bad-text`.
 
-### Import box
+### Lists and rows
 
-Uses `--fill-1` with a `--line` edge, `--radius-large`, at least 76 px tall. It holds a file icon, text, and the Choose a file button. Dropping a file adds to that button and never replaces it (FR-041). A dragged file sets a 1.5 px `--focus` edge and `--accent-tint` fill.
+List rows are `--row-height` (38 px) with `--radius-medium`, `--fill-1` on hover, and no dividers between rows. Rows share column tracks through CSS `subgrid` so fixed metadata columns (such as a 185 px timestamp column sized for the widest date in 12 px tabular Inter, a 62 px byte size, or a 72 px short hash) stay aligned and trailing actions line up with pagination controls below.
 
-| Step                   | Shows                                                                                         |
-| ---------------------- | --------------------------------------------------------------------------------------------- |
-| Ready                  | "Drop one .eml file here" and "Up to 150 MB. Imported mail can't be removed in this version." |
-| Chosen                 | The name and exact bytes, the removal warning again, and Import (FR-034)                      |
-| Uploading              | "Uploading, 42%" and a progress bar. Import is off (FR-035)                                   |
-| Storing                | A separate storing state with no percentage (FR-035)                                          |
-| Refused in the browser | A message, with nothing uploaded (FR-036)                                                     |
+- **Screen readers:** When a list is not a semantic `<table>`, hide the visual column header row from assistive technology and include visually hidden labels (`Imported`, `Hash`) on values that do not name themselves.
+- **Keyboard:** A row with both a detail view and a secondary action has two keyboard stops: `Enter` on the row opens its details (calling `preventDefault()` so focus moving to the dialog's Close button does not immediately close it), and the trailing icon button triggers its action without opening the row.
+- **Loading and pagination:** Skeleton rows keep the exact column widths and responsive row heights without animation, so the layout never jumps and a slow archive does not look busy. Pagers show the range and total (`1–50 of 7,000`) with Previous and Next, and append the page number to the document `<title>` past page 1 so screen readers announce navigation.
 
-### Toast
+### Drop zone
 
-A toast reports a finished import, a download in progress, or a download that failed. Toasts sit in one region named "Notifications" at the bottom right, `--toast-width` wide and 24 px from the edges. At 720 px and below they fill the width above the bottom tab bar, with 16 px gutters. Each is on `--raised` with `--shadow-pop` and `--radius-large`, plus a transparent 1 px border so forced colours still draw an edge.
+Staged file-import boxes use `--fill-1` with a 1 px `--line` edge and `--radius-large`, at least 76 px tall. Dragging a file over the zone switches to a 1.5 px `--focus` border and `--accent-tint` fill. Always keep an explicit "Choose a file" button; dropping a file supplements the button and never replaces it. Step changes (ready, file chosen with exact byte size, uploading with progress bar, storing, or browser-side refusal) update in place inside the box.
 
-A toast reads like a problem on Status: a `--dot-size` dot and the state word, then the file name, then what happened in `--text-2` and the next step in `--text-3`. Use the spec's words.
+### Modal drawer
 
-| Toast            | Dot            | Shows                                                                          |
-| ---------------- | -------------- | ------------------------------------------------------------------------------ |
-| Archived         | `--state-ok`   | Name, size, and "Open import history"                                          |
-| Already archived | `--text-4`     | Name, what happened, and "Open import history"                                 |
-| Restored         | `--state-warn` | Name, what happened, and "Open import history"                                 |
-| Refused          | `--state-bad`  | Name and the reason                                                            |
-| Failed           | `--state-bad`  | Name, the reason, and the next step                                            |
-| Unconfirmed      | `--state-warn` | Name and what happened                                                         |
-| Downloading      | `--text-4`     | Name, a progress bar with its percentage, and Cancel                           |
-| Download waiting | `--text-4`     | Name, "Waiting for the previous download to finish.", and Cancel              |
-| Download not started | `--text-4` | Name, "Another download is already waiting.", and how to try again            |
-| Download canceled | `--text-4`    | Name and "Nothing was saved."                                                 |
-| Download failed  | `--state-bad`  | Name, "This message wasn't downloaded." with the reason, and the next step     |
+Detail drawers use a native `<dialog>` opened with `showModal()` on `--raised` (`--drawer-width` wide, attached to the right edge, with `--shadow-pop` and `--scrim`). A `--header-height` header holds the title and Close button, the body scrolls, and a pinned footer keeps primary actions in view. Closing on `Escape` or Close returns focus to the element that opened the drawer.
 
-- **No timer.** A toast stays until it's dismissed or replaced, because a result that disappears breaks FR-023 and FR-032. Starting an import removes the last import's toast. Trying a download again replaces that download's toast.
-- **Downloading** appears only after 400 ms, so a quick download shows nothing. A waiting download appears immediately and keeps its notification when its transfer starts. A failure replaces progress in place.
-- **Download limits:** one transfer and one waiter per tab. Both offer Cancel. Keep focus on the notification's control when Cancel becomes Dismiss, and move it to another notification or the region when a focused notification disappears.
-- **In the drawer:** the drawer is a modal dialog, so the page behind it is inert. A toast raised while it's open shows inside it, above the footer, and moves to the page when it closes.
-- **Focus stays visible:** the region sets `--toast-room` to the space it covers. The page and the drawer body add that as bottom padding and `scroll-padding-bottom`, so the last row and a focused control scroll clear of the toasts (WCAG 2.4.11).
-- **Screen readers:** the list is `aria-live="polite"`. The bar is a `progressbar` named "Download", and its percentage text is hidden from them.
-- **Dismiss** is a ghost icon button labelled "Dismiss". It moves focus to the next toast's control, or to the region when none is left, so focus never drops to the page.
+### Status items, toasts, and failed loads
 
-### Import list row
-
-Columns: file name, latest time (185 px), size (62 px), short hash (72 px), count (40 px), download (28 px). 185 px fits the widest time, `22 May 2026, 09:14:55 +05:30`, which measured 182 px in Chromium in Inter at 12 px with tabular numerals. Measure again if the date form or the font changes. The count shows as `3×`, only above 1 (FR-019). Rows are `--row-height`, `--radius-medium`, with no separators. Hover is `--fill-1`. Rows are inset 10 px on the left and 4 px on the right. The rows share the list's columns through `subgrid`, and a subgrid's padding doesn't shrink a fixed column, so the edge columns include the inset. The download then ends where the pager's Next does.
-
-From 721 to 1040 px the list sits beside the sidebar, and one line would leave the name no room: at 721 px the list is 441 px wide and the fixed columns take 451. So rows take two lines at 54 px: the name, then time, size, and hash in their columns. The count and download sit across both lines, and the header row goes. From 1041 px the name column is at least 300 px wide.
-
-The column heads are hidden from screen readers, because the list isn't a table. Values that don't name themselves carry their head in hidden text: "Imported" before the time, "Hash" before the hash, and "3 imports" in place of `3×`.
-
-Every row has two keyboard stops: the row opens its history on Enter, and its download button saves the file. The row's accessible name must include the file name. Clicking the download button must not also open the history.
-
-Show "1–7 of 7" and Previous and Next under the list. Past page 1 the title carries the page number, as in "Messages, page 2 · MailArkiv". SvelteKit announces the title after a navigation only when it changes, so this is what a screen reader hears after Previous or Next. A page past the end moves to the last page, and page 1 has no `?page`. A fresh install shows the import box above "No mail yet" and has no tour or sample mail.
-
-### File history drawer
-
-A native modal `<dialog>` on `--raised`, `--drawer-width` wide, attached to the right, with `--shadow-pop` and a `--scrim`. The header holds the title, "Import history", and Close. The body holds the full hash, the size in exact bytes, and every observation as a timeline with no cap (FR-020). Each observation shows source type, time, account, and file name (FR-014). Download is pinned in a footer, so it stays visible on a long history.
-
-### Status
-
-Sections stack with a `--line` between them: a 136 px label column, then content. Problems comes first, because the Status item's count is why most people open the screen. Recovery follows. A footnote under a line ends the page: the screen covers only the time since the server started, with that time, and older failures are in the server log (FR-027). It qualifies everything above it, so it doesn't lead.
-
-Problems has one group per failure category, then one for the unreferenced originals. A group has its dot and state word, with "3 times" when it happened more than once, then what happened in `--text-2`, then the next step in `--text-3`. Use the category names and next steps from FR-038. So 40 failures of two kinds show two explanations, not 40.
-
-Under that, each time it happened takes one line: the time, the short hash, and a link to that message's import history. The screen can't show file names (FR-029), so the link is how an administrator finds the file to import again. A hash that names nothing else, as after a catalog write failure or for an unreferenced original, shows in full with Copy. Restored events get their own group, such as "Stored original damaged, restored", with a `--state-warn` dot and the restored note in place of the next step.
-
-With nothing recorded, Problems says "No failures and no unreferenced originals since the latest start." It never says the archive is healthy, and no action here changes the archive in Slice 1.
-
-### Sign-in
-
-Standalone. The stacked logo heads the column, centred and 32 px above the form: email address, password, and a full-width primary Sign in. The "Sign in" heading is visually hidden. Shown under the logo, it read as a tagline and repeated the button, so it's there for screen readers and the tab title says it. Nothing else: how accounts are made belongs in the operator guide, not on a screen anyone can reach.
-
-| State                     | Shows                                                                                                                                                   |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Busy                      | The button reads "Signing in…" with `aria-disabled="true"`, so it keeps focus and a second press sends nothing. It stays busy until the next page opens |
-| Wrong address or password | Both fields get `aria-invalid="true"` and the line through `aria-describedby`, because FR-003 can't say which one is wrong                              |
-| Blocked or didn't finish  | The line below the button only. Neither field is wrong                                                                                                  |
-| Session ended             | A notice above the form: "Your session ended. Sign in again to continue." (FR-040)                                                                      |
-| Plain HTTP                | A notice above the form in `--state-bad-text`, because the browser will drop the session cookie                                                         |
-
-A notice is a `--fill-1` box with `--radius-medium` and a transparent border for forced colours, so it reads as a message and not as part of the form. Problems from the last try stay in the line below the button, so the fields don't move.
-
-### Error page
-
-[`+error.svelte`](src/routes/+error.svelte) has no sidebar. An address that matches no route gets no layout, so the page can't tell whether anyone is signed in. The 18 px horizontal logo sits top left in a `--header-height` row, where the sidebar puts it. Below, centred across and down, lifted by the header's height: the drawing, then the heading in the title style, the next step in `--text-3`, and one primary action at its own width, full width at 720 px and below. Bottom padding grows to `--toast-room`, so toasts never cover the action.
-
-| Cause                             | Drawing           | Above the heading | Heading                        | Next step                                           | Action                                                                     |
-| --------------------------------- | ----------------- | ----------------- | ------------------------------ | --------------------------------------------------- | -------------------------------------------------------------------------- |
-| Unknown address (404)             | The drawer, open and empty | `404` in mono, `--text-3` | "Page not found"               | "Check the address for a typo."                     | Open the message list: a link to `/`, which opens sign-in when signed out |
-| A page's code didn't arrive (500) | The drawer, stuck | Nothing           | "This page couldn't be loaded" | "Try again. If this repeats, check the server log." | Try again, which reruns the navigation with `refreshAll`                   |
-
-The drawing, [`CatalogDrawer.svelte`](src/lib/components/CatalogDrawer.svelte), is a card catalogue of 4 × 3 drawers whose fronts are the mark's tile, unchanged. It's the page's one brand moment: the mark is a drawer, and here one is pulled out with nothing in it. It is 196 px wide, 168 px at 720 px and below, and hidden from screen readers.
-
-- **Drawn in perspective.** The drawer moves toward the viewer, seen from above and to its left, so its side and floor show. Every point is projected each frame, so it stays true while it moves.
-- **Colours are roles.** The cabinet is `--fill-3` with a `--fill-1` top, closed fronts are `--panel`, and the moving front is `--text-1`, as the logo is. Shadows use `--scrim`, the one role that darkens in both themes: twice for the opening, once for the far wall. The floor and side are solid `--panel` under a fill, so the cabinet doesn't show through them.
-- **Last tried.** Under Try again, "Last tried" and the time in the [date form](#type), in `--text-3` at label size. It's set when the failure shows and after each failed Try again, so a person sees the try happened and knows when to look in the server log. It's a `role="status"`, so a screen reader hears the new time.
-
-- **Nothing else lands here.** Every load returns its failures as data, and the [failed-load](#failed-load) block shows them. The second row happens when the server or the network goes down before a page's code has loaded in this tab.
-- **Announcing:** the tab title repeats the heading, so SvelteKit announces it after the navigation.
-- **Try again** keeps focus while it fails. When the page arrives, focus moves to its heading, as after a failed load's Try again: `refreshAll` isn't a navigation, so nothing else is announced.
-- **The address isn't repeated,** so a crafted link can't put its own words on a MailArkiv page.
-- **Toasts show here too.** A failed navigation replaces the signed-in layout, and an import that was running must still show its result (FR-032).
-
-### Loading
-
-Skeleton rows keep the real columns, and the real row's lines and height at each width, so the list doesn't jump when it arrives. They don't animate, so a slow archive doesn't look busy.
-
-### Failed load
-
-Data that didn't arrive leaves one block in place of the content: what happened in `--text-2`, the next step in `--text-3`, and a default button to try again. An action that didn't finish shows one line in `--state-bad-text` beside its control. Both sit in a `role="status"` element.
-
-## Accessibility and keyboard
-
-- **Focus:** every interactive element uses `:focus-visible` with `outline: 2px solid var(--focus)` and a 2 px offset. Rows and the bottom tabs use a −2 px offset, so a scrolling container or the screen edge doesn't clip it.
-- **Opening with a key:** call `preventDefault()` on the key press that opens a drawer. Otherwise focus moves to Close and the same Enter closes it again.
-- **Drawers:** use `<dialog>` with `showModal()`, close on Escape, and return focus to the row that opened it.
-- **Re-rendering:** updating a list or the import box must not drop focus. Keep the focused element, or move focus on purpose.
-- **Icons:** the Vite config marks each icon `aria-hidden`. Give an icon-only button its own `aria-label`.
-- **State:** never rely on colour alone. Pair each dot with its word.
-- **Forced colours:** Windows High Contrast removes box shadows. Draw an edge that matters with a border, and pair a shadow focus ring with a transparent outline, which forced colours paints.
-- **Headings:** choose levels for document structure and style them by role.
+- **State dot and summary:** Status problem groups and outcome toasts share one structure: a `--dot-size` (6 px) dot (`--state-ok`, `--state-warn`, `--state-bad`, or neutral `--text-4`) beside a state word, followed by the subject in `--text-1`, what happened in `--text-2`, and the next step in `--text-3`.
+- **Toasts:** Sit in a polite live region (`aria-live="polite"`, `--toast-width`, 24 px from viewport edges) on `--raised` with `--shadow-pop`, `--radius-large`, and a 1 px transparent border. While a modal drawer is open, toasts render inside the drawer above its footer so background `inert` does not block them. The toast region publishes its height as `--toast-room` so page and drawer scrolling pad clear of active toasts (WCAG 2.4.11). Toasts never auto-dismiss on a timer; they stay until dismissed or replaced. Dismissing a toast moves focus to the next toast's action or the region so focus never drops to `<body>`.
+- **Failed load:** When a view or drawer cannot load its data, replace the content area with one `role="status"` block: what happened in `--text-2`, the next step in `--text-3`, and a default `Try again` button. When `Try again` succeeds and removes the button, move focus intentionally (for example, to the view's `<h1>`).
 
 ## Motion
 
-Motion confirms a change and never decorates it. A hover fill appears at once and fades over `--motion-fade` (140 ms) when it leaves. The drawer slides in over `--motion-slide` (200 ms) with `--ease-enter`. A toast rises 8 px and fades in over `--motion-enter` (160 ms) with `--ease-enter`. With `prefers-reduced-motion: reduce`, remove animations and transitions.
+Motion confirms a state change and never decorates it:
 
-The error page's drawing is the one exception, because its movement is the message. On a 404 the drawer slides out once, after 180 ms, over 950 ms with `cubicOut`, and stops. A stuck drawer jerks out 12 units and back in 350 ms when the page shows and on each Try again, which confirms the press. Reduced motion shows the end state at once. These timings live in the component, since nothing else uses them.
+- Hover fills appear immediately and fade out over `--motion-fade` (140 ms).
+- Drawers slide in over `--motion-slide` (200 ms) with `--ease-enter`.
+- Toasts rise 8 px and fade in over `--motion-enter` (160 ms) with `--ease-enter`.
+- Under `prefers-reduced-motion: reduce`, remove all animations and transitions.
 
-## Fonts and icons
+## Do's and Don'ts
 
-Both fonts and every icon are bundled at build time, so the app makes no external request for them. [ADR 0004](../docs/adr/0004-interface-fonts-and-icons.md) has the packages and pinned versions.
-
-```svelte
-<!-- src/routes/+layout.svelte -->
-<script>
-  import '@fontsource-variable/inter/wght.css';
-  import '@fontsource-variable/geist-mono/wght.css';
-  import '#lib/styles/tokens.css';
-</script>
-```
-
-```ts
-// In the Vite plugins, after sveltekit()
-Icons({
-    compiler: "svelte",
-    scale: 1,
-    defaultClass: "icon",
-    iconCustomizer: (_collection, _icon, props) => {
-        props["aria-hidden"] = "true";
-    },
-});
-```
-
-```css
-/* Global styles. Lucide draws at 2 px, which is heavy beside 13 px text. */
-.icon {
-    display: block;
-    flex: none;
-    width: var(--icon-size);
-    height: var(--icon-size);
-}
-.icon * {
-    stroke-width: 1.6;
-}
-```
-
-Use Lucide for every icon, imported as `~icons/lucide/download`, at `--icon-size`, or `--icon-size-small` in tight places. The stroke width has to come from CSS, because Lucide sets it on the SVG's `<g>` element. Leave `autoInstall` off, so a mistyped icon fails the build instead of installing a package.
-
-Slice 1 uses `archive`, `upload`, `activity`, `file-up`, `file-text`, `download`, `x`, `arrow-left`, `log-out`, and `copy`.
-
-Two drawings aren't from Lucide: the MailArkiv logo, and the error page's [drawing](#error-page), which repeats the logo's tile as drawer fronts. The logo is a solid tile with a drawer grip cut out of it, and the name in outlined Archivo. [`Logo.svelte`](src/lib/components/Logo.svelte) holds two layouts: the 18 px horizontal lockup for the sidebar, and with `stacked` the name under a 40 px tile for standalone pages such as sign-in. 40 px is the smallest tile the brand guide allows for the stacked lockup. It fills with `currentColor` and the grip is a real hole, so both themes use the same drawing.
-
-Don't type the name beside the mark in Inter. Archivo appears only as these outlines, so the app ships no extra font.
-
-The browser tab uses `static/favicon.svg`, which follows the theme, and `static/favicon.ico` where SVG isn't supported. [The brand guide](../docs/brand/README.md) has the other sizes and layouts, clear space, and minimum sizes.
-
-## Writing
-
-Follow the Writing section in [AGENTS.md](../AGENTS.md).
-
-- Use sentence case. Start buttons with a verb.
-- A failure says what happened, then what to do next.
-- Say what's known and nothing more, as in "1,204 messages are waiting" rather than "All good."
-- Use the spec's exact words for outcomes and failures.
-
-## Later slices
-
-Search, the message reader, and delete use these values. Add each to `tokens.css` in the slice that needs it, then measure its pairs.
-
-| Token            | Light                               | Dark                                 | Use                                     |
-| ---------------- | ----------------------------------- | ------------------------------------ | --------------------------------------- |
-| `--hit`          | `oklch(0.94 0.065 95 / 0.9)`        | `oklch(0.8 0.1 92 / 0.2)`            | Search match highlight                  |
-| `--tick`         | `oklch(0.5 0.11 var(--hue-accent))` | `oklch(0.52 0.11 var(--hue-accent))` | Selected checkbox                       |
-| `--sheet-dim`    | `1`                                 | `0.93`                               | Brightness of the white message preview |
-| `--bad-solid`    | `oklch(0.52 0.18 27)`               | `oklch(0.52 0.17 27)`                | Delete button fill, with white text     |
-| `--warn-text`    | `oklch(0.47 0.1 70)`                | `oklch(0.82 0.11 78)`                | Warning text                            |
-
-The message subject uses the [title type](#type), which the error page added.
-
-From 1041 px up, the archive list has one-line rows. At 1040 px and below, rows take two lines at 54 px and the reader stacks over its details.
-
-For the message reader, keep mail on a light sheet in both themes, inside the sandboxed iframe required by [the architecture](../docs/ARCHITECTURE.md#security-and-privacy-from-the-first-slice). Place the label identifying mail content outside that sheet. Show senders as written, without avatars: a From header is only a claim, and fetching a picture would make a remote request.
-
-For permanent delete, explain what remains in backups and that re-delivery can archive the message again. Focus Cancel first. Use the red button only in the confirmation dialog.
-
-## Changing this system
-
-To change a value, edit `tokens.css`, measure again, and update the pair tables here in the same change. A new font or icon set needs an ADR.
+- **Do** edit token values only in [`src/lib/styles/tokens.css`](src/lib/styles/tokens.css), and re-measure WCAG 2.2 AA contrast (4.5:1 text, 3:1 non-text) across composited layers in both themes whenever a value changes.
+- **Do** use `:focus-visible` with `outline: 2px solid var(--focus)` and a `2px` offset (`-2px` on list rows and bottom tabs so container edges never clip the focus ring).
+- **Do** preserve or intentionally move keyboard focus whenever a list refreshes, a step changes, or a notification is dismissed.
+- **Do** isolate untrusted strings (file names, subjects, addresses) in `<bdi>` as plain text, and never render untrusted content with `{@html}` or echo raw URL paths on error screens.
+- **Don't** claim the archive is "healthy" or use summary checkmarks; report only what was verified and when.
+- **Don't** rely on colour alone to communicate status; always pair a state dot with a state word.
+- **Don't** auto-dismiss outcome or error toasts on a timer, or spin buttons during background work.
+- **Don't** add a new typeface or icon package without an ADR.

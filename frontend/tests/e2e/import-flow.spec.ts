@@ -408,9 +408,7 @@ test("a screen reader hears the choice, each slow step, and each refusal", async
     .toEqual([refusal, refusal]);
 });
 
-test("an import ending moves focus only if Import had it", async ({
-  page,
-}) => {
+test("an import ending moves focus only if Import had it", async ({ page }) => {
   await signIn(page);
   await page.getByLabel("Choose a file").setInputFiles(FILE);
   await importButton(page).click();
