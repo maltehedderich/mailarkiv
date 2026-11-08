@@ -87,7 +87,7 @@ Spacing tokens are named for their pixel values (`--space-2` through `--space-32
 | `--form-width`           | 300 px | Standalone forms and error messages      |
 | `--toast-width`          | 380 px | Desktop toast notifications              |
 
-Signed-in pages pair a sticky `--sidebar-width` sidebar on `--canvas` with a single `--panel` surface inset by `--space-8`. Both the sidebar's logo row and the view's header are `--header-height` (52 px) tall, aligning the logo with the view title. Sign out sits at the foot of the sidebar; if sign-out fails, the error line goes above the button so the button stays under the pointer for the next try. Focused reading and status views centre their body in `--content-width`.
+Signed-in pages pair a sticky `--sidebar-width` sidebar on `--canvas` with a single `--panel` surface inset by `--space-8`. Both the sidebar's logo row and the view's header are `--header-height` (52 px) tall, aligning the logo with the view title. The Messages header sticks to the top, because it carries the pager, and the page keeps `scroll-padding-top` at its height so focus scrolls clear of it (WCAG 2.4.11). Sign out sits at the foot of the sidebar; if sign-out fails, the error line goes above the button so the button stays under the pointer for the next try. Focused reading and status views centre their body in `--content-width`.
 
 Standalone pages (sign-in and full-page errors) sit directly on `--panel` with no sidebar, constrained to `--form-width`. Forms sit 20% of the way down the viewport instead of vertically centred, so an error line added below never moves the fields.
 
@@ -141,7 +141,7 @@ Interface icons come from Lucide (`~icons/lucide/...`) via `unplugin-icons`, wit
 | Default | `button`         | 1 px `--line-strong` edge, `--text-2` label | Most actions                                    |
 | Primary | `button primary` | `--text-1` fill, `--panel` label            | At most one per view, for its main action       |
 | Ghost   | `button ghost`   | No edge                                     | Clear, Close, Copy, Dismiss, and row icon links |
-| Icon    | add `icon-only`  | Square, ghost or default, with `aria-label` | Row download, Copy, Close, Dismiss              |
+| Icon    | add `icon-only`  | Square, ghost or default, with `aria-label` | Row download, page arrows, Copy, Close, Dismiss |
 | Large   | add `large`      | `--control-height-large`                    | Form, standalone, and drawer actions            |
 
 Default and ghost buttons hover to `--fill-2` with `--text-1` and press to `--fill-3`. Primary buttons drop to 86% opacity on hover and 76% on press. Disabled controls use 45% opacity and `pointer-events: none`: use `disabled` on buttons, or `aria-disabled="true"` on links and on busy submit buttons that must keep keyboard focus while a request runs. Buttons never spin; long work shows its progress inline or in a toast.
@@ -160,11 +160,11 @@ Navigation links are 30 px tall with `--radius-medium`, medium weight, and a 16 
 
 ### Lists and rows
 
-List rows are `--row-height` (38 px) with `--radius-medium` and no dividers between rows. A row takes `--fill-1` on hover or while it holds keyboard focus, and `--fill-2` from a click until its drawer closes, so a slow load shows the click and the drawer's row stays marked beside it. Hover lights a row only where the pointer can hover, so a tap leaves nothing lit on a touch screen. Rows share column tracks through CSS `subgrid` so fixed metadata columns (such as a 185 px timestamp column sized for the widest date in 12 px tabular Inter, a 62 px byte size, or a 72 px short hash) stay aligned and trailing actions line up with pagination controls below.
+List rows are `--row-height` (38 px) with `--radius-medium` and no dividers between rows. A row takes `--fill-1` on hover or while it holds keyboard focus, and `--fill-2` from a click until its drawer closes, so a slow load shows the click and the drawer's row stays marked beside it. Hover lights a row only where the pointer can hover, so a tap leaves nothing lit on a touch screen. Rows share column tracks through CSS `subgrid` so fixed metadata columns (such as a 185 px timestamp column sized for the widest date in 12 px tabular Inter, a 62 px byte size, or a 72 px short hash) stay aligned.
 
 When a list uses non-table markup, hide the visual column header row from screen readers and attach visually hidden labels (`Imported`, `Hash`) to values that do not name themselves. A row with both a detail view and a secondary action has two keyboard stops: `Enter` on the row opens its details (calling `preventDefault()` so focus moving to Close does not immediately close the dialog), and the trailing icon button runs its action without opening the row. That icon rests in `--text-3`, so a column of them doesn't compete with the names, and turns `--text-2` with its row.
 
-Skeleton rows keep the real column widths and responsive row heights without animation, so the list never jumps when data arrives and a slow archive does not look busy. Pagers show the range and total (`1–50 of 7,000`) with Previous and Next, and append the page number to the document `<title>` past page 1 so screen readers announce page changes.
+Skeleton rows keep the real column widths and responsive row heights without animation, so the list never jumps when data arrives and a slow archive does not look busy. The pager sits at the right of the Messages header: the range and total (`1–50 of 7,000`) in `--text-3` at label size, then ghost icon links to the previous and next page. A turn goes to the top of the page, so the next turn is where the page lands, and the header keeps the pager in view as the list scrolls. An end keeps its arrow, off, so the other never moves, and a single page shows `1–7 of 7` with both off. Screen readers hear the range in words (`Messages 1 to 50 of 7,000`), because some skip the dash. While another page loads, the pager shows that page's range at once and keeps its arrows. Past page 1 the document `<title>` carries the page number, so screen readers announce each turn.
 
 ### Drop zone
 

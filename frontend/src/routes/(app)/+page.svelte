@@ -88,14 +88,41 @@
     await goto(url.pathname + url.search, { replace: true });
   }
 
+  /** The page the address asks for, or null for a value the server refuses. */
+  const wanted = $derived(
+    data.pageParam === null
+      ? 1
+      : /^[1-9]\d*$/.test(data.pageParam)
+        ? Number(data.pageParam)
+        : null,
+  );
+
   // SvelteKit announces the title after each navigation, and only when it
   // changes, so the page number makes Previous and Next heard. It comes from
   // the address, because the list may still be loading when the title is read.
   const title = $derived(
-    /^[1-9]\d*$/.test(data.pageParam ?? "") && data.pageParam !== "1"
+    wanted !== null && wanted > 1
       ? `Messages, page ${data.pageParam}`
       : "Messages",
   );
+
+  // While another page loads, the pager shows it at once, from the address
+  // and the last total. The turn shows where it went before the rows arrive,
+  // and on a slow archive the arrows stay put for the next one. A page past
+  // the end has no range, and moves back once its answer arrives.
+  const pager = $derived.by(() => {
+    if (data.session.kind !== "ok" || settled?.result.kind !== "ok") {
+      return null;
+    }
+    if (list?.kind === "ok") {
+      return list.value.items.length > 0 ? list.value : null;
+    }
+    if (list !== null || wanted === null) return null;
+    const { pageSize, total } = settled.result.value;
+    return (wanted - 1) * pageSize < total
+      ? { page: wanted, pageSize, total }
+      : null;
+  });
 
   function chooseFiles(files: File[]) {
     const choice = choose(files);
@@ -186,8 +213,14 @@
 <svelte:window onbeforeunload={warnBeforeUnload} />
 
 <main>
-  <header>
+  <!-- Sticky, with the pager, so the next page is in view wherever the list
+       is scrolled. A turn goes to the top of the page. Below the list, the
+       next Next was then 2,100 px down at 1280 px wide, and 4,000 at 360. -->
+  <header class="messages-header">
     <h1 bind:this={heading} tabindex="-1">Messages</h1>
+    {#if pager !== null}
+      <Pager page={pager.page} pageSize={pager.pageSize} total={pager.total} />
+    {/if}
   </header>
 
   <div class="body">
@@ -229,10 +262,6 @@
           </ul>
         {/if}
       </div>
-      {#if list?.kind === "ok" && list.value.items.length > 0}
-        {@const { page: number, pageSize, total } = list.value}
-        <Pager page={number} {pageSize} {total} />
-      {/if}
     {/if}
   </div>
 </main>
@@ -240,12 +269,26 @@
 <HistoryDrawer history={data.history} onclose={closeHistory} />
 
 <style>
+  /* Above the rows' raised downloads as they scroll under it. Its corners
+     follow the panel's, which a square fill would cover. */
   header {
+    position: sticky;
+    top: 0;
+    z-index: 2;
     display: flex;
     align-items: center;
+    justify-content: space-between;
+    gap: var(--space-16);
     height: var(--header-height);
     padding: 0 var(--space-24);
     border-bottom: 1px solid var(--line);
+    border-radius: var(--radius-large) var(--radius-large) 0 0;
+    background: var(--panel);
+  }
+
+  /* WCAG 2.4.11: focus scrolls a control clear of the header. */
+  :global(html:has(.messages-header)) {
+    scroll-padding-top: var(--header-height);
   }
 
   h1 {
@@ -274,8 +317,7 @@
   /* The columns from DESIGN.md. 185 px fits the widest time, such as
      "22 May 2026, 09:14:55 +05:30", in Inter at 12 px with tabular numerals.
      A subgrid's padding doesn't shrink a fixed column, so an edge column
-     includes the rows' padding: 4 px after the download, which then ends
-     where the pager's Next does. */
+     includes the rows' padding: 4 px after the download. */
   .table {
     display: grid;
     grid-template-columns:
@@ -374,6 +416,7 @@
   @media (max-width: 720px) {
     header {
       padding: 0 var(--space-16);
+      border-radius: 0;
     }
 
     .body {
