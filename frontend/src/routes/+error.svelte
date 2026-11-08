@@ -20,6 +20,8 @@
   // When the page last failed to load, to find in the server log. A failed
   // Try again updates it, which is also how a person sees the try happened.
   let triedAt = $state("");
+  /** Failed tries at this address. Each one shows the time afresh. */
+  let tries = $state(0);
 
   function now(): string {
     return formatTime(new Date().toISOString());
@@ -32,23 +34,35 @@
     if (notFound) return;
     void page.url.href;
     triedAt = now();
+    tries = 0;
   });
+
+  /**
+   * A try shows on the button once it has lasted this long, so a quick one
+   * doesn't flash, as in the failed-load block.
+   */
+  const SETTLE_MS = 400;
 
   let drawer: CatalogDrawer | undefined = $state();
   let busy = false;
+  let slow = $state(false);
 
   async function retry() {
     // Not disabled while busy, so the focused button keeps focus.
     if (busy) return;
     busy = true;
     void drawer?.tug();
+    const timer = setTimeout(() => (slow = true), SETTLE_MS);
     try {
       await refreshAll();
     } finally {
+      clearTimeout(timer);
       busy = false;
+      slow = false;
     }
     if (page.error !== null) {
       triedAt = now();
+      tries += 1;
       return;
     }
     // The page arrived and took the focused button with it. refreshAll isn't
@@ -91,11 +105,22 @@
     {#if notFound}
       <a class="button large primary" href="/">Open the message list</a>
     {:else}
-      <button class="button large primary" type="button" onclick={retry}>
-        Try again
+      <button
+        class="button large primary"
+        type="button"
+        aria-disabled={slow ? "true" : undefined}
+        onclick={retry}
+      >
+        {slow ? "Trying again…" : "Try again"}
       </button>
-      <!-- A status, so a failed Try again is announced by its new time. -->
-      <p class="tried" role="status">Last tried {triedAt}</p>
+      <!-- A status, so a failed Try again is announced by its new time. A new
+           span for each try, so the same second is heard again too. -->
+      <p class="tried" role="status" aria-atomic="true">
+        Last tried
+        {#key tries}
+          <span class:fresh={tries > 0}>{triedAt}</span>
+        {/key}
+      </p>
     {/if}
   </main>
 </div>
@@ -174,6 +199,17 @@
     font-size: var(--size-label);
     line-height: var(--leading-label);
     font-variant-numeric: tabular-nums;
+  }
+
+  /* A failed try fades the new time in, so a quick one is seen to happen. */
+  .fresh {
+    animation: arrive var(--motion-enter) var(--ease-enter);
+  }
+
+  @keyframes arrive {
+    from {
+      opacity: 0;
+    }
   }
 
   @media (max-width: 720px) {

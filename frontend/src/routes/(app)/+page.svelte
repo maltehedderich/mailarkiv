@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy, tick } from "svelte";
 
-  import { beforeNavigate, goto } from "$app/navigation";
+  import { beforeNavigate, goto, refreshAll } from "$app/navigation";
   import { page } from "$app/state";
 
   import { getSession, type ApiResult, type MessagePage } from "#lib/api.js";
@@ -82,6 +82,13 @@
       current = false;
     };
   });
+
+  // The list streams, so the load settles before the list arrives. Try again
+  // waits for the list too, or a second press would send a second request.
+  async function retryList() {
+    await refreshAll();
+    await data.messages;
+  }
 
   /**
    * A page past the end, from an old link or a typed address, moves back.
@@ -245,7 +252,7 @@
     <ImportBox {step} onchoose={chooseFiles} onimport={startImport} />
 
     {#if data.session.kind !== "ok" || list?.kind === "unavailable"}
-      <FailedLoad />
+      <FailedLoad retry={retryList} />
     {:else if list?.kind === "ok" && list.value.total === 0}
       <p class="empty">No mail yet</p>
     {:else}

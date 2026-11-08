@@ -410,6 +410,38 @@ test("a page that didn't load shows the error page and loads again", async ({
   ).toBeFocused();
 });
 
+// DESIGN.md: a slow Try again says so and keeps focus, a second press sends
+// nothing, and a failed one says when it tried. The list streams, so it
+// arrives after the load settles, and the press waits for the list.
+test("Try again sends one request, then says when it tried", async ({
+  page,
+}) => {
+  await signIn(page);
+  await page.route("**/api/messages*", (route) => route.abort());
+  await page.reload();
+  const tried = page.getByRole("status").filter({ hasText: "Last tried" });
+  await expect(tried).toBeVisible();
+  const before = await tried.textContent();
+
+  await page.unroute("**/api/messages*");
+  let requests = 0;
+  await page.route("**/api/messages*", async (route) => {
+    requests += 1;
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+    await route.abort();
+  });
+  await page.getByRole("button", { name: "Try again" }).press("Enter");
+  const trying = page.getByRole("button", { name: "Trying again…" });
+  await expect(trying).toBeFocused();
+  await trying.press("Enter");
+
+  await expect(page.getByRole("button", { name: "Try again" })).toBeFocused();
+  expect(requests).toBe(1);
+  // At least 2 seconds later, so the time has moved.
+  await expect(tried).not.toHaveText(before ?? "");
+  await expect(page.getByText(FAILED_LOAD)).toBeVisible();
+});
+
 // FR-045: data that didn't arrive shows the failed-load state, never an empty
 // list or screen, and Try again loads it once the failure is gone.
 const FAILURES = {

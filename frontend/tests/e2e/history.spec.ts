@@ -154,6 +154,40 @@ test("Copy puts the 64 characters on the clipboard", async ({
 
   await expect(drawer(page).getByText("Hash copied.")).toBeVisible();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(HASH);
+
+  // The claim goes once the clipboard may have changed.
+  await expect(drawer(page).getByText("Hash copied.")).toHaveCount(0);
+});
+
+// The groups are grid items, so a selection of the hash copied as 16 lines.
+// A failed Copy selects the hash, and the person's own copy gives the 64
+// characters.
+test("a failed Copy selects the hash, and copying it gives the 64 characters", async ({
+  page,
+  context,
+}) => {
+  await signInWithOneMessage(page);
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await rowLink(page).click();
+  await page.evaluate(() => {
+    navigator.clipboard.writeText = () => Promise.reject(new Error("denied"));
+  });
+
+  const copy = drawer(page).getByRole("button", {
+    name: "Copy the content hash",
+  });
+  await expect(copy).toHaveAccessibleDescription(HASH.slice(0, 8));
+  await copy.click();
+
+  await expect(drawer(page).getByRole("status")).toHaveText(
+    /^The hash wasn't copied\. It's selected, so press (⌘C|Ctrl\+C)\.$/,
+  );
+  expect(
+    await page.evaluate(() => getSelection()?.toString().replace(/\s/g, "")),
+  ).toBe(HASH);
+  // Headless Chromium doesn't copy on a key press, so this stands in for one.
+  await page.evaluate(() => document.execCommand("copy"));
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(HASH);
 });
 
 test("Enter opens the history, and Escape returns to the row", async ({

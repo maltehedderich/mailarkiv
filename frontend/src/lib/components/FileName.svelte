@@ -28,7 +28,7 @@
     >{@render parts(display.start)}{@render parts(display.end)}</bdi
   >{:else}<bdi class="cut"
     ><span class="start">{@render parts(display.start)}</span><span class="end"
-      >{@render parts(display.end)}</span
+      ><span>{@render parts(display.end)}</span></span
     ></bdi
   >{/if}
 
@@ -57,8 +57,15 @@
     text-overflow: ellipsis;
   }
 
+  /* The ending gives way only once the start is gone, and then loses its
+     front, so the extension is the last thing to go. A column narrower than
+     the ending showed "ement-29." for "statement-29.eml". */
   .end {
+    display: flex;
     flex: none;
+    justify-content: flex-end;
+    max-width: 100%;
+    overflow: hidden;
   }
 
   /* Spaces show as typed here too, so the history and the row agree on a

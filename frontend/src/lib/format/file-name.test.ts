@@ -140,6 +140,54 @@ describe("a long name", () => {
       expect(join(end)).not.toMatch(/^\u200D|^[\uDC00-\uDFFF]/);
     }
   });
+
+  test("keeps 12 clusters when the name reads one way", () => {
+    const { end } = named(name);
+    expect(join(end)).toBe("nt-final.eml");
+  });
+});
+
+// The halves are laid out apart, so a cut inside a run that reads against the
+// name's direction swaps the run's halves on screen. The cut moves to the
+// nearest place outside the run.
+describe("a long name with mixed directions", () => {
+  test("isn't cut inside a number in a right-to-left name", () => {
+    // 12 from the end falls between "202" and "6", which drew "6202".
+    const { end } = named(
+      "\u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA \u05DC\u05D7\u05D5\u05D3\u05E9 \u05E0\u05D5\u05D1\u05DE\u05D1\u05E8 2026 - \u05E1\u05D5\u05E4\u05D9.eml",
+    );
+    expect(join(end)).toBe(" - \u05E1\u05D5\u05E4\u05D9.eml");
+  });
+
+  test("isn't cut inside a Latin word in a right-to-left name", () => {
+    const { end } = named(
+      "\u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA \u05DC\u05D7\u05D5\u05D3\u05E9 \u05E0\u05D5\u05D1\u05DE\u05D1\u05E8 final-report.eml",
+    );
+    expect(join(end)).toBe("final-report.eml");
+  });
+
+  test("isn't cut inside right-to-left words in a left-to-right name", () => {
+    const { end } = named(
+      "Rechnung \u05D7\u05E9\u05D1\u05D5\u05E0\u05D9\u05EA \u05DC\u05D7\u05D5\u05D3\u05E9 \u05E0\u05D5\u05D1\u05DE\u05D1\u05E8.eml",
+    );
+    expect(join(end)).toBe(".eml");
+  });
+
+  test("isn't cut between right-to-left words and the digits after them", () => {
+    const { start, end } = named(
+      "Scan 2 \u05E4\u05D1\u05E8\u05D5\u05D0\u05E8 2026 final.eml",
+    );
+    expect(join(end)).toBe(" final.eml");
+    expect(join(start)).toBe(
+      "Scan 2 \u05E4\u05D1\u05E8\u05D5\u05D0\u05E8 2026",
+    );
+  });
+
+  test("keeps the first cut when no cut keeps the order", () => {
+    const hebrew = "\u05D0".repeat(40);
+    const { end } = named(`report ${hebrew}`);
+    expect(join(end)).toBe("\u05D0".repeat(12));
+  });
 });
 
 describe("a missing name", () => {
