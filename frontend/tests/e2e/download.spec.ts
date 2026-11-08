@@ -330,3 +330,58 @@ test("a focused waiting Cancel survives admission and completion moves focus to 
   await expect(waiting).toHaveCount(0);
   await expect(toasts(page)).toBeFocused();
 });
+
+// Toasts have no timer, so they can pile up. The stack keeps to half the
+// screen and scrolls, newest first, so the page stays usable and no toast is
+// pushed off the top, where it couldn't be read or dismissed.
+test("a tall stack keeps to half the screen, newest first, and every toast stays reachable", async ({
+  page,
+}) => {
+  await archiveOneFile(page);
+  for (const name of ["second.eml", "third.eml", "fourth.eml"]) {
+    await page.getByLabel("Choose a file").setInputFiles({
+      name,
+      mimeType: "message/rfc822",
+      buffer: Buffer.from(`Subject: ${name}\r\n\r\n${name}\r\n`),
+    });
+    await page.getByRole("button", { name: "Import", exact: true }).click();
+    await expect(toasts(page)).toContainText(name);
+  }
+  await toasts(page).getByRole("button", { name: "Dismiss" }).click();
+  await page.route("**/original", (route) =>
+    route.fulfill({
+      status: 500,
+      headers: {
+        "MailArkiv-Response": "1",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ error: "stored_original_damaged" }),
+    }),
+  );
+  // Newest row first, so synthetic.eml, the first import, fails last.
+  const items = toasts(page).getByRole("listitem");
+  for (let index = 0; index < 4; index++) {
+    await downloadButton(page).nth(index).click();
+    await expect(items).toHaveCount(index + 1);
+  }
+
+  const height = 560;
+  await page.setViewportSize({ width: 360, height });
+  await expect(items.first()).toContainText("synthetic.eml");
+  await expect(items.last()).toContainText("fourth.eml");
+  const stack = toasts(page).getByRole("list");
+  const box = (await stack.boundingBox())!;
+  expect(box.y).toBeGreaterThan(0);
+  expect(box.height).toBeLessThanOrEqual(height / 2 + 1);
+
+  // The oldest starts below the stack's fold. Tab reaches it and scrolls it
+  // into view, and its Dismiss says which toast it closes.
+  await items.nth(2).getByRole("button", { name: "Dismiss" }).focus();
+  await page.keyboard.press("Tab");
+  const oldest = items.last().getByRole("button", { name: "Dismiss" });
+  await expect(oldest).toBeFocused();
+  await expect(oldest).toHaveAccessibleDescription(/^Download failed/);
+  const button = (await oldest.boundingBox())!;
+  expect(button.y).toBeGreaterThanOrEqual(box.y);
+  expect(button.y + button.height).toBeLessThanOrEqual(box.y + box.height);
+});
