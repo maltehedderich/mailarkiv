@@ -256,6 +256,23 @@ Each observation is one of:
 
 `received_at` is null when the server reported no time, and the screen shows Unknown (FR-041). A removed source keeps its name, host, user name, and folder.
 
+## Changed: `POST /api/imports`
+
+The `archived`, `already_archived`, and `restored` answers return `message` in the list item shape of [`GET /api/messages`](#changed-get-apimessages), so the client reads both with one parser. Statuses, outcomes, and reasons don't change.
+
+```json
+{
+  "outcome": "archived",
+  "message": {
+    "id": 17,
+    "content_hash": "ea9449bf…",
+    "size": 31,
+    "observation_count": 1,
+    "latest": { "source_type": "manual_import", "observed_at": "2026-11-08T09:10:04.123Z", "account_email": "admin@example.test", "file_name": "invoice.eml" }
+  }
+}
+```
+
 ## Changed: `GET /api/status`
 
 Adds `sources`, and failure events for messages not archived:

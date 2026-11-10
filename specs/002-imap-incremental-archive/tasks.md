@@ -50,7 +50,7 @@ description: "Task list for Slice 2: archive an IMAP mailbox incrementally"
 
 US6 comes before US5, as in the plan. Both are P2, and building management first means the visibility screens show every state, including Paused.
 
-Writing these tasks exposed seven places where the plan's order or contracts don't hold. T004 records them.
+Writing these tasks exposed ten places where the plan's order or contracts don't hold. T004 records them.
 
 | Change | Why |
 | ------ | --- |
@@ -61,6 +61,9 @@ Writing these tasks exposed seven places where the plan's order or contracts don
 | The per-source counter is written in Phase 3, with the rest of the collection commit | The data model defines one commit. Phase 4 verifies the counter with `TestCollectedCounts` |
 | The two new status categories reach the client in Phase 4, when the server first records them | `parseFailure` in `frontend/src/lib/api.ts` refuses an unknown category, so the status screen would fail to load under `--preview-collection`. Constitution III changes consumers together |
 | `POST /api/imports` answers its `message` in the new list item shape | The answer shares the list's encoder in `internal/web/messages.go` and the client's `parseMessage`. The contract named only `GET /api/messages` |
+| The source page's refresh while syncing lands in Phase 8, not step 7 | T098 chooses the interval and T100 builds the page that refreshes. Phase 9's browser test watches it |
+| Each log entry lands with the record or failure it reports, not in step 6 | Phases 4, 5, and 6 write the entries for their events. Phase 8's marker test checks them all |
+| `frontend/DESIGN.md` also changes in step 8 | T121 adds the Sources navigation item. The plan's table of document changes named only steps 6 and 7 |
 
 ---
 
@@ -69,9 +72,9 @@ Writing these tasks exposed seven places where the plan's order or contracts don
 **Purpose**: The branch and the documents that step 1 changes.
 
 - [X] T001 Create branch `002-imap-incremental-archive`, renamed from the planning branch `docs/imap-first-slice-order` so it keeps the roadmap commit. Commit `specs/002-imap-incremental-archive/` on it as `docs(spec): add Slice 2 spec, plan, and tasks`
-- [ ] T002 [P] Write `docs/adr/0008-imap-password-encryption.md` in the style of `docs/adr/0005-password-hashing.md`. Cover AES-256-GCM through `cipher.NewGCMWithRandomNonce`, the additional data `"mailarkiv-imap-password-v1" 0x00 lowercase(host) 0x00 lowercase(user_name)`, the key line `mailarkiv-key-v1:` plus 32 bytes in standard padded base64 plus one newline, at most 1 KiB, creation with `O_CREATE|O_EXCL` and mode 0600, refusal of a key path equal to or under the data directory after resolving symbolic links, no mode check at `serve`, and no key rotation in this slice. Name the rejected alternatives: `nacl/secretbox`, a key in an environment variable, a raw 32-byte file, and a key derived from an administrator's password. Say that old ciphertext can stay in SQLite's free pages or WAL until reused. [research.md](research.md#passwords-and-the-key) has the facts
-- [ ] T003 [P] In `docs/ARCHITECTURE.md` under "Technology direction", replace the sentence that says `x/net` v0.62.0 and `x/text` v0.43.0 arrive with the mail libraries in Slices 2, 3, and 7. `go-imap` v2.0.0-beta.8 brings `go-message` v0.18.2 and `go-sasl` and needs neither, so `x/net` and `x/text` arrive with Slices 3 and 7, if at all
-- [ ] T004 [P] Record the changes from "How this list relates to the plan" in `specs/002-imap-incremental-archive/plan.md`: the Delivery order rows for steps 1, 2, 3, 6, and 7. In `specs/002-imap-incremental-archive/contracts/http-api.md`, say that `POST /api/imports` answers `message` in the list item shape of `GET /api/messages`
+- [X] T002 [P] Write `docs/adr/0008-imap-password-encryption.md` in the style of `docs/adr/0005-password-hashing.md`. Cover AES-256-GCM through `cipher.NewGCMWithRandomNonce`, the additional data `"mailarkiv-imap-password-v1" 0x00 lowercase(host) 0x00 lowercase(user_name)`, the key line `mailarkiv-key-v1:` plus 32 bytes in standard padded base64 plus one newline, at most 1 KiB, creation with `O_CREATE|O_EXCL` and mode 0600, refusal of a key path equal to or under the data directory after resolving symbolic links, no mode check at `serve`, and no key rotation in this slice. Name the rejected alternatives: `nacl/secretbox`, a key in an environment variable, a raw 32-byte file, and a key derived from an administrator's password. Say that old ciphertext can stay in SQLite's free pages or WAL until reused. [research.md](research.md#passwords-and-the-key) has the facts
+- [X] T003 [P] In `docs/ARCHITECTURE.md` under "Technology direction", replace the sentence that says `x/net` v0.62.0 and `x/text` v0.43.0 arrive with the mail libraries in Slices 2, 3, and 7. `go-imap` v2.0.0-beta.8 brings `go-message` v0.18.2 and `go-sasl` and needs neither, so `x/net` and `x/text` arrive with Slices 3 and 7, if at all
+- [X] T004 [P] Record the changes from "How this list relates to the plan" in `specs/002-imap-incremental-archive/plan.md`: the Delivery order rows for steps 1, 2, 3, 6, and 7, and the `frontend/DESIGN.md` row of the document changes. In `specs/002-imap-incremental-archive/contracts/http-api.md`, say that `POST /api/imports` answers `message` in the list item shape of `GET /api/messages`
 
 **Checkpoint**: Documentation only. Check local links and that the plan, contracts, and this list agree, as AGENTS.md requires for documentation changes.
 
