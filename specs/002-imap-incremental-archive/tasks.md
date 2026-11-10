@@ -104,7 +104,7 @@ Writing these tasks exposed ten places where the plan's order or contracts don't
   - `Load` accepts that line. It returns a missing error for no file, an unreadable error for a directory at the path, and an invalid error for 1,025 bytes, no final newline, `\r\n`, a wrong prefix, 31 or 33 key bytes, unpadded base64, the URL-safe alphabet, and a second line. No error text contains the file's content
   - `TestKeyLocation`: `Inside(dataDir, path)` is true for the data directory itself, a file under it, `data/../data/key`, a symbolic link that points into it, and a path under a symbolic link to it. It resolves a path that doesn't exist yet through its longest existing parent. It is false for `data-other/key` beside `data/`, and works when the data directory doesn't exist yet
   - `TestSealBoundToSource`: seal and open round-trip. A 6-byte password seals to 34 bytes. Opening fails with another key, another host, another user name, or one flipped byte. `IMAP.Example.Test` and `Anna@Example.Test` seal what `imap.example.test` and `anna@example.test` open. Two seals of one password differ
-- [ ] T009 [P] Extend `internal/archtest/archtest_test.go`
+- [X] T009 [P] Extend `internal/archtest/archtest_test.go`
   - Imports: `cmd/mailarkiv` adds `collect` and `passwordkey`. `web` adds `collect`. `collect` uses `archive`, `opstatus`, `sqlitedb`, `fault`, and `passwordkey`. `passwordkey` and `imaptest` import no module. No non-test package outside `internal/imaptest/cmd/` imports `imaptest`
   - Table writes: `imap_source`, `imap_folder`, and `imap_message_problem` belong to `collect`. `collected_message_count` belongs to `archive`, beside `message` and `source_observation`
   - Add one bad in-memory source per new rule, so the checker can't pass on an empty tree
