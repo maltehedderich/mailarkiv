@@ -38,6 +38,9 @@ var allowedImports = map[string][]string{
 	"internal/sqlitedb":    {},
 	"internal/fault":       {},
 	"internal/passwordkey": {},
+	// The IMAP test double. Only tests and the test server under
+	// internal/imaptest/cmd/ may import it.
+	"internal/imaptest": {},
 }
 
 // Each table has one owning module; only that module may write to it.
