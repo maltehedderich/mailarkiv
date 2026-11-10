@@ -62,7 +62,7 @@ func Open(path string) (*DB, error) {
 		return nil, fmt.Errorf("open the catalog: %w", err)
 	}
 	writer.SetMaxOpenConns(1)
-	if err := migrate(context.Background(), writer); err != nil {
+	if err := migrate(context.Background(), writer, migrations); err != nil {
 		return nil, errors.Join(err, writer.Close())
 	}
 
@@ -82,19 +82,19 @@ func (db *DB) Close() error {
 	return errors.Join(db.Reader.Close(), db.Writer.Close())
 }
 
-// migrate applies each migration the catalog lacks, one transaction each, and
-// counts them in PRAGMA user_version. It reads the version inside the write
-// transaction, so `serve` and an account command starting together can't both
-// apply the same file.
-func migrate(ctx context.Context, writer *sql.DB) error {
+// migrate applies each migration in set that the catalog lacks, one
+// transaction each, and counts them in PRAGMA user_version. It reads the
+// version inside the write transaction, so `serve` and an account command
+// starting together can't both apply the same file.
+func migrate(ctx context.Context, writer *sql.DB, set fs.FS) error {
 	// Glob returns the names sorted, which is the order the numbers give.
-	files, err := fs.Glob(migrations, "migrations/*.sql")
+	files, err := fs.Glob(set, "migrations/*.sql")
 	if err != nil {
 		return fmt.Errorf("list the migrations: %w", err)
 	}
 
 	for {
-		applied, err := migrateOnce(ctx, writer, files)
+		applied, err := migrateOnce(ctx, writer, set, files)
 		if err != nil {
 			return err
 		}
@@ -105,7 +105,7 @@ func migrate(ctx context.Context, writer *sql.DB) error {
 }
 
 // migrateOnce applies the next migration and reports whether there was one.
-func migrateOnce(ctx context.Context, writer *sql.DB, files []string) (applied bool, err error) {
+func migrateOnce(ctx context.Context, writer *sql.DB, set fs.FS, files []string) (applied bool, err error) {
 	tx, err := writer.BeginTx(ctx, nil)
 	if err != nil {
 		return false, fmt.Errorf("open the catalog: %w", err)
@@ -129,7 +129,7 @@ func migrateOnce(ctx context.Context, writer *sql.DB, files []string) (applied b
 	}
 
 	name := files[version]
-	statements, err := migrations.ReadFile(name)
+	statements, err := fs.ReadFile(set, name)
 	if err != nil {
 		return false, fmt.Errorf("read %s: %w", name, err)
 	}
