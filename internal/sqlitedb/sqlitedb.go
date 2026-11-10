@@ -49,6 +49,12 @@ type DB struct {
 // Open opens the catalog at path, creating it if it's missing, and brings its
 // schema up to date.
 func Open(path string) (*DB, error) {
+	return open(path, migrations)
+}
+
+// open is Open with the migrations taken from set, so tests can run the
+// runner against migrations of their own.
+func open(path string, set fs.FS) (*DB, error) {
 	absolute, err := filepath.Abs(path)
 	if err != nil {
 		return nil, fmt.Errorf("find the catalog: %w", err)
@@ -62,7 +68,7 @@ func Open(path string) (*DB, error) {
 		return nil, fmt.Errorf("open the catalog: %w", err)
 	}
 	writer.SetMaxOpenConns(1)
-	if err := migrate(context.Background(), writer, migrations); err != nil {
+	if err := migrate(context.Background(), writer, set); err != nil {
 		return nil, errors.Join(err, writer.Close())
 	}
 
@@ -86,15 +92,23 @@ func (db *DB) Close() error {
 // transaction each, and counts them in PRAGMA user_version. It reads the
 // version inside the write transaction, so `serve` and an account command
 // starting together can't both apply the same file.
-func migrate(ctx context.Context, writer *sql.DB, set fs.FS) error {
+func migrate(ctx context.Context, writer *sql.DB, set fs.FS) (err error) {
 	// Glob returns the names sorted, which is the order the numbers give.
 	files, err := fs.Glob(set, "migrations/*.sql")
 	if err != nil {
 		return fmt.Errorf("list the migrations: %w", err)
 	}
 
+	// foreign_keys is a setting of one connection, so every step runs on the
+	// same one.
+	conn, err := writer.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("open the catalog: %w", err)
+	}
+	defer func() { err = errors.Join(err, conn.Close()) }()
+
 	for {
-		applied, err := migrateOnce(ctx, writer, set, files)
+		applied, err := migrateOnce(ctx, conn, set, files)
 		if err != nil {
 			return err
 		}
@@ -105,8 +119,19 @@ func migrate(ctx context.Context, writer *sql.DB, set fs.FS) error {
 }
 
 // migrateOnce applies the next migration and reports whether there was one.
-func migrateOnce(ctx context.Context, writer *sql.DB, set fs.FS, files []string) (applied bool, err error) {
-	tx, err := writer.BeginTx(ctx, nil)
+//
+// Foreign keys are off while it runs: rebuilding a table that another one
+// references means dropping it, which fails while they're on. SQLite ignores
+// the setting inside a transaction, so it changes outside one. A reference
+// check before the commit takes the place of the enforcement.
+func migrateOnce(ctx context.Context, conn *sql.Conn, set fs.FS, files []string) (applied bool, err error) {
+	if _, err := conn.ExecContext(ctx, "PRAGMA foreign_keys = OFF"); err != nil {
+		return false, fmt.Errorf("prepare the catalog for a migration: %w", err)
+	}
+	// Deferred first, so it runs after the rollback below.
+	defer func() { err = errors.Join(err, enableForeignKeys(ctx, conn)) }()
+
+	tx, err := conn.BeginTx(ctx, nil)
 	if err != nil {
 		return false, fmt.Errorf("open the catalog: %w", err)
 	}
@@ -140,10 +165,46 @@ func migrateOnce(ctx context.Context, writer *sql.DB, set fs.FS, files []string)
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", version+1)); err != nil {
 		return false, fmt.Errorf("record %s: %w", name, err)
 	}
+	if err := checkReferences(ctx, tx); err != nil {
+		return false, fmt.Errorf("apply %s: %w", name, err)
+	}
 	if err := tx.Commit(); err != nil {
 		return false, fmt.Errorf("commit %s: %w", name, err)
 	}
 	return true, nil
+}
+
+// checkReferences fails if any row refers to a row that doesn't exist.
+func checkReferences(ctx context.Context, tx *sql.Tx) error {
+	var (
+		table, parent string
+		rowID         sql.NullInt64 // NULL for a table without rowids.
+		constraint    int64
+	)
+	err := tx.QueryRowContext(ctx, "PRAGMA foreign_key_check").Scan(&table, &rowID, &parent, &constraint)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("check references: %w", err)
+	}
+	return fmt.Errorf("a row in %s refers to a missing row in %s", table, parent)
+}
+
+// enableForeignKeys turns enforcement back on and confirms it, because
+// SQLite ignores the setting without an error while a transaction is open.
+func enableForeignKeys(ctx context.Context, conn *sql.Conn) error {
+	if _, err := conn.ExecContext(ctx, "PRAGMA foreign_keys = ON"); err != nil {
+		return fmt.Errorf("turn foreign keys back on: %w", err)
+	}
+	var on int
+	if err := conn.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&on); err != nil {
+		return fmt.Errorf("read foreign_keys: %w", err)
+	}
+	if on != 1 {
+		return fmt.Errorf("foreign_keys reads %d after turning it back on", on)
+	}
+	return nil
 }
 
 // InTx runs fn in a transaction on db, and commits only if fn returns nil.
