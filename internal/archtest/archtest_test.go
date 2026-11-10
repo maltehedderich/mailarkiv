@@ -31,12 +31,13 @@ var allowedImports = map[string][]string{
 		"internal/sqlitedb",
 		"internal/web",
 	},
-	"internal/web":      {"internal/archive", "internal/identity", "internal/opstatus", "internal/fault"},
-	"internal/archive":  {"internal/opstatus", "internal/sqlitedb", "internal/fault"},
-	"internal/identity": {"internal/sqlitedb"},
-	"internal/opstatus": {},
-	"internal/sqlitedb": {},
-	"internal/fault":    {},
+	"internal/web":         {"internal/archive", "internal/identity", "internal/opstatus", "internal/fault"},
+	"internal/archive":     {"internal/opstatus", "internal/sqlitedb", "internal/fault"},
+	"internal/identity":    {"internal/sqlitedb"},
+	"internal/opstatus":    {},
+	"internal/sqlitedb":    {},
+	"internal/fault":       {},
+	"internal/passwordkey": {},
 }
 
 // Each table has one owning module; only that module may write to it.
