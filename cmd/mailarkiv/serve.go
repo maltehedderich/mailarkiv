@@ -158,6 +158,7 @@ func serveCatalog(logger *slog.Logger, dataDir string, db *sqlitedb.DB, options 
 		collector, err = collect.Open(context.Background(), collect.Deps{
 			DB:      db,
 			Archive: originals,
+			Status:  status,
 			Key:     options.key,
 			Logger:  logger,
 			Now:     time.Now,

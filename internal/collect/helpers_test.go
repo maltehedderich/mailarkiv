@@ -4,12 +4,16 @@ import (
 	"bytes"
 	"context"
 	"crypto/x509"
+	"database/sql"
+	"encoding/json"
 	"io/fs"
 	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -134,6 +138,7 @@ func (f *fixture) deps() Deps {
 	return Deps{
 		DB:      f.db,
 		Archive: f.archive,
+		Status:  f.status,
 		Key:     f.key,
 		Logger:  slog.New(slog.NewJSONHandler(f.log, nil)),
 		Now:     f.clock.Now,
@@ -156,7 +161,13 @@ func (f *fixture) start(t *testing.T) *Collector {
 
 func newDouble(t *testing.T, security imaptest.Security) *imaptest.Server {
 	t.Helper()
-	double, err := imaptest.New(imaptest.Options{Security: security, User: testUser, Password: testPassword})
+	return newDoubleFor(t, security, testUser)
+}
+
+// newDoubleFor serves user's mailbox, with testPassword.
+func newDoubleFor(t *testing.T, security imaptest.Security, user string) *imaptest.Server {
+	t.Helper()
+	double, err := imaptest.New(imaptest.Options{Security: security, User: user, Password: testPassword})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -268,3 +279,157 @@ func (f *fixture) blobs(t *testing.T) []string {
 	}
 	return found
 }
+
+// syncAgain stops collector and starts a new one a minute later, which
+// syncs every source at start.
+func (f *fixture) syncAgain(t *testing.T, collector *Collector) *Collector {
+	t.Helper()
+	collector.Stop()
+	f.clock.Advance(time.Minute)
+	return f.start(t)
+}
+
+// logEntries decodes the log lines whose message is msg.
+func (f *fixture) logEntries(t *testing.T, msg string) []map[string]any {
+	t.Helper()
+	var found []map[string]any
+	for line := range strings.Lines(f.log.String()) {
+		var entry map[string]any
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			t.Fatalf("log line %q: %v", line, err)
+		}
+		if entry["msg"] == msg {
+			found = append(found, entry)
+		}
+	}
+	return found
+}
+
+// waitForSyncFailure waits until the log has more than before "sync failed"
+// lines, and returns the newest one's category.
+func (f *fixture) waitForSyncFailure(t *testing.T, before int) string {
+	t.Helper()
+	var entries []map[string]any
+	waitFor(t, "a failed sync", func() bool {
+		entries = f.logEntries(t, "sync failed")
+		return len(entries) > before
+	})
+	category, _ := entries[len(entries)-1]["category"].(string)
+	return category
+}
+
+// assertLogged checks that the log has want lines with message msg, each
+// with the fields in fields.
+func (f *fixture) assertLogged(t *testing.T, msg string, want int, fields map[string]any) {
+	t.Helper()
+	entries := f.logEntries(t, msg)
+	if len(entries) != want {
+		t.Fatalf("the log has %d %q lines, want %d: %s", len(entries), msg, want, f.log.String())
+	}
+	for _, entry := range entries {
+		for key, value := range fields {
+			if entry[key] != value {
+				t.Errorf("%q line has %s = %v, want %v", msg, key, entry[key], value)
+			}
+		}
+	}
+}
+
+// checkpoint reads a folder's UIDVALIDITY and last UID.
+func (f *fixture) checkpoint(t *testing.T, folderID int64) (uidValidity sql.NullInt64, lastUID int64) {
+	t.Helper()
+	if err := f.db.Reader.QueryRow(
+		"SELECT uid_validity, last_uid FROM imap_folder WHERE id = ?", folderID).Scan(&uidValidity, &lastUID); err != nil {
+		t.Fatal(err)
+	}
+	return uidValidity, lastUID
+}
+
+// problem is one imap_message_problem row.
+type problem struct {
+	UIDValidity int64
+	UID         int64
+	Kind        string
+	Size        sql.NullInt64
+	ReceivedAt  sql.NullInt64
+	RecordedAt  int64
+}
+
+// problems lists a folder's problem rows by numbering and UID.
+func (f *fixture) problems(t *testing.T, folderID int64) []problem {
+	t.Helper()
+	rows, err := f.db.Reader.Query(`
+SELECT uid_validity, uid, kind, size, received_at, recorded_at FROM imap_message_problem
+WHERE folder_id = ? ORDER BY uid_validity, uid`, folderID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var found []problem
+	for rows.Next() {
+		var p problem
+		if err := rows.Scan(&p.UIDValidity, &p.UID, &p.Kind, &p.Size, &p.ReceivedAt, &p.RecordedAt); err != nil {
+			t.Fatal(err)
+		}
+		found = append(found, p)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return found
+}
+
+// listed returns the content hashes of every listed message, sorted.
+func (f *fixture) listed(t *testing.T) []string {
+	t.Helper()
+	page, err := f.archive.List(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Total > len(page.Items) {
+		t.Fatalf("the archive lists %d messages, more than one page", page.Total)
+	}
+	var hashes []string
+	for _, item := range page.Items {
+		hashes = append(hashes, item.ContentHash)
+	}
+	slices.Sort(hashes)
+	return hashes
+}
+
+// hashesOf returns the content hashes of bodies, sorted.
+func hashesOf(bodies ...[]byte) []string {
+	var hashes []string
+	for _, body := range bodies {
+		hashes = append(hashes, hashOf(body))
+	}
+	slices.Sort(hashes)
+	return hashes
+}
+
+// tempFiles lists what tmp/ holds.
+func (f *fixture) tempFiles(t *testing.T) []string {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Join(f.dataDir, "tmp"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, entry := range entries {
+		names = append(names, entry.Name())
+	}
+	return names
+}
+
+// fetchCommands counts the UID FETCH commands the double has seen.
+func fetchCommands(double *imaptest.Server) int {
+	var n int
+	for _, command := range double.Commands() {
+		if command.Name == "UID FETCH" {
+			n++
+		}
+	}
+	return n
+}
+
+func nullInt(n int64) sql.NullInt64 { return sql.NullInt64{Int64: n, Valid: true} }

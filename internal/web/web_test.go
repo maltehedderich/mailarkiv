@@ -129,6 +129,7 @@ func (h *harness) openCollector(t *testing.T, options harnessOptions) *collect.C
 	collector, err := collect.Open(context.Background(), collect.Deps{
 		DB:      h.db,
 		Archive: h.archive,
+		Status:  h.status,
 		Key:     key,
 		Logger:  slog.New(slog.NewJSONHandler(h.log, nil)),
 		Now:     h.clock.Now,

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/maltehedderich/mailarkiv/internal/archive"
+	"github.com/maltehedderich/mailarkiv/internal/opstatus"
 	"github.com/maltehedderich/mailarkiv/internal/passwordkey"
 	"github.com/maltehedderich/mailarkiv/internal/sqlitedb"
 )
@@ -17,6 +18,8 @@ import (
 type Deps struct {
 	DB      *sqlitedb.DB
 	Archive *archive.Archive
+	// Status takes the message events: too large, and removed while waiting.
+	Status *opstatus.Status
 	// Key is nil when serve has no key. Sources can then be listed, but not
 	// added or synced.
 	Key    *passwordkey.Key
