@@ -308,3 +308,64 @@ func assertConcurrentCapture(t *testing.T, f *fixture, body []byte, results []St
 		t.Errorf("listed messages = %+v, want one message with %d observations", page, observations)
 	}
 }
+
+// A collection and an import of the same new bytes at once store one
+// original and add both entries, whichever commits first.
+func TestCollectWhileImport(t *testing.T) {
+	f := newFixture(t)
+	f.addSources(t)
+
+	for round := range 50 {
+		content := fmt.Appendf(nil, "From: sender@example.test\r\nSubject: Collected round %d\r\n\r\nBody.\r\n", round)
+		blobsBefore := len(files(t, filepath.Join(f.dataDir, "blobs")))
+		messagesBefore := f.count(t, "SELECT COUNT(*) FROM message")
+		observationsBefore := f.count(t, "SELECT COUNT(*) FROM source_observation")
+
+		release := make(chan struct{})
+		results := make([]Result, 2)
+		errs := make([]error, 2)
+		var finished sync.WaitGroup
+		finished.Go(func() {
+			<-release
+			results[0], errs[0] = f.archive.StoreCollected(context.Background(), bytes.NewReader(content), CollectedMeta{SourceID: sourceAnna, FolderID: annaInbox})
+		})
+		finished.Go(func() {
+			<-release
+			results[1], errs[1] = f.archive.Import(context.Background(), bytes.NewReader(content), ImportMeta{AccountEmail: account, FileName: name("same.eml")})
+		})
+		close(release)
+		finished.Wait()
+
+		var ids [2]int64
+		for i, result := range results {
+			if errs[i] != nil {
+				t.Fatalf("round %d: capture %d: %v", round, i, errs[i])
+			}
+			stored, ok := result.(Stored)
+			if !ok {
+				t.Fatalf("round %d: capture %d = %#v, want Stored", round, i, result)
+			}
+			ids[i] = stored.Message.ID
+		}
+		if ids[0] != ids[1] {
+			t.Fatalf("round %d: message IDs = %v, want one message", round, ids)
+		}
+		if got := len(files(t, filepath.Join(f.dataDir, "blobs"))) - blobsBefore; got != 1 {
+			t.Fatalf("round %d: %d new blobs, want 1", round, got)
+		}
+		if got := f.count(t, "SELECT COUNT(*) FROM message") - messagesBefore; got != 1 {
+			t.Fatalf("round %d: %d new messages, want 1", round, got)
+		}
+		if got := f.count(t, "SELECT COUNT(*) FROM source_observation") - observationsBefore; got != 2 {
+			t.Fatalf("round %d: %d new entries, want 2", round, got)
+		}
+		f.assertTempEmpty(t)
+	}
+
+	if n := f.collectedCount(t, sourceAnna); n != 50 {
+		t.Errorf("collected count = %d, want 50", n)
+	}
+	if failures := f.status.Snapshot().Failures; len(failures) != 0 {
+		t.Errorf("failures = %+v, want none", failures)
+	}
+}
