@@ -15,8 +15,8 @@ import (
 	"time"
 )
 
-// Category is one of six failure categories. Its field is private, so no
-// other package can make a seventh.
+// Category is one of the failure categories below. Its field is private, so
+// no other package can make another.
 type Category struct{ name string }
 
 var (
@@ -26,6 +26,9 @@ var (
 	StoredOriginalMissing = Category{"stored_original_missing"}
 	StoredOriginalDamaged = Category{"stored_original_damaged"}
 	TempFileNotRemoved    = Category{"temp_file_not_removed"}
+	// MessageTooLarge and MessageRemoved name a source, never a message.
+	MessageTooLarge = Category{"message_too_large"}
+	MessageRemoved  = Category{"message_removed"}
 )
 
 // String returns the category's name, which the log, the API, and the frontend
@@ -48,14 +51,16 @@ type UnreferencedOriginal struct {
 	Size        int64
 }
 
-// FailureEvent is one failure since the latest start. MessageID and ContentHash
-// are nil where they don't apply. Restored means an import has already replaced
-// the stored original.
+// FailureEvent is one failure since the latest start. MessageID, ContentHash,
+// and SourceID are nil where they don't apply. SourceID is set only for
+// MessageTooLarge and MessageRemoved. Restored means an import has already
+// replaced the stored original.
 type FailureEvent struct {
 	At          time.Time
 	Category    Category
 	MessageID   *int64
 	ContentHash *string
+	SourceID    *int64
 	Restored    bool
 }
 
@@ -102,6 +107,9 @@ func (s *Status) RecordFailure(event FailureEvent) {
 	}
 	if event.ContentHash != nil {
 		attrs = append(attrs, slog.String("content_hash", *event.ContentHash))
+	}
+	if event.SourceID != nil {
+		attrs = append(attrs, slog.Int64("source_id", *event.SourceID))
 	}
 	if event.Restored {
 		attrs = append(attrs, slog.Bool("restored", true))
