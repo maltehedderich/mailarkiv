@@ -113,9 +113,12 @@ func TestMigrateSlice1Catalog(t *testing.T) {
 		}
 		// Newest latest entry first: message 3 (entry 5), 1 (entry 4), 2 (entry 2).
 		want := []Message{
-			{ID: 3, ContentHash: hashOf(bodies[3]), Size: int64(len(bodies[3])), FileName: name("report.eml"), ImportedAt: time.UnixMilli(5_000).UTC(), ImportCount: 2},
-			{ID: 1, ContentHash: hashOf(bodies[1]), Size: int64(len(bodies[1])), FileName: name("invoice-again.eml"), ImportedAt: time.UnixMilli(4_000).UTC(), ImportCount: 2},
-			{ID: 2, ContentHash: hashOf(bodies[2]), Size: int64(len(bodies[2])), FileName: nil, ImportedAt: time.UnixMilli(2_000).UTC(), ImportCount: 1},
+			{ID: 3, ContentHash: hashOf(bodies[3]), Size: int64(len(bodies[3])), ObservationCount: 2,
+				Latest: ImportEntry{ObservedAt: time.UnixMilli(5_000).UTC(), AccountEmail: "admin@example.test", FileName: name("report.eml")}},
+			{ID: 1, ContentHash: hashOf(bodies[1]), Size: int64(len(bodies[1])), ObservationCount: 2,
+				Latest: ImportEntry{ObservedAt: time.UnixMilli(4_000).UTC(), AccountEmail: "other@example.test", FileName: name("invoice-again.eml")}},
+			{ID: 2, ContentHash: hashOf(bodies[2]), Size: int64(len(bodies[2])), ObservationCount: 1,
+				Latest: ImportEntry{ObservedAt: time.UnixMilli(2_000).UTC(), AccountEmail: "admin@example.test", FileName: nil}},
 		}
 		if page.Total != 3 || len(page.Items) != len(want) {
 			t.Fatalf("page = %+v, want 3 items and a total of 3", page)
@@ -139,13 +142,13 @@ func TestMigrateSlice1Catalog(t *testing.T) {
 					want = append(want, entries[i])
 				}
 			}
-			if len(history.Observations) != len(want) {
-				t.Fatalf("message %d has %d entries, want %d", messageID, len(history.Observations), len(want))
+			if len(history.Entries) != len(want) {
+				t.Fatalf("message %d has %d entries, want %d", messageID, len(history.Entries), len(want))
 			}
 			for i, entry := range want {
-				got := history.Observations[i]
-				if got.SourceType != "manual_import" || got.AccountEmail != entry.accountEmail ||
-					!got.ObservedAt.Equal(time.UnixMilli(entry.observedAt)) || !equalNames(got.FileName, entry.fileName) {
+				got := history.Entries[i]
+				imported := ImportEntry{ObservedAt: time.UnixMilli(entry.observedAt), AccountEmail: entry.accountEmail, FileName: entry.fileName}
+				if !sameEntry(got, imported) {
 					t.Errorf("message %d entry %d = %+v, want %+v", messageID, i, got, entry)
 				}
 			}

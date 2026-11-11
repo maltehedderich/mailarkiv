@@ -243,6 +243,16 @@ func (s *Server) AddMessage(folder string, body []byte, received time.Time) (ima
 	return data.UID, nil
 }
 
+// UIDValidity returns folder's UIDVALIDITY, as EXAMINE reports it.
+func (s *Server) UIDValidity(folder string) (uint32, error) {
+	view, err := s.open(folder)
+	if err != nil {
+		return 0, err
+	}
+	defer view.Close()
+	return view.selected.UIDValidity, nil
+}
+
 // DeleteMessage expunges the message with uid from folder.
 func (s *Server) DeleteMessage(folder string, uid imap.UID) error {
 	view, err := s.open(folder)

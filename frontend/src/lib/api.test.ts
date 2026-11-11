@@ -100,34 +100,82 @@ describe("listMessages", () => {
     id: 17,
     content_hash: HASH,
     size: 31,
-    file_name: null,
-    imported_at: "2026-11-06T15:50:52.123Z",
-    import_count: 3,
+    observation_count: 3,
+    latest: {
+      source_type: "manual_import",
+      observed_at: "2026-11-06T15:50:52.123Z",
+      account_email: "admin@example.test",
+      file_name: null,
+    },
+  };
+  const collected = {
+    id: 18,
+    content_hash: HASH,
+    size: 42,
+    observation_count: 1,
+    latest: {
+      source_type: "imap_collection",
+      observed_at: "2026-11-08T09:10:04.123Z",
+      source: {
+        id: 3,
+        name: "Anna",
+        host: "imap.example.test",
+        user_name: "anna@example.test",
+        removed: false,
+      },
+      folder: "Entwürfe",
+      received_at: "2026-11-08T09:07:55.000Z",
+    },
   };
 
-  test("reads a page", async () => {
+  test("reads a page with both kinds of latest entry", async () => {
     const { fetch, calls } = answer(200, {
-      items: [item],
+      items: [collected, item],
       page: 2,
       page_size: 50,
-      total: 51,
+      total: 52,
     });
     expect(await listMessages("2", fetch)).toEqual({
       kind: "ok",
       value: {
         items: [
           {
+            id: 18,
+            contentHash: HASH,
+            size: 42,
+            observedAt: "2026-11-08T09:10:04.123Z",
+            observationCount: 1,
+            latest: {
+              sourceType: "imap_collection",
+              observedAt: "2026-11-08T09:10:04.123Z",
+              source: {
+                id: 3,
+                name: "Anna",
+                host: "imap.example.test",
+                userName: "anna@example.test",
+                removed: false,
+              },
+              folder: "Entwürfe",
+              receivedAt: "2026-11-08T09:07:55.000Z",
+            },
+          },
+          {
             id: 17,
             contentHash: HASH,
             size: 31,
-            fileName: null,
-            importedAt: "2026-11-06T15:50:52.123Z",
-            importCount: 3,
+            observedAt: "2026-11-06T15:50:52.123Z",
+            observationCount: 3,
+            latest: {
+              sourceType: "manual_import",
+              observedAt: "2026-11-06T15:50:52.123Z",
+              accountEmail: "admin@example.test",
+              fileName: null,
+            },
           },
         ],
         page: 2,
         pageSize: 50,
-        total: 51,
+        total: 52,
       },
     });
     expect(calls[0].url).toBe("/api/messages?page=2");
@@ -165,6 +213,51 @@ describe("listMessages", () => {
       "a broken item",
       answer(200, {
         items: [{ ...item, id: "17" }],
+        page: 1,
+        page_size: 50,
+        total: 1,
+      }).fetch,
+    ],
+    [
+      "an item with the old import fields",
+      answer(200, {
+        items: [
+          {
+            id: 17,
+            content_hash: HASH,
+            size: 31,
+            file_name: null,
+            imported_at: "2026-11-06T15:50:52.123Z",
+            import_count: 3,
+          },
+        ],
+        page: 1,
+        page_size: 50,
+        total: 1,
+      }).fetch,
+    ],
+    [
+      "an item with no latest entry",
+      answer(200, {
+        items: [{ ...item, latest: null }],
+        page: 1,
+        page_size: 50,
+        total: 1,
+      }).fetch,
+    ],
+    [
+      "an item with no count",
+      answer(200, {
+        items: [{ ...item, observation_count: undefined }],
+        page: 1,
+        page_size: 50,
+        total: 1,
+      }).fetch,
+    ],
+    [
+      "a latest entry of an unknown source type",
+      answer(200, {
+        items: [{ ...item, latest: { ...item.latest, source_type: "pop3" } }],
         page: 1,
         page_size: 50,
         total: 1,
@@ -260,11 +353,35 @@ describe("getMessage", () => {
     account_email: "admin@example.test",
     file_name: "invoice.eml",
   };
+  const COLLECTION = {
+    source_type: "imap_collection",
+    observed_at: "2026-11-08T09:10:04.123Z",
+    source: {
+      id: 3,
+      name: "Anna",
+      host: "imap.example.test",
+      user_name: "anna@example.test",
+      removed: false,
+    },
+    folder: "INBOX",
+    received_at: "2026-11-08T09:07:55.000Z",
+  };
   const HISTORY = {
     id: 17,
     content_hash: HASH,
     size: 31,
-    observations: [OBSERVATION, { ...OBSERVATION, file_name: null }],
+    observations: [
+      COLLECTION,
+      // A removed source keeps its labels, and a server may report no time.
+      {
+        ...COLLECTION,
+        source: { ...COLLECTION.source, removed: true },
+        folder: "Entwürfe",
+        received_at: null,
+      },
+      OBSERVATION,
+      { ...OBSERVATION, file_name: null },
+    ],
   };
 
   test("reads the contract's history, keeping its order", async () => {
@@ -276,6 +393,32 @@ describe("getMessage", () => {
         contentHash: HASH,
         size: 31,
         observations: [
+          {
+            sourceType: "imap_collection",
+            observedAt: "2026-11-08T09:10:04.123Z",
+            source: {
+              id: 3,
+              name: "Anna",
+              host: "imap.example.test",
+              userName: "anna@example.test",
+              removed: false,
+            },
+            folder: "INBOX",
+            receivedAt: "2026-11-08T09:07:55.000Z",
+          },
+          {
+            sourceType: "imap_collection",
+            observedAt: "2026-11-08T09:10:04.123Z",
+            source: {
+              id: 3,
+              name: "Anna",
+              host: "imap.example.test",
+              userName: "anna@example.test",
+              removed: true,
+            },
+            folder: "Entwürfe",
+            receivedAt: null,
+          },
           {
             sourceType: "manual_import",
             observedAt: "2026-11-06T15:50:52.123Z",
@@ -332,6 +475,49 @@ describe("getMessage", () => {
         ...HISTORY,
         observations: [{ ...OBSERVATION, account_email: undefined }],
       },
+    ],
+    [
+      "a collection with no folder",
+      200,
+      { ...HISTORY, observations: [{ ...COLLECTION, folder: undefined }] },
+    ],
+    [
+      "a collection with no source",
+      200,
+      { ...HISTORY, observations: [{ ...COLLECTION, source: null }] },
+    ],
+    [
+      "a collection source with no removed flag",
+      200,
+      {
+        ...HISTORY,
+        observations: [
+          {
+            ...COLLECTION,
+            source: { ...COLLECTION.source, removed: undefined },
+          },
+        ],
+      },
+    ],
+    [
+      "a collection source with a text ID",
+      200,
+      {
+        ...HISTORY,
+        observations: [
+          { ...COLLECTION, source: { ...COLLECTION.source, id: "3" } },
+        ],
+      },
+    ],
+    [
+      "a received time that can't be read",
+      200,
+      { ...HISTORY, observations: [{ ...COLLECTION, received_at: "soon" }] },
+    ],
+    [
+      "a collection with no received time field",
+      200,
+      { ...HISTORY, observations: [{ ...COLLECTION, received_at: undefined }] },
     ],
   ])("reads %s as unavailable", async (_name, status, body) => {
     const { fetch } = answer(status, body);

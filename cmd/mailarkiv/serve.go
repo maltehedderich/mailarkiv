@@ -17,8 +17,10 @@ import (
 
 	"github.com/maltehedderich/mailarkiv/frontend"
 	"github.com/maltehedderich/mailarkiv/internal/archive"
+	"github.com/maltehedderich/mailarkiv/internal/collect"
 	"github.com/maltehedderich/mailarkiv/internal/identity"
 	"github.com/maltehedderich/mailarkiv/internal/opstatus"
+	"github.com/maltehedderich/mailarkiv/internal/passwordkey"
 	"github.com/maltehedderich/mailarkiv/internal/sqlitedb"
 	"github.com/maltehedderich/mailarkiv/internal/web"
 )
@@ -41,13 +43,25 @@ const (
 	causeStorage = "storage"
 	causeCatalog = "catalog"
 	causePort    = "port"
+	causeKey     = "key"
 )
+
+// serveOptions are serve's settings besides the data directory.
+type serveOptions struct {
+	listen string
+	// key is nil without --key-file.
+	key *passwordkey.Key
+	// collection is set by the hidden --preview-collection flag.
+	collection bool
+}
 
 func serve(args []string) int {
 	flags := flag.NewFlagSet("serve", flag.ContinueOnError)
 	flags.Usage = func() { fmt.Fprint(os.Stderr, usage) }
 	dataDir := flags.String("data-dir", "", "")
 	listen := flags.String("listen", defaultListen, "")
+	keyFile := flags.String("key-file", "", "")
+	collection := flags.Bool("preview-collection", false, "")
 
 	if err := flags.Parse(args); err != nil {
 		return exitBadArgs
@@ -66,6 +80,17 @@ func serve(args []string) int {
 		return startupFailed(logger, causeStorage, err)
 	}
 
+	// Before the lock, so a bad key fails fast and touches nothing else.
+	options := serveOptions{listen: *listen, collection: *collection}
+	if *keyFile != "" {
+		loaded, reason, err := loadKey(*dataDir, *keyFile)
+		if err != nil {
+			logger.Error("startup failed", "cause", causeKey, "reason", reason, "error", err.Error())
+			return exitFailed
+		}
+		options.key = loaded
+	}
+
 	lock, err := takeLock(*dataDir)
 	if err != nil {
 		return startupFailed(logger, causeLock, err)
@@ -81,7 +106,7 @@ func serve(args []string) int {
 	if err != nil {
 		return startupFailed(logger, causeCatalog, err)
 	}
-	code := serveCatalog(logger, *dataDir, db, *listen)
+	code := serveCatalog(logger, *dataDir, db, options)
 	if err := db.Close(); err != nil {
 		logger.Error("close the catalog", "error", err.Error())
 		return exitFailed
@@ -105,7 +130,7 @@ func takeLock(dataDir string) (*os.File, error) {
 }
 
 // serveCatalog builds the modules on the open catalog, runs recovery, and serves.
-func serveCatalog(logger *slog.Logger, dataDir string, db *sqlitedb.DB, listen string) int {
+func serveCatalog(logger *slog.Logger, dataDir string, db *sqlitedb.DB, options serveOptions) int {
 	files, err := fs.Sub(frontend.Build, "build")
 	if err != nil {
 		logger.Error("open the embedded interface", "error", err.Error())
@@ -122,21 +147,48 @@ func serveCatalog(logger *slog.Logger, dataDir string, db *sqlitedb.DB, listen s
 		}
 		return startupFailed(logger, causeStorage, err)
 	}
-	return listenAndServe(logger, listen, web.New(web.Deps{
+
+	var collector *collect.Collector
+	if options.collection {
+		if options.key == nil {
+			logger.Info("collection unavailable", "reason", "no key file given")
+		}
+		// Nil roots trust the system's certificates, which SSL_CERT_FILE can
+		// replace.
+		collector, err = collect.Open(context.Background(), collect.Deps{
+			DB:      db,
+			Archive: originals,
+			Key:     options.key,
+			Logger:  logger,
+			Now:     time.Now,
+		})
+		if err != nil {
+			return startupFailed(logger, causeCatalog, err)
+		}
+	}
+	return listenAndServe(logger, options.listen, web.New(web.Deps{
 		Files:    files,
 		Logger:   logger,
 		Identity: identity.New(db, time.Now),
 		Archive:  originals,
 		Status:   status,
-	}))
+		Labels:   collect.NewLabeler(db),
+		Collect:  collector,
+	}), collector)
 }
 
 // listenAndServe serves until SIGTERM or SIGINT, then gives requests in
-// progress the grace period.
-func listenAndServe(logger *slog.Logger, listen string, handler http.Handler) int {
+// progress the grace period. A collector, if any, starts once the port is
+// bound and stops during the grace period.
+func listenAndServe(logger *slog.Logger, listen string, handler http.Handler, collector *collect.Collector) int {
 	listener, err := net.Listen("tcp", listen)
 	if err != nil {
 		return startupFailed(logger, causePort, err)
+	}
+	stopCollecting := func() {}
+	if collector != nil {
+		collector.Start()
+		stopCollecting = collector.Stop
 	}
 
 	server := &http.Server{
@@ -159,12 +211,20 @@ func listenAndServe(logger *slog.Logger, listen string, handler http.Handler) in
 	select {
 	case err := <-served:
 		logger.Error("the server stopped by itself", "error", err.Error())
+		stopCollecting()
 		return exitFailed
 	case <-signals.Done():
 	}
 	// A second signal now ends the process the default way.
 	stopSignals()
 	logger.Info("shutting down")
+
+	// Stopping a sync closes its connection, so it ends well inside the grace.
+	collecting := make(chan struct{})
+	go func() {
+		defer close(collecting)
+		stopCollecting()
+	}()
 
 	grace, cancel := context.WithTimeout(context.Background(), shutdownGrace)
 	defer cancel()
@@ -174,6 +234,7 @@ func listenAndServe(logger *slog.Logger, listen string, handler http.Handler) in
 			logger.Error("close the listener", "error", err.Error())
 		}
 	}
+	<-collecting
 	if err := <-served; !errors.Is(err, http.ErrServerClosed) {
 		logger.Error("the server stopped", "error", err.Error())
 		return exitFailed

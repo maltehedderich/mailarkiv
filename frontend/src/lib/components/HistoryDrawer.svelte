@@ -3,12 +3,15 @@
   import DownloadIcon from "~icons/lucide/download";
   import CloseIcon from "~icons/lucide/x";
 
-  import type { ApiResult, MessageHistory, SourceType } from "#lib/api.js";
+  import type { ApiResult, MessageHistory } from "#lib/api.js";
+  import EntryName from "#lib/components/EntryName.svelte";
   import FailedLoad from "#lib/components/FailedLoad.svelte";
   import FileName from "#lib/components/FileName.svelte";
   import FullHash from "#lib/components/FullHash.svelte";
   import Toasts from "#lib/components/Toasts.svelte";
+  import UntrustedText from "#lib/components/UntrustedText.svelte";
   import { startDownload } from "#lib/download/start.js";
+  import { entryName } from "#lib/format/entry.js";
   import { formatBytes, formatSize } from "#lib/format/size.js";
   import { formatTime } from "#lib/format/time.js";
   import { setDrawerOpen } from "#lib/toasts/store.svelte.js";
@@ -21,10 +24,6 @@
     history: ApiResult<MessageHistory> | null;
     onclose: () => void;
   } = $props();
-
-  const SOURCES: Record<SourceType, string> = {
-    manual_import: "Manual import",
-  };
 
   const numbers = new Intl.NumberFormat("en-US");
 
@@ -105,17 +104,21 @@
   onclick={clicked}
 >
   <header>
-    <!-- The newest import's name, as its row shows it, so the drawer says
+    <!-- The newest entry's name, as its row shows it, so the drawer says
          which message it's about where it covers the list. -->
     {#if shown?.kind === "ok"}
-      {@const newest = shown.value.observations[0]?.fileName ?? null}
+      {@const newest = shown.value.observations[0]}
       <h2 id="history-title" class="titled">
-        <span class="kind">Import history</span>
+        <span class="kind">History</span>
         <span class="visually-hidden">of</span>
-        <span class="subject"><FileName name={newest} /></span>
+        <span class="subject"
+          >{#if newest}<EntryName entry={newest} />{:else}<FileName
+              name={null}
+            />{/if}</span
+        >
       </h2>
     {:else}
-      <h2 id="history-title">Import history</h2>
+      <h2 id="history-title">History</h2>
     {/if}
     <button
       bind:this={closeButton}
@@ -153,9 +156,9 @@
             </div>
           </dl>
 
-          <section class="imports" aria-labelledby="imports-title">
-            <h3 id="imports-title">
-              Imports <span class="count"
+          <section class="entries" aria-labelledby="entries-title">
+            <h3 id="entries-title">
+              Entries <span class="count"
                 >{numbers.format(observations.length)}</span
               >
             </h3>
@@ -165,13 +168,46 @@
                   <time class="when" datetime={observation.observedAt}>
                     {formatTime(observation.observedAt)}
                   </time>
-                  <p class="name">
-                    <FileName name={observation.fileName} full />
-                  </p>
-                  <p class="by">
-                    {SOURCES[observation.sourceType]} by
-                    <bdi>{observation.accountEmail}</bdi>
-                  </p>
+                  {#if observation.sourceType === "manual_import"}
+                    <p class="name">
+                      <FileName name={observation.fileName} full />
+                    </p>
+                    <p class="by">
+                      Manual import by
+                      <bdi>{observation.accountEmail}</bdi>
+                    </p>
+                  {:else}
+                    <p class="name">
+                      <UntrustedText value={observation.folder} full />
+                    </p>
+                    <!-- The time above is when MailArkiv collected it. A
+                         removed source's entries read as they did before. -->
+                    <dl class="collection">
+                      <dt>Collected from</dt>
+                      <dd>
+                        <UntrustedText value={observation.source.name} full />
+                      </dd>
+                      <dt>Server</dt>
+                      <dd><bdi>{observation.source.host}</bdi></dd>
+                      <dt>User name</dt>
+                      <dd>
+                        <UntrustedText
+                          value={observation.source.userName}
+                          full
+                        />
+                      </dd>
+                      <dt>Received</dt>
+                      <dd>
+                        {#if observation.receivedAt === null}
+                          Unknown
+                        {:else}
+                          <time datetime={observation.receivedAt}
+                            >{formatTime(observation.receivedAt)}</time
+                          >
+                        {/if}
+                      </dd>
+                    </dl>
+                  {/if}
                 </li>
               {/each}
             </ol>
@@ -196,7 +232,7 @@
       <p class="saved-as">
         Saves as <span class="file">{savedAs(contentHash)}</span>
       </p>
-      <!-- The newest import's name, for the toasts, as the row shows it. -->
+      <!-- The newest entry's name, for the toasts, as the row shows it. -->
       <button
         class="button large"
         type="button"
@@ -204,7 +240,7 @@
           startDownload({
             id,
             contentHash,
-            fileName: observations[0]?.fileName ?? null,
+            fileName: observations[0] ? entryName(observations[0]) : null,
           })}
       >
         <DownloadIcon />
@@ -376,7 +412,7 @@
   }
 
   /* The history, below a line, so it reads apart from the facts. */
-  .imports {
+  .entries {
     padding-top: var(--space-20);
     border-top: 1px solid var(--line);
   }
@@ -452,6 +488,29 @@
   .by bdi {
     display: inline-block;
     max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  /* A collection's source, server, user name, and received time, in a label
+     column under the folder. */
+  .collection {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    column-gap: var(--space-12);
+    margin: 0;
+    color: var(--text-3);
+    font-size: var(--size-label);
+    line-height: var(--leading-label);
+  }
+
+  .collection dt {
+    color: var(--text-3);
+    font-weight: var(--weight-regular);
+  }
+
+  .collection dd {
+    color: var(--text-2);
+    font-variant-numeric: tabular-nums;
     overflow-wrap: anywhere;
   }
 

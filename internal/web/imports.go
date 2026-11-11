@@ -71,8 +71,12 @@ func importFile(s *server, w http.ResponseWriter, r *http.Request) {
 		if result.Outcome == archive.Archived {
 			status = http.StatusCreated
 		}
-		message := newMessageJSON(result.Message)
-		writeJSON(w, status, importAnswer{Outcome: result.Outcome.String(), Message: &message})
+		messages, err := s.encodeMessages(r.Context(), []archive.Message{result.Message})
+		if err != nil {
+			s.writeInternalError(w, r, err)
+			return
+		}
+		writeJSON(w, status, importAnswer{Outcome: result.Outcome.String(), Message: &messages[0]})
 	case archive.Refused:
 		status := http.StatusUnprocessableEntity
 		if result.Reason == archive.TooLarge {

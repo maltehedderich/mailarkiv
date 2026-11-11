@@ -40,6 +40,8 @@ func run(args []string) int {
 		return serve(args[1:])
 	case "account":
 		return account(args[1:])
+	case "key":
+		return key(args[1:])
 	default:
 		return badArgs()
 	}

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/maltehedderich/mailarkiv/internal/archive"
+	"github.com/maltehedderich/mailarkiv/internal/collect"
 	"github.com/maltehedderich/mailarkiv/internal/identity"
 	"github.com/maltehedderich/mailarkiv/internal/opstatus"
 )
@@ -38,6 +39,9 @@ type Route struct {
 	// NoSession replaces a SignedIn route's 401 answer for a caller without a
 	// valid session. Nil means the 401. It never runs when the lookup failed.
 	NoSession func(http.ResponseWriter, *http.Request)
+	// Collection routes exist only when Deps.Collect is set. Without it their
+	// paths are unknown, like any other.
+	Collection bool
 }
 
 func (r Route) pattern() string {
@@ -59,6 +63,9 @@ func Routes() []Route {
 		{Method: http.MethodGet, Path: "/api/messages/{id}", Access: SignedIn, Handler: readHistory},
 		{Method: http.MethodGet, Path: "/api/messages/{id}/original", Access: SignedIn, Handler: downloadOriginal, NoSession: redirectToSignIn},
 		{Method: http.MethodGet, Path: "/api/status", Access: SignedIn, Handler: readStatus},
+		{Method: http.MethodPost, Path: "/api/sources", Access: SignedIn, Handler: addSource, Collection: true},
+		{Method: http.MethodGet, Path: "/api/sources", Access: SignedIn, Handler: listSources, Collection: true},
+		{Method: http.MethodGet, Path: "/api/sources/{id}", Access: SignedIn, Handler: readSource, Collection: true},
 		{Path: "/", Access: Public, Handler: serveStatic},
 	}
 }
@@ -71,6 +78,10 @@ type Deps struct {
 	Identity *identity.Identity
 	Archive  *archive.Archive
 	Status   *opstatus.Status
+	// Labels names the folders of collection entries.
+	Labels *collect.Labeler
+	// Collect is nil when serve doesn't collect mail.
+	Collect *collect.Collector
 }
 
 type server struct {
@@ -79,6 +90,8 @@ type server struct {
 	identity *identity.Identity
 	archive  *archive.Archive
 	status   *opstatus.Status
+	labels   *collect.Labeler
+	collect  *collect.Collector
 }
 
 // New returns the server's handler.
@@ -93,10 +106,15 @@ func newHandler(deps Deps, routes []Route) http.Handler {
 		identity: deps.Identity,
 		archive:  deps.Archive,
 		status:   deps.Status,
+		labels:   deps.Labels,
+		collect:  deps.Collect,
 	}
 
 	mux := http.NewServeMux()
 	for _, route := range routes {
+		if route.Collection && deps.Collect == nil {
+			continue
+		}
 		mux.Handle(route.pattern(), s.guard(route))
 	}
 	// Any method on an /api/ path with no route lands here, including a known

@@ -16,7 +16,7 @@ const QUIET_MS = 400;
 export interface Downloadable {
   id: number;
   contentHash: string;
-  /** The name shown in the toast. Null when the import supplied none. */
+  /** The name shown in the toast, as the row names the message. */
   fileName: string | null;
 }
 

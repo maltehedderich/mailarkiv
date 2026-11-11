@@ -281,6 +281,31 @@ func TestBodyPeekReturnsTheExactBytes(t *testing.T) {
 
 // The in-memory server rewrites a header when it serves BODY[], so the
 // double refuses a body it couldn't return byte for byte.
+func TestUIDValidityMatchesExamine(t *testing.T) {
+	server := newDouble(t, imaptest.ImplicitTLS)
+	if err := server.AddFolder("Entwürfe"); err != nil {
+		t.Fatal(err)
+	}
+	client := signIn(t, server, imaptest.ImplicitTLS)
+
+	for _, folder := range []string{"INBOX", "Entwürfe"} {
+		selected, err := client.Select(folder, &imap.SelectOptions{ReadOnly: true}).Wait()
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := server.UIDValidity(folder)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got == 0 || got != selected.UIDValidity {
+			t.Errorf("UIDValidity(%q) = %d, want EXAMINE's %d", folder, got, selected.UIDValidity)
+		}
+	}
+	if _, err := server.UIDValidity("Missing"); err == nil {
+		t.Error("UIDValidity of a missing folder succeeded")
+	}
+}
+
 func TestAddMessageRefusesBytesItWouldRewrite(t *testing.T) {
 	server := newDouble(t, imaptest.ImplicitTLS)
 	for name, body := range map[string][]byte{

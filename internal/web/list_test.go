@@ -25,8 +25,10 @@ func TestListAtTenThousand(t *testing.T) {
 
 	type listed struct {
 		Items []struct {
-			ID         int64  `json:"id"`
-			ImportedAt string `json:"imported_at"`
+			ID     int64 `json:"id"`
+			Latest struct {
+				ObservedAt string `json:"observed_at"`
+			} `json:"latest"`
 		} `json:"items"`
 		PageSize int `json:"page_size"`
 		Total    int `json:"total"`
@@ -63,9 +65,9 @@ func TestListAtTenThousand(t *testing.T) {
 				t.Fatalf("page %d lists message %d again", page, item.ID)
 			}
 			seen[item.ID] = true
-			at, err := time.Parse(time.RFC3339Nano, item.ImportedAt)
+			at, err := time.Parse(time.RFC3339Nano, item.Latest.ObservedAt)
 			if err != nil {
-				t.Fatalf("page %d: imported_at %q: %v", page, item.ImportedAt, err)
+				t.Fatalf("page %d: observed_at %q: %v", page, item.Latest.ObservedAt, err)
 			}
 			// Each seeded import has its own time, so most recent first is
 			// strictly decreasing.

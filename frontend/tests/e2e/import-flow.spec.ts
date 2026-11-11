@@ -143,7 +143,7 @@ test("the result stays until the next import starts", async ({ page }) => {
 
   // Opening and closing the history, and choosing the next file, start nothing.
   await result(page).getByRole("link", { name: "Open import history" }).click();
-  const drawer = page.getByRole("dialog", { name: "Import history" });
+  const drawer = page.getByRole("dialog", { name: "History" });
   await expect(drawer).toBeVisible();
   await drawer.getByRole("button", { name: "Close" }).click();
   await expect(drawer).toBeHidden();

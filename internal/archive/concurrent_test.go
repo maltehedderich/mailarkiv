@@ -304,7 +304,7 @@ func assertConcurrentCapture(t *testing.T, f *fixture, body []byte, results []St
 	if err != nil {
 		t.Fatal(err)
 	}
-	if page.Total != 1 || len(page.Items) != 1 || page.Items[0].ImportCount != observations {
+	if page.Total != 1 || len(page.Items) != 1 || page.Items[0].ObservationCount != observations {
 		t.Errorf("listed messages = %+v, want one message with %d observations", page, observations)
 	}
 }

@@ -66,7 +66,7 @@ function rowLink(page: Page) {
 }
 
 function drawer(page: Page) {
-  return page.getByRole("dialog", { name: "Import history" });
+  return page.getByRole("dialog", { name: "History" });
 }
 
 /** Presses Tab until the target has focus, as a keyboard user would. */

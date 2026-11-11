@@ -17,11 +17,11 @@ export interface Message {
   id: number;
   contentHash: string;
   size: number;
-  /** Null when the import supplied no name. */
-  fileName: string | null;
-  /** RFC 3339 in UTC. */
-  importedAt: string;
-  importCount: number;
+  /** The latest entry's time, RFC 3339 in UTC. */
+  observedAt: string;
+  /** Counts every entry, imports and collections alike. */
+  observationCount: number;
+  latest: Observation;
 }
 
 export interface MessagePage {
@@ -32,10 +32,13 @@ export interface MessagePage {
 }
 
 /** The source column's CHECK constraint enforces the same set on the server. */
-export type SourceType = "manual_import";
+export type SourceType = "manual_import" | "imap_collection";
 
-export interface Observation {
-  sourceType: SourceType;
+/** One history entry: an import, or a collection from a mailbox folder. */
+export type Observation = ImportObservation | CollectionObservation;
+
+export interface ImportObservation {
+  sourceType: "manual_import";
   /** RFC 3339 in UTC. */
   observedAt: string;
   accountEmail: string;
@@ -43,11 +46,32 @@ export interface Observation {
   fileName: string | null;
 }
 
+export interface CollectionObservation {
+  sourceType: "imap_collection";
+  /** When collection stored it, RFC 3339 in UTC. */
+  observedAt: string;
+  /** A removed source keeps its labels. */
+  source: EntrySource;
+  /** As mail clients show it. Untrusted. */
+  folder: string;
+  /** The server's INTERNALDATE. Null when it reported none. */
+  receivedAt: string | null;
+}
+
+/** Names and server are untrusted text from the source's settings. */
+export interface EntrySource {
+  id: number;
+  name: string;
+  host: string;
+  userName: string;
+  removed: boolean;
+}
+
 export interface MessageHistory {
   id: number;
   contentHash: string;
   size: number;
-  /** Every import, newest first, with no cap. */
+  /** Every entry, newest first, with no cap. */
   observations: Observation[];
 }
 
@@ -291,18 +315,50 @@ function parseHistory(body: unknown): MessageHistory | null {
 function parseObservation(value: unknown): Observation | null {
   const sourceType = field(value, "source_type");
   const observedAt = field(value, "observed_at");
-  const accountEmail = field(value, "account_email");
-  const fileName = field(value, "file_name");
+  if (!isTime(observedAt)) return null;
+  if (sourceType === "manual_import") {
+    const accountEmail = field(value, "account_email");
+    const fileName = field(value, "file_name");
+    if (
+      typeof accountEmail !== "string" ||
+      (fileName !== null && typeof fileName !== "string")
+    ) {
+      return null;
+    }
+    return { sourceType, observedAt, accountEmail, fileName };
+  }
+  if (sourceType === "imap_collection") {
+    const source = parseEntrySource(field(value, "source"));
+    const folder = field(value, "folder");
+    const receivedAt = field(value, "received_at");
+    if (
+      source === null ||
+      typeof folder !== "string" ||
+      (receivedAt !== null && !isTime(receivedAt))
+    ) {
+      return null;
+    }
+    return { sourceType, observedAt, source, folder, receivedAt };
+  }
+  return null;
+}
+
+function parseEntrySource(value: unknown): EntrySource | null {
+  const id = field(value, "id");
+  const name = field(value, "name");
+  const host = field(value, "host");
+  const userName = field(value, "user_name");
+  const removed = field(value, "removed");
   if (
-    sourceType !== "manual_import" ||
-    typeof observedAt !== "string" ||
-    Number.isNaN(Date.parse(observedAt)) ||
-    typeof accountEmail !== "string" ||
-    (fileName !== null && typeof fileName !== "string")
+    !isCount(id) ||
+    typeof name !== "string" ||
+    typeof host !== "string" ||
+    typeof userName !== "string" ||
+    typeof removed !== "boolean"
   ) {
     return null;
   }
-  return { sourceType, observedAt, accountEmail, fileName };
+  return { id, name, host, userName, removed };
 }
 
 function parseStatus(body: unknown): ServerStatus | null {
@@ -386,21 +442,25 @@ export function parseMessage(value: unknown): Message | null {
   const id = field(value, "id");
   const contentHash = field(value, "content_hash");
   const size = field(value, "size");
-  const fileName = field(value, "file_name");
-  const importedAt = field(value, "imported_at");
-  const importCount = field(value, "import_count");
+  const observationCount = field(value, "observation_count");
+  const latest = parseObservation(field(value, "latest"));
   if (
     !isCount(id) ||
     !isContentHash(contentHash) ||
     !isCount(size) ||
-    (fileName !== null && typeof fileName !== "string") ||
-    typeof importedAt !== "string" ||
-    Number.isNaN(Date.parse(importedAt)) ||
-    !isCount(importCount)
+    !isCount(observationCount) ||
+    latest === null
   ) {
     return null;
   }
-  return { id, contentHash, size, fileName, importedAt, importCount };
+  return {
+    id,
+    contentHash,
+    size,
+    observedAt: latest.observedAt,
+    observationCount,
+    latest,
+  };
 }
 
 /** Reads a field of a JSON object, or undefined when value isn't one. */

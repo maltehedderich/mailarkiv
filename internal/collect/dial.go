@@ -1,0 +1,146 @@
+package collect
+
+import (
+	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"errors"
+	"fmt"
+	"net"
+	"strconv"
+	"time"
+
+	"github.com/emersion/go-imap/v2/imapclient"
+)
+
+// Security is how a source's connection is encrypted.
+type Security struct{ name string }
+
+var (
+	// TLS starts TLS at once, usually on port 993.
+	TLS = Security{"tls"}
+	// StartTLS greets in plain text and upgrades, usually on port 143.
+	StartTLS = Security{"starttls"}
+)
+
+// String returns the name the API and the catalog share.
+func (s Security) String() string { return s.name }
+
+// mailbox is where a session signs in.
+type mailbox struct {
+	host     string
+	port     int
+	security Security
+	userName string
+	password string
+}
+
+// failure is a sync or check that ended with a category.
+type failure struct {
+	category Category
+	err      error
+}
+
+func (f *failure) Error() string { return f.category.String() + ": " + f.err.Error() }
+func (f *failure) Unwrap() error { return f.err }
+
+// session is a signed-in connection. Every command goes through do.
+type session struct {
+	client *imapclient.Client
+	conn   *conn
+	ctx    context.Context
+	// stop cancels the close that the context's end would trigger.
+	stop func() bool
+}
+
+// signIn connects, sets up TLS, waits for the greeting, and sends LOGIN.
+// Ending ctx closes the connection. roots nil means the system's trusted
+// certificates.
+func signIn(ctx context.Context, cfg config, roots *x509.CertPool, box mailbox) (*session, error) {
+	deadline := time.Now().Add(cfg.connect)
+	dialer := net.Dialer{Deadline: deadline}
+	raw, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(box.host, strconv.Itoa(box.port)))
+	if err != nil {
+		return nil, classify(ctx, nil, fmt.Errorf("connect: %w", err))
+	}
+	wrapped := newConn(raw, deadline, cfg.idle)
+	stop := context.AfterFunc(ctx, func() { raw.Close() })
+
+	client, err := greet(ctx, wrapped, roots, box)
+	if err != nil {
+		stop()
+		raw.Close()
+		return nil, classify(ctx, wrapped, err)
+	}
+	wrapped.connected()
+
+	s := &session{client: client, conn: wrapped, ctx: ctx, stop: stop}
+	if err := s.do(func() error { return client.Login(box.userName, box.password).Wait() }); err != nil {
+		s.close()
+		return nil, classify(ctx, wrapped, fmt.Errorf("sign in: %w", err))
+	}
+	return s, nil
+}
+
+// greet sets up TLS and waits for the greeting, within the connect deadline.
+func greet(ctx context.Context, wrapped *conn, roots *x509.CertPool, box mailbox) (*imapclient.Client, error) {
+	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots, ServerName: box.host}
+	if box.security == StartTLS {
+		client, err := imapclient.NewStartTLS(wrapped, &imapclient.Options{TLSConfig: tlsConfig})
+		if err != nil {
+			return nil, fmt.Errorf("upgrade with STARTTLS: %w", err)
+		}
+		return client, nil
+	}
+
+	encrypted := tls.Client(wrapped, tlsConfig)
+	if err := encrypted.HandshakeContext(ctx); err != nil {
+		return nil, fmt.Errorf("TLS handshake: %w", err)
+	}
+	client := imapclient.New(encrypted, nil)
+	if err := client.WaitGreeting(); err != nil {
+		client.Close()
+		return nil, fmt.Errorf("wait for the greeting: %w", err)
+	}
+	return client, nil
+}
+
+// do runs one command with the idle limit in force, and classifies its error.
+func (s *session) do(fn func() error) error {
+	if err := s.conn.command(fn); err != nil {
+		return classify(s.ctx, s.conn, err)
+	}
+	return nil
+}
+
+// logout ends the session politely. It sends no CLOSE, which would expunge.
+func (s *session) logout() error {
+	err := s.do(func() error { return s.client.Logout().Wait() })
+	s.close()
+	return err
+}
+
+func (s *session) close() {
+	// The connection is done either way. Close reports the decoder's last
+	// error, which the caller already has.
+	_ = s.client.Close()
+	s.stop()
+}
+
+// classify gives an error its category. A passed deadline is timed_out, and
+// anything else is server_error. A failure keeps the category it has.
+func classify(ctx context.Context, wrapped *conn, err error) error {
+	var failed *failure
+	if errors.As(err, &failed) {
+		return err
+	}
+	var netErr net.Error
+	switch {
+	case wrapped != nil && wrapped.timedOut(),
+		errors.Is(ctx.Err(), context.DeadlineExceeded),
+		wrapped == nil && errors.As(err, &netErr) && netErr.Timeout():
+		return &failure{category: TimedOut, err: err}
+	default:
+		return &failure{category: ServerError, err: err}
+	}
+}

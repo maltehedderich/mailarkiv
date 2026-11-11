@@ -72,8 +72,8 @@ func TestRepeatImports(t *testing.T) {
 		var stored struct {
 			Outcome string `json:"outcome"`
 			Message struct {
-				ID          int64 `json:"id"`
-				ImportCount int   `json:"import_count"`
+				ID               int64 `json:"id"`
+				ObservationCount int   `json:"observation_count"`
 			} `json:"message"`
 		}
 		if err := json.Unmarshal([]byte(body), &stored); err != nil {
@@ -87,16 +87,17 @@ func TestRepeatImports(t *testing.T) {
 		if response.StatusCode != wantStatus || stored.Outcome != wantOutcome {
 			t.Fatalf("import %d = %d %s, want %d %s", i, response.StatusCode, body, wantStatus, wantOutcome)
 		}
-		if stored.Message.ID != id || stored.Message.ImportCount != i+1 {
-			t.Fatalf("import %d = %s, want id %d and import_count %d", i, body, id, i+1)
+		if stored.Message.ID != id || stored.Message.ObservationCount != i+1 {
+			t.Fatalf("import %d = %s, want id %d and observation_count %d", i, body, id, i+1)
 		}
 	}
 
 	latest := imports[len(imports)-1]
 	response, body := h.do(t, http.MethodGet, "/api/messages", admin)
 	assertJSONResponse(t, response, body, http.StatusOK, fmt.Sprintf(
-		`{"items":[{"id":%d,"content_hash":%q,"size":%d,"file_name":%q,"imported_at":%q,"import_count":10}],"page":1,"page_size":50,"total":1}`,
-		id, hashOf(content), len(content), latest.name, formatTime(latest.at)))
+		`{"items":[{"id":%d,"content_hash":%q,"size":%d,"observation_count":10,`+
+			`"latest":{"source_type":"manual_import","observed_at":%q,"account_email":%q,"file_name":%q}}],"page":1,"page_size":50,"total":1}`,
+		id, hashOf(content), len(content), formatTime(latest.at), latest.account, latest.name))
 
 	history := h.history(t, admin, id)
 	if history.ID != id || history.ContentHash != hashOf(content) || history.Size != int64(len(content)) {

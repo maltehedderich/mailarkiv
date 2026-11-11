@@ -534,10 +534,10 @@ func (u *stalledUpload) wait() importAttempt {
 
 // listedMessage is a message as the API contract writes it.
 type listedMessage struct {
-	ID          int64  `json:"id"`
-	ContentHash string `json:"content_hash"`
-	Size        int64  `json:"size"`
-	ImportCount int    `json:"import_count"`
+	ID               int64  `json:"id"`
+	ContentHash      string `json:"content_hash"`
+	Size             int64  `json:"size"`
+	ObservationCount int    `json:"observation_count"`
 }
 
 // importAnswer is the body of an import's answer in the API contract.
@@ -589,7 +589,7 @@ func (p *serverProcess) assertListedOnce(token string, content []byte, importCou
 		p.t.Fatalf("the list holds %+v with total %d, want one message", items, total)
 	}
 	message := items[0]
-	if message.ContentHash != contentHash(content) || message.Size != int64(len(content)) || message.ImportCount != importCount {
+	if message.ContentHash != contentHash(content) || message.Size != int64(len(content)) || message.ObservationCount != importCount {
 		p.t.Errorf("listed %+v, want hash %s, size %d, and %d imports", message, contentHash(content), len(content), importCount)
 	}
 	return message

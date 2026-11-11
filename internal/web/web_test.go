@@ -2,6 +2,8 @@ package web
 
 import (
 	"bytes"
+	"context"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"io"
@@ -17,8 +19,10 @@ import (
 	"time"
 
 	"github.com/maltehedderich/mailarkiv/internal/archive"
+	"github.com/maltehedderich/mailarkiv/internal/collect"
 	"github.com/maltehedderich/mailarkiv/internal/identity"
 	"github.com/maltehedderich/mailarkiv/internal/opstatus"
+	"github.com/maltehedderich/mailarkiv/internal/passwordkey"
 	"github.com/maltehedderich/mailarkiv/internal/sqlitedb"
 )
 
@@ -66,23 +70,79 @@ func (c *fakeClock) Advance(d time.Duration) {
 // harness is the handler over a real listener, with real modules, SQLite, and
 // files behind it.
 type harness struct {
-	server   *httptest.Server
-	log      *lockedBuffer
-	dataDir  string
-	db       *sqlitedb.DB
-	identity *identity.Identity
-	archive  *archive.Archive
-	status   *opstatus.Status
-	clock    *fakeClock
+	server    *httptest.Server
+	log       *lockedBuffer
+	dataDir   string
+	db        *sqlitedb.DB
+	identity  *identity.Identity
+	archive   *archive.Archive
+	status    *opstatus.Status
+	clock     *fakeClock
+	collector *collect.Collector
+}
+
+// harnessOptions choose how the harness collects mail. The zero value has a
+// collector with no key that never starts, so the source routes exist and
+// nothing syncs.
+type harnessOptions struct {
+	// noCollector leaves Deps.Collect nil, as serve does without
+	// --preview-collection.
+	noCollector bool
+	// key gives the collector a key in a file outside the data directory.
+	key bool
+	// roots are the CAs the collector trusts, for a double's certificate.
+	roots *x509.CertPool
+	// start starts the collector. It stops when the test ends.
+	start bool
 }
 
 func newHarness(t *testing.T, routes []Route) *harness {
 	t.Helper()
+	return newHarnessWith(t, routes, harnessOptions{})
+}
+
+func newHarnessWith(t *testing.T, routes []Route, options harnessOptions) *harness {
+	t.Helper()
 	h := &harness{log: &lockedBuffer{}}
 	deps := h.deps(t)
+	if !options.noCollector {
+		deps.Collect = h.openCollector(t, options)
+	}
 	h.server = httptest.NewServer(newHandler(deps, routes))
 	t.Cleanup(h.server.Close)
 	return h
+}
+
+func (h *harness) openCollector(t *testing.T, options harnessOptions) *collect.Collector {
+	t.Helper()
+	var key *passwordkey.Key
+	if options.key {
+		path := filepath.Join(t.TempDir(), "key")
+		if err := passwordkey.Create(path); err != nil {
+			t.Fatal(err)
+		}
+		var err error
+		if key, err = passwordkey.Load(path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	collector, err := collect.Open(context.Background(), collect.Deps{
+		DB:      h.db,
+		Archive: h.archive,
+		Key:     key,
+		Logger:  slog.New(slog.NewJSONHandler(h.log, nil)),
+		Now:     h.clock.Now,
+		Roots:   options.roots,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if options.start {
+		collector.Start()
+		t.Cleanup(collector.Stop)
+	}
+	h.collector = collector
+	return collector
 }
 
 // deps opens a catalog in a new data directory and builds the modules on it.
@@ -121,6 +181,7 @@ func (h *harness) deps(t *testing.T) Deps {
 		Identity: h.identity,
 		Archive:  files,
 		Status:   status,
+		Labels:   collect.NewLabeler(db),
 	}
 }
 
