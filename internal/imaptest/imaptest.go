@@ -84,6 +84,10 @@ type Server struct {
 	user     *imapmemserver.User
 	name     string
 
+	// closed ends every held fetch when the server closes.
+	closed    chan struct{}
+	closeOnce sync.Once
+
 	mu       sync.Mutex
 	password string
 	sessions int
@@ -92,6 +96,24 @@ type Server struct {
 	// folders tracks the folder names, because the in-memory server lists
 	// them only to a session.
 	folders map[string]bool
+	// added holds what AddMessage put in each folder, in UID order, because
+	// the in-memory server returns bodies only to a session.
+	added       map[string][]addedMessage
+	faults      map[messageKey]Fault
+	holds       map[messageKey]*Hold
+	bodyFetches map[messageKey]int
+}
+
+// messageKey names a message under its folder's current numbering.
+type messageKey struct {
+	folder string
+	uid    imap.UID
+}
+
+type addedMessage struct {
+	uid      imap.UID
+	body     []byte
+	received time.Time
 }
 
 // New starts a server with an empty INBOX.
@@ -109,11 +131,16 @@ func New(options Options) (*Server, error) {
 	}
 
 	s := &Server{
-		caPEM:    caPEM,
-		served:   make(chan error, 1),
-		name:     options.User,
-		password: options.Password,
-		folders:  map[string]bool{},
+		caPEM:       caPEM,
+		served:      make(chan error, 1),
+		closed:      make(chan struct{}),
+		name:        options.User,
+		password:    options.Password,
+		folders:     map[string]bool{},
+		added:       map[string][]addedMessage{},
+		faults:      map[messageKey]Fault{},
+		holds:       map[messageKey]*Hold{},
+		bodyFetches: map[messageKey]int{},
 		// The session checks the password itself, so the user's own is never
 		// used. A random one keeps it from matching anything.
 		user: imapmemserver.NewUser(options.User, rand.Text()),
@@ -124,8 +151,8 @@ func New(options Options) (*Server, error) {
 
 	tlsConfig := &tls.Config{Certificates: []tls.Certificate{certificate}, MinVersion: tls.VersionTLS12}
 	serverOptions := &imapserver.Options{
-		NewSession: func(*imapserver.Conn) (imapserver.Session, *imapserver.GreetingData, error) {
-			return s.newSession(), nil, nil
+		NewSession: func(conn *imapserver.Conn) (imapserver.Session, *imapserver.GreetingData, error) {
+			return s.newSession(conn), nil, nil
 		},
 		Caps: imap.CapSet{imap.CapIMAP4rev1: {}},
 		// Tests close connections on purpose, and the server logs each one.
@@ -150,8 +177,10 @@ func New(options Options) (*Server, error) {
 	return s, nil
 }
 
-// Close stops the server and closes every connection.
+// Close stops the server and closes every connection. A held fetch ends
+// with an error.
 func (s *Server) Close() error {
+	s.closeOnce.Do(func() { close(s.closed) })
 	// Closing the listener first ends Serve whether or not it has begun to
 	// accept. Closing the server first races with Serve, which then returns
 	// an error and leaves the listener open.
@@ -203,7 +232,8 @@ func (s *Server) AddFolder(name string) error {
 	return nil
 }
 
-// DeleteFolder deletes a folder and its messages.
+// DeleteFolder deletes a folder and its messages, with their faults, holds,
+// and body fetch counts.
 func (s *Server) DeleteFolder(name string) error {
 	if err := s.user.Delete(name); err != nil {
 		return err
@@ -219,9 +249,31 @@ func (s *Server) trackFolder(added, removed string) {
 	defer s.mu.Unlock()
 	if removed != "" {
 		delete(s.folders, removed)
+		delete(s.added, canonical(removed))
+		s.forgetFolder(canonical(removed))
 	}
 	if added != "" {
 		s.folders[strings.TrimRight(added, "/")] = true
+	}
+}
+
+// forgetFolder drops what the server keeps per message of folder. The
+// caller holds mu.
+func (s *Server) forgetFolder(folder string) {
+	for key := range s.faults {
+		if key.folder == folder {
+			delete(s.faults, key)
+		}
+	}
+	for key := range s.holds {
+		if key.folder == folder {
+			delete(s.holds, key)
+		}
+	}
+	for key := range s.bodyFetches {
+		if key.folder == folder {
+			delete(s.bodyFetches, key)
+		}
 	}
 }
 
@@ -236,10 +288,18 @@ func (s *Server) AddMessage(folder string, body []byte, received time.Time) (ima
 	if !bytes.Equal(served, body) {
 		return 0, errors.New("imaptest: BODY[] would return other bytes than the body added")
 	}
+	if received.IsZero() {
+		received = time.Now()
+	}
+	received = received.Truncate(time.Second)
 	data, err := s.user.Append(folder, bytes.NewReader(body), &imap.AppendOptions{Time: received})
 	if err != nil {
 		return 0, err
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	folder = canonical(folder)
+	s.added[folder] = append(s.added[folder], addedMessage{uid: data.UID, body: bytes.Clone(body), received: received})
 	return data.UID, nil
 }
 
@@ -274,7 +334,17 @@ func (s *Server) DeleteMessage(folder string, uid imap.UID) error {
 	if err := view.Store(nil, target, deleted, &imap.StoreOptions{}); err != nil {
 		return err
 	}
-	return view.Expunge(nil, &target)
+	if err := view.Expunge(nil, &target); err != nil {
+		return err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := messageKey{canonical(folder), uid}
+	s.added[key.folder] = slices.DeleteFunc(s.added[key.folder], func(m addedMessage) bool { return m.uid == uid })
+	delete(s.faults, key)
+	delete(s.holds, key)
+	return nil
 }
 
 // Flags returns every message's flags, by folder and UID. A message with no
@@ -376,11 +446,11 @@ func (s *Server) accepts(userName, password string) bool {
 	return userName == s.name && password == s.password
 }
 
-func (s *Server) newSession() *session {
+func (s *Server) newSession(conn *imapserver.Conn) *session {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.sessions++
-	return &session{server: s, number: s.sessions}
+	return &session{server: s, conn: conn, number: s.sessions}
 }
 
 // newCertificates makes a CA and a server certificate for localhost and

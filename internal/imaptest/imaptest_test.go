@@ -279,8 +279,6 @@ func TestBodyPeekReturnsTheExactBytes(t *testing.T) {
 	})
 }
 
-// The in-memory server rewrites a header when it serves BODY[], so the
-// double refuses a body it couldn't return byte for byte.
 func TestUIDValidityMatchesExamine(t *testing.T) {
 	server := newDouble(t, imaptest.ImplicitTLS)
 	if err := server.AddFolder("Entwürfe"); err != nil {
@@ -306,6 +304,8 @@ func TestUIDValidityMatchesExamine(t *testing.T) {
 	}
 }
 
+// The in-memory server rewrites a header when it serves BODY[], so the
+// double refuses a body it couldn't return byte for byte.
 func TestAddMessageRefusesBytesItWouldRewrite(t *testing.T) {
 	server := newDouble(t, imaptest.ImplicitTLS)
 	for name, body := range map[string][]byte{

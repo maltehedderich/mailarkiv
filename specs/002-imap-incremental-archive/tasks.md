@@ -195,7 +195,7 @@ Writing these tasks exposed ten places where the plan's order or contracts don't
 
 ### Test support for User Story 2
 
-- [ ] T035 [US2] Extend `internal/imaptest/imaptest.go` and its test. A test can renumber a folder, giving it a new `UIDVALIDITY` and new UIDs for the same messages. For one UID it can return a NIL body, return no data, omit `INTERNALDATE`, report a given `RFC822.SIZE`, announce a literal of a given size and then send fewer bytes and close, or hold the body fetch until the test releases it. It counts body fetches per UID
+- [X] T035 [US2] Extend `internal/imaptest/imaptest.go` and its test. A test can renumber a folder, giving it a new `UIDVALIDITY` and new UIDs for the same messages. For one UID it can return a NIL body, return no data, omit `INTERNALDATE`, report a given `RFC822.SIZE`, announce a literal of a given size and then send fewer bytes and close, or hold the body fetch until the test releases it. It counts body fetches per UID
 
 ### Tests for User Story 2
 

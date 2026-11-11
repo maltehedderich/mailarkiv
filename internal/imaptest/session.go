@@ -1,6 +1,12 @@
 package imaptest
 
 import (
+	"bytes"
+	"errors"
+	"fmt"
+	"slices"
+	"strings"
+
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapserver"
 	"github.com/emersion/go-imap/v2/imapserver/imapmemserver"
@@ -10,10 +16,13 @@ import (
 // sees it. LOGIN checks the password here, so a test can change it.
 type session struct {
 	server *Server
+	conn   *imapserver.Conn
 	number int
 	// inner is nil until LOGIN succeeds. The protocol layer calls no other
 	// method before then, except Close.
 	inner *imapmemserver.UserSession
+	// selected is the open folder's canonical name, or empty.
+	selected string
 }
 
 var _ imapserver.SessionIMAP4rev2 = (*session)(nil)
@@ -53,7 +62,12 @@ func (s *session) Select(mailbox string, options *imap.SelectOptions) (*imap.Sel
 	if err := s.record(name, mailbox); err != nil {
 		return nil, err
 	}
-	return s.inner.Select(mailbox, options)
+	data, err := s.inner.Select(mailbox, options)
+	if err != nil {
+		return nil, err
+	}
+	s.selected = canonical(mailbox)
+	return data, nil
 }
 
 func (s *session) Create(mailbox string, options *imap.CreateOptions) error {
@@ -148,6 +162,7 @@ func (s *session) Namespace() (*imap.NamespaceData, error) {
 // or EXAMINE while a folder is open, so it can't tell a client's UNSELECT
 // apart.
 func (s *session) Unselect() error {
+	s.selected = ""
 	return s.inner.Unselect()
 }
 
@@ -175,12 +190,136 @@ func (s *session) Search(kind imapserver.NumKind, criteria *imap.SearchCriteria,
 	return s.inner.Search(kind, criteria, options)
 }
 
+// Fetch counts body fetches, waits at holds, and answers faulted messages
+// itself before the in-memory server answers the rest.
 func (s *session) Fetch(w *imapserver.FetchWriter, numSet imap.NumSet, options *imap.FetchOptions) error {
 	if err := s.record(uidPrefix(numSet, "FETCH"), ""); err != nil {
 		return err
 	}
-	return s.inner.Fetch(w, numSet, options)
+	uids, err := s.matching(numSet)
+	if err != nil {
+		return err
+	}
+	body := len(options.BodySection) > 0 || len(options.BinarySection) > 0
+	faults, holds := s.server.fetching(s.selected, uids, body)
+	for _, hold := range holds {
+		if err := hold.wait(s.server.closed); err != nil {
+			return err
+		}
+	}
+	if len(faults) == 0 {
+		return s.inner.Fetch(w, numSet, options)
+	}
+
+	var rest imap.UIDSet
+	for _, uid := range uids {
+		message, ok := faults[uid]
+		if !ok {
+			rest.AddNum(uid)
+			continue
+		}
+		if err := s.writeFaulted(message, options); err != nil {
+			return err
+		}
+	}
+	if len(rest) == 0 {
+		return nil
+	}
+	return s.inner.Fetch(w, rest, options)
 }
+
+// matching returns the UIDs of the selected folder's messages in numSet.
+func (s *session) matching(numSet imap.NumSet) ([]imap.UID, error) {
+	// The in-memory server resolves "*" in the set it searches in place, so
+	// it gets a copy.
+	criteria := &imap.SearchCriteria{}
+	switch set := numSet.(type) {
+	case imap.UIDSet:
+		criteria.UID = []imap.UIDSet{slices.Clone(set)}
+	case imap.SeqSet:
+		criteria.SeqNum = []imap.SeqSet{slices.Clone(set)}
+	default:
+		return nil, fmt.Errorf("imaptest: unknown number set %T", numSet)
+	}
+	data, err := s.inner.Search(imapserver.NumKindUID, criteria, &imap.SearchOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return data.AllUIDs(), nil
+}
+
+// writeFaulted writes a faulted message's FETCH response straight to the
+// connection, because the protocol layer can't write NIL or a cut literal.
+// Each response before it ended with a flush, so nothing is left buffered.
+func (s *session) writeFaulted(m faulted, options *imap.FetchOptions) error {
+	if options.Envelope || options.Flags || options.BodyStructure != nil || options.ModSeq ||
+		len(options.BinarySection) > 0 || len(options.BinarySectionSize) > 0 {
+		return errors.New("imaptest: a faulted message serves only UID, RFC822.SIZE, INTERNALDATE, and BODY[]")
+	}
+	for _, section := range options.BodySection {
+		if section.Specifier != imap.PartSpecifierNone || len(section.Part) > 0 || section.Partial != nil {
+			return errors.New("imaptest: a faulted message serves only the whole BODY[]")
+		}
+	}
+	body := len(options.BodySection) > 0
+	if body && m.fault.Body == BodyMissing {
+		return nil
+	}
+
+	found, err := s.inner.Search(imapserver.NumKindSeq, &imap.SearchCriteria{UID: []imap.UIDSet{imap.UIDSetNum(m.message.uid)}}, &imap.SearchOptions{})
+	if err != nil {
+		return err
+	}
+	seqNums := found.AllSeqNums()
+	if len(seqNums) != 1 {
+		return fmt.Errorf("imaptest: UID %d has no sequence number", m.message.uid)
+	}
+
+	var items []string
+	if options.UID {
+		items = append(items, fmt.Sprintf("UID %d", m.message.uid))
+	}
+	if options.RFC822Size {
+		size := int64(len(m.message.body))
+		if m.fault.Size != 0 {
+			size = m.fault.Size
+		}
+		items = append(items, fmt.Sprintf("RFC822.SIZE %d", size))
+	}
+	if options.InternalDate && !m.fault.NoInternalDate {
+		items = append(items, fmt.Sprintf("INTERNALDATE %q", m.message.received.Format(internalDateLayout)))
+	}
+
+	var response bytes.Buffer
+	fmt.Fprintf(&response, "* %d FETCH (%s", seqNums[0], strings.Join(items, " "))
+	if body {
+		if len(items) > 0 {
+			response.WriteString(" ")
+		}
+		switch m.fault.Body {
+		case BodyServed:
+			fmt.Fprintf(&response, "BODY[] {%d}\r\n", len(m.message.body))
+			response.Write(m.message.body)
+		case BodyNil:
+			response.WriteString("BODY[] NIL")
+		case BodyEmpty:
+			response.WriteString("BODY[] {0}\r\n")
+		case BodyCut:
+			fmt.Fprintf(&response, "BODY[] {%d}\r\n", m.fault.Announced)
+			response.Write(m.message.body)
+			conn := s.conn.NetConn()
+			_, err := conn.Write(response.Bytes())
+			return errors.Join(err, conn.Close(), errors.New("imaptest: the literal was cut"))
+		}
+	}
+	response.WriteString(")\r\n")
+	_, err = s.conn.NetConn().Write(response.Bytes())
+	return err
+}
+
+// internalDateLayout is INTERNALDATE's format, RFC 9051's date-time, whose
+// day is padded with a space.
+const internalDateLayout = "_2-Jan-2006 15:04:05 -0700"
 
 func (s *session) Store(w *imapserver.FetchWriter, numSet imap.NumSet, flags *imap.StoreFlags, options *imap.StoreOptions) error {
 	if err := s.record(uidPrefix(numSet, "STORE"), ""); err != nil {
