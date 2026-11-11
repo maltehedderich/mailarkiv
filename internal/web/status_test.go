@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -71,6 +72,42 @@ func TestStatus(t *testing.T) {
 				{"at": %[3]q, "category": "temp_file_not_removed", "restored": false}
 			]
 		}`, testTime, testNowPlus410ms, testNowPlus20min, hashOne, hashTwo, hashDamaged, hashMissing, hashCatalog))
+	})
+
+	// A message event names its source, removed or not, and never the folder.
+	t.Run("message events name their source", func(t *testing.T) {
+		h := newHarness(t, Routes())
+		h.createAccount(t, account)
+		session := h.signIn(t, account)
+		for _, statement := range []string{
+			`INSERT INTO imap_source (id, name, host, port, security, user_name, user_key, sealed_password, created_at)
+			 VALUES (3, 'Anna', 'imap.example.test', 993, 'tls', 'anna@example.test', 'anna@example.test', x'00', 0)`,
+			`INSERT INTO imap_source (id, name, host, port, security, user_name, user_key, sealed_password, created_at, removed_at)
+			 VALUES (5, 'Büro <b>', 'imap.example.test', 993, 'tls', 'office@example.test', 'office@example.test', NULL, 0, 1)`,
+			`INSERT INTO imap_folder (id, source_id, name, chosen) VALUES (1, 3, 'Geheimordner', 1), (2, 5, 'Geheimordner', 1)`,
+		} {
+			if _, err := h.db.Writer.Exec(statement); err != nil {
+				t.Fatal(err)
+			}
+		}
+		anna, office := int64(3), int64(5)
+		h.status.RecordFailure(opstatus.FailureEvent{Category: opstatus.MessageTooLarge, SourceID: &anna})
+		h.status.RecordFailure(opstatus.FailureEvent{Category: opstatus.MessageRemoved, SourceID: &office})
+
+		response, body := h.do(t, http.MethodGet, "/api/status", session)
+
+		assertJSONResponse(t, response, body, http.StatusOK, fmt.Sprintf(`{
+			"started_at": %[1]q,
+			"recovery": null,
+			"unreferenced": [],
+			"failures": [
+				{"at": %[1]q, "category": "message_too_large", "source_id": 3, "source_name": "Anna", "restored": false},
+				{"at": %[1]q, "category": "message_removed", "source_id": 5, "source_name": "Büro <b>", "restored": false}
+			]
+		}`, testTime))
+		if strings.Contains(body, "Geheimordner") {
+			t.Error("the status names a folder")
+		}
 	})
 
 	t.Run("empty lists are empty arrays", func(t *testing.T) {

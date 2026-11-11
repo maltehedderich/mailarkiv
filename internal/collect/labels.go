@@ -8,8 +8,9 @@ import (
 	"github.com/maltehedderich/mailarkiv/internal/sqlitedb"
 )
 
-// Labeler names the folders that collection entries point to. It works
-// without a collector, so entries show even when serve doesn't collect.
+// Labeler names the folders that collection entries point to, and the
+// sources of message events. It works without a collector, so both show even
+// when serve doesn't collect.
 type Labeler struct{ db *sqlitedb.DB }
 
 func NewLabeler(db *sqlitedb.DB) *Labeler { return &Labeler{db: db} }
@@ -61,4 +62,35 @@ WHERE f.id IN (?`+strings.Repeat(", ?", len(folderIDs)-1)+`)`, args...)
 		return nil, fmt.Errorf("read folder labels: %w", err)
 	}
 	return labels, nil
+}
+
+// SourceNames returns the name of each source ID that exists, removed or
+// not, in one query.
+func (l *Labeler) SourceNames(ctx context.Context, sourceIDs []int64) (map[int64]string, error) {
+	names := make(map[int64]string, len(sourceIDs))
+	if len(sourceIDs) == 0 {
+		return names, nil
+	}
+	args := make([]any, len(sourceIDs))
+	for i, id := range sourceIDs {
+		args[i] = id
+	}
+	rows, err := l.db.Reader.QueryContext(ctx,
+		"SELECT id, name FROM imap_source WHERE id IN (?"+strings.Repeat(", ?", len(sourceIDs)-1)+")", args...)
+	if err != nil {
+		return nil, fmt.Errorf("read source names: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		var name string
+		if err := rows.Scan(&id, &name); err != nil {
+			return nil, fmt.Errorf("read source names: %w", err)
+		}
+		names[id] = name
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read source names: %w", err)
+	}
+	return names, nil
 }
