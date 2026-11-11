@@ -87,6 +87,8 @@ export const FAILURE_CATEGORIES = [
   "stored_original_missing",
   "stored_original_damaged",
   "temp_file_not_removed",
+  "message_too_large",
+  "message_removed",
 ] as const;
 
 export type FailureCategory = (typeof FAILURE_CATEGORIES)[number];
@@ -97,6 +99,12 @@ export interface RecoveryResult {
   tempFilesRemoved: number;
   tempFilesNotRemoved: number;
   unreferencedFound: number;
+}
+
+/** The source a message event names. A removed source keeps its name. */
+export interface FailureSource {
+  id: number;
+  name: string;
 }
 
 /** A stored original with no catalog entry. */
@@ -113,6 +121,8 @@ export interface FailureEvent {
   messageId: number | null;
   /** Null when the event names no stored original. */
   contentHash: string | null;
+  /** The source of a message event, and null for any other event. */
+  source: FailureSource | null;
   /** An import has already replaced the stored original. */
   restored: boolean;
 }
@@ -414,12 +424,18 @@ function parseUnreferenced(value: unknown): UnreferencedOriginal | null {
   return { contentHash, size };
 }
 
-/** The contract leaves out `message_id` and `content_hash` where they don't apply. */
+/**
+ * The contract leaves out `message_id`, `content_hash`, `source_id`, and
+ * `source_name` where they don't apply. A message event always names its
+ * source.
+ */
 function parseFailure(value: unknown): FailureEvent | null {
   const at = field(value, "at");
   const category = field(value, "category");
   const messageId = field(value, "message_id") ?? null;
   const contentHash = field(value, "content_hash") ?? null;
+  const sourceId = field(value, "source_id") ?? null;
+  const sourceName = field(value, "source_name") ?? null;
   const restored = field(value, "restored");
   if (
     !isTime(at) ||
@@ -430,8 +446,19 @@ function parseFailure(value: unknown): FailureEvent | null {
   ) {
     return null;
   }
-  return { at, category, messageId, contentHash, restored };
+  let source: FailureSource | null = null;
+  if (sourceId !== null || sourceName !== null) {
+    if (!isCount(sourceId) || typeof sourceName !== "string") return null;
+    source = { id: sourceId, name: sourceName };
+  }
+  if (source === null && MESSAGE_CATEGORIES.has(category)) return null;
+  return { at, category, messageId, contentHash, source, restored };
 }
+
+const MESSAGE_CATEGORIES: ReadonlySet<FailureCategory> = new Set([
+  "message_too_large",
+  "message_removed",
+]);
 
 function isFailureCategory(value: unknown): value is FailureCategory {
   return FAILURE_CATEGORIES.some((category) => category === value);

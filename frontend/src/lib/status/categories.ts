@@ -49,6 +49,18 @@ export const CATEGORIES: Record<FailureCategory, CategoryWords> = {
     nextStep:
       "Check the permissions on the storage location. The file is harmless, and recovery tries again at the next start.",
   },
+  message_too_large: {
+    name: "Message too large",
+    meaning:
+      "A message is over 150,000,000 bytes, so it wasn't archived. MailArkiv doesn't retry it.",
+    nextStep: "Keep the message in the mailbox, or save it elsewhere.",
+  },
+  message_removed: {
+    name: "Removed before it was archived",
+    meaning:
+      "A message waiting for retry was removed from the mailbox. MailArkiv doesn't retry it.",
+    nextStep: "None. The archive doesn't have this message.",
+  },
 };
 
 export const UNREFERENCED_MEANING =

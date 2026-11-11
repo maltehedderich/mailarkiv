@@ -3,6 +3,7 @@
 
   import FailedLoad from "#lib/components/FailedLoad.svelte";
   import FullHash from "#lib/components/FullHash.svelte";
+  import UntrustedText from "#lib/components/UntrustedText.svelte";
   import { formatBytes } from "#lib/format/size.js";
   import { formatTime } from "#lib/format/time.js";
   import { historyHref } from "#lib/history.js";
@@ -94,6 +95,14 @@
                         <p class="when">
                           <time datetime={event.at}>{formatTime(event.at)}</time
                           >
+                          {#if event.source !== null}
+                            <!-- A message event names its source, never the
+                                 folder or the message. -->
+                            <span class="source"
+                              ><span class="visually-hidden">{"Source "}</span
+                              ><UntrustedText value={event.source.name} /></span
+                            >
+                          {/if}
                           {#if event.messageId !== null}
                             <!-- The short hash has a fixed width, so it goes
                                  first and the links line up. -->
@@ -329,6 +338,15 @@
   .events li.full:not(:first-child),
   .events li.full + li {
     margin-top: var(--space-8);
+  }
+
+  /* A source name is untrusted text in --text-1, cut in its middle when the
+     line is too narrow. */
+  .source {
+    min-width: 0;
+    max-width: 100%;
+    color: var(--text-1);
+    font-weight: var(--weight-medium);
   }
 
   .hash {

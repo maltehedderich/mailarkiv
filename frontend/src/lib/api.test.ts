@@ -582,6 +582,7 @@ describe("getStatus", () => {
             messageId: 17,
             contentHash: HASH,
             restored: false,
+            source: null,
           },
           {
             at: "2026-11-06T15:21:00.000Z",
@@ -589,6 +590,7 @@ describe("getStatus", () => {
             messageId: null,
             contentHash: null,
             restored: false,
+            source: null,
           },
         ],
       },
@@ -605,10 +607,15 @@ describe("getStatus", () => {
       "stored_original_missing",
       "stored_original_damaged",
       "temp_file_not_removed",
+      "message_too_large",
+      "message_removed",
     ];
     const failures = categories.map((category) => ({
       at: "2026-11-06T15:20:00.000Z",
       category,
+      ...(category.startsWith("message_")
+        ? { source_id: 3, source_name: "Anna" }
+        : {}),
       restored: false,
     }));
     const { fetch } = answer(200, { ...STATUS, failures });
@@ -620,12 +627,62 @@ describe("getStatus", () => {
     );
   });
 
+  test("reads message events with the source they name", async () => {
+    const { fetch } = answer(200, {
+      ...STATUS,
+      failures: [
+        {
+          at: "2026-11-08T09:00:01.000Z",
+          category: "message_too_large",
+          source_id: 3,
+          source_name: "Anna",
+          restored: false,
+        },
+        {
+          at: "2026-11-08T09:05:00.000Z",
+          category: "message_removed",
+          source_id: 5,
+          source_name: "<b>Büro</b>",
+          restored: false,
+        },
+      ],
+    });
+    const status = await getStatus(fetch);
+    expect(status.kind).toBe("ok");
+    if (status.kind !== "ok") return;
+    expect(status.value.failures).toEqual([
+      {
+        at: "2026-11-08T09:00:01.000Z",
+        category: "message_too_large",
+        messageId: null,
+        contentHash: null,
+        source: { id: 3, name: "Anna" },
+        restored: false,
+      },
+      {
+        at: "2026-11-08T09:05:00.000Z",
+        category: "message_removed",
+        messageId: null,
+        contentHash: null,
+        source: { id: 5, name: "<b>Büro</b>" },
+        restored: false,
+      },
+    ]);
+  });
+
   test("reads a marked 401 as session_ended", async () => {
     const { fetch } = answer(401, { error: "no_session" });
     expect(await getStatus(fetch)).toEqual({ kind: "session_ended" });
   });
 
   const FAILURE = STATUS.failures[0];
+  const MESSAGE_EVENT = {
+    at: "2026-11-08T09:00:01.000Z",
+    category: "message_removed",
+    source_id: 3,
+    source_name: "Anna",
+    restored: false,
+  };
   test.each([
     ["a server error", 500, { error: "internal_error" }],
     ["a body that isn't JSON", 200, "<!doctype html>"],
@@ -651,6 +708,26 @@ describe("getStatus", () => {
       "a failure with a negative message ID",
       200,
       { ...STATUS, failures: [{ ...FAILURE, message_id: -1 }] },
+    ],
+    [
+      "a message event with no source",
+      200,
+      {
+        ...STATUS,
+        failures: [
+          { ...MESSAGE_EVENT, source_id: undefined, source_name: undefined },
+        ],
+      },
+    ],
+    [
+      "a message event whose source has no name",
+      200,
+      { ...STATUS, failures: [{ ...MESSAGE_EVENT, source_name: null }] },
+    ],
+    [
+      "a message event with a negative source ID",
+      200,
+      { ...STATUS, failures: [{ ...MESSAGE_EVENT, source_id: -3 }] },
     ],
   ])("reads %s as unavailable", async (_name, status, body) => {
     const { fetch } = answer(status, body);

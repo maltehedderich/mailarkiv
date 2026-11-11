@@ -9,7 +9,25 @@ function event(
   category: FailureEvent["category"],
   restored = false,
 ): FailureEvent {
-  return { at, category, messageId: null, contentHash: null, restored };
+  return {
+    at,
+    category,
+    messageId: null,
+    contentHash: null,
+    source: null,
+    restored,
+  };
+}
+
+function messageEvent(
+  at: string,
+  category: FailureEvent["category"],
+  sourceId: number,
+): FailureEvent {
+  return {
+    ...event(at, category),
+    source: { id: sourceId, name: `Source ${sourceId}` },
+  };
 }
 
 describe("groupFailures", () => {
@@ -59,5 +77,36 @@ describe("groupFailures", () => {
       "catalog_write_failed",
     ]);
     expect(groups[0].events).toHaveLength(2);
+  });
+});
+
+describe("groupFailures with message events", () => {
+  // A message event names its source in its own line, so events from
+  // different sources share their category's group.
+  test("group by category like other events", () => {
+    const anna = messageEvent("2026-11-08T09:00:00Z", "message_too_large", 3);
+    const office = messageEvent("2026-11-08T09:05:00Z", "message_too_large", 5);
+    const removed = messageEvent("2026-11-08T09:10:00Z", "message_removed", 3);
+    const full = event("2026-11-08T09:12:00Z", "storage_full");
+    expect(groupFailures([anna, office, removed, full])).toEqual([
+      {
+        key: "message_too_large",
+        category: "message_too_large",
+        restored: false,
+        events: [anna, office],
+      },
+      {
+        key: "message_removed",
+        category: "message_removed",
+        restored: false,
+        events: [removed],
+      },
+      {
+        key: "storage_full",
+        category: "storage_full",
+        restored: false,
+        events: [full],
+      },
+    ]);
   });
 });
