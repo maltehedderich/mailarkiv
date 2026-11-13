@@ -104,10 +104,12 @@ env = { TZ = "Europe/Berlin" }
 run = "bunx vitest run"
 
 [tasks."test:e2e"]
-description = "Run the browser tests against the built binary"
+description = "Run the browser tests against the built binary and the test IMAP server"
 depends = ["build"]
-dir = "frontend"
-run = "bunx playwright test"
+run = [
+  "go build -o bin/imaptestserver ./internal/imaptest/cmd/imaptestserver",
+  "cd frontend && bunx playwright test",
+]
 
 [tasks.test]
 description = "Run the full test suite"

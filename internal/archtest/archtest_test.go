@@ -49,7 +49,8 @@ var allowedImports = map[string][]string{
 	"internal/passwordkey": {},
 	// The IMAP test double. Only tests and the test server under
 	// internal/imaptest/cmd/ may import it.
-	"internal/imaptest": {},
+	"internal/imaptest":                    {},
+	"internal/imaptest/cmd/imaptestserver": {"internal/imaptest"},
 }
 
 // Each table has one owning module; only that module may write to it.
@@ -155,6 +156,7 @@ func TestModuleRules(t *testing.T) {
 	for _, module := range []string{
 		"cmd/mailarkiv", "internal/web", "internal/sqlitedb", "internal/opstatus",
 		"internal/collect", "internal/passwordkey", "internal/imaptest",
+		"internal/imaptest/cmd/imaptestserver",
 	} {
 		if !visited[module] {
 			t.Errorf("the walk didn't reach %s, only %v", module, visited)
@@ -266,6 +268,7 @@ func TestCheckerAllowsTheDeclaredImports(t *testing.T) {
 		{"internal/collect", "internal/sqlitedb"},
 		{"internal/collect", "internal/fault"},
 		{"internal/collect", "internal/passwordkey"},
+		{"internal/imaptest/cmd/imaptestserver", "internal/imaptest"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.module+" imports "+tt.target, func(t *testing.T) {

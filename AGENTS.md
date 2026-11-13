@@ -19,7 +19,7 @@ Read [the design guide](frontend/DESIGN.md) before you build or change a screen.
 | `mise run audit` | `govulncheck ./...`, `bun audit --ignore=GHSA-gcqx-w48m-w2h4` | Static, needs network |
 | `mise run server:test` | `go test -race ./...`, including process-level crash, syscall, and marker tests. Needs `strace` | Unit, integration, process |
 | `mise run frontend:test` | `vitest run` | Unit |
-| `mise run test:e2e` | `playwright test` against the built binary | End to end |
+| `mise run test:e2e` | `go build` of `bin/imaptestserver`, the test IMAP server, then `playwright test` against the built binary and that server | End to end |
 | `mise run test` | The three test tasks above | |
 | `mise run check` | `lint`, `typecheck`, `test`, `audit`. CI gates on this | |
 
