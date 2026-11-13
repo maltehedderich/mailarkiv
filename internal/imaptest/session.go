@@ -150,7 +150,20 @@ func (s *session) List(w *imapserver.ListWriter, ref string, patterns []string, 
 	if err := s.record("LIST", ""); err != nil {
 		return err
 	}
-	return s.inner.List(w, ref, patterns, options)
+	if err := s.inner.List(w, ref, patterns, options); err != nil {
+		return err
+	}
+	for _, entry := range s.server.listed() {
+		if !slices.ContainsFunc(patterns, func(pattern string) bool {
+			return imapserver.MatchList(entry.name, '/', ref, pattern)
+		}) {
+			continue
+		}
+		if err := w.WriteList(&imap.ListData{Mailbox: entry.name, Delim: '/', Attrs: entry.attrs}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *session) Status(mailbox string, options *imap.StatusOptions) (*imap.StatusData, error) {

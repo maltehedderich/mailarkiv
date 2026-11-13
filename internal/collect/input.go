@@ -20,6 +20,36 @@ type SourceInput struct {
 	Folders  []string
 }
 
+// CheckInput is a mailbox to check before it is added. Nothing in it has
+// been checked.
+type CheckInput struct {
+	Host     string
+	Port     int64
+	Security string
+	UserName string
+	Password string
+}
+
+// MailboxChange holds the sign-in details that a check or an edit of a
+// stored source changes. Nil keeps the stored value, and so does an empty
+// password.
+type MailboxChange struct {
+	Port     *int64
+	Security *string
+	Password *string
+}
+
+// EditInput is a change to a stored source. Nil keeps the stored value.
+// Host and UserName can't change, so any value for them breaks their rule.
+// Folders is the full list of chosen folders.
+type EditInput struct {
+	Name     *string
+	Host     *string
+	UserName *string
+	MailboxChange
+	Folders *[]string
+}
+
 // InvalidFieldsError names each field that broke an input rule, in the
 // order SourceInput declares them, by the API's field names.
 type InvalidFieldsError struct{ Fields []string }
@@ -36,71 +66,159 @@ var ErrNotFound = errors.New("no source has that ID")
 
 // newSource is a SourceInput that keeps every input rule.
 type newSource struct {
-	name     string
-	host     string // Lowercase.
-	port     int
-	security Security
-	userName string
-	userKey  string
-	password string
-	folders  []string
+	name    string
+	box     mailbox
+	userKey string
+	folders []string
 }
 
-func (s newSource) mailbox() mailbox {
-	return mailbox{host: s.host, port: s.port, security: s.security, userName: s.userName, password: s.password}
+// edit is an EditInput that keeps every input rule. Nil keeps the stored
+// value.
+type edit struct {
+	name    *string
+	change  mailboxChange
+	folders []string
+}
+
+// mailboxChange is a MailboxChange that keeps every input rule. password is
+// nil when the stored one stays.
+type mailboxChange struct {
+	port     *int
+	security *Security
+	password *string
+}
+
+// rules collects the fields that broke a rule, in the order they were
+// checked.
+type rules struct{ broken []string }
+
+func (r *rules) check(ok bool, field string) {
+	if !ok {
+		r.broken = append(r.broken, field)
+	}
+}
+
+func (r *rules) err() error {
+	if r.broken == nil {
+		return nil
+	}
+	return &InvalidFieldsError{Fields: r.broken}
 }
 
 // parseInput checks every rule and returns every broken field.
 func parseInput(in SourceInput) (newSource, error) {
-	var broken []string
-	out := newSource{}
-
-	name := strings.TrimSpace(in.Name)
-	if !utf8.ValidString(in.Name) || !between(utf8.RuneCountInString(name), 1, 100) {
-		broken = append(broken, "name")
+	var r rules
+	name, ok := parseName(in.Name)
+	r.check(ok, "name")
+	box := parseMailbox(&r, CheckInput{Host: in.Host, Port: in.Port, Security: in.Security, UserName: in.UserName, Password: in.Password})
+	r.check(validFolders(in.Folders), "folders")
+	if err := r.err(); err != nil {
+		return newSource{}, err
 	}
-	out.name = name
+	return newSource{name: name, box: box, userKey: strings.ToLower(in.UserName), folders: in.Folders}, nil
+}
 
-	if !validHost(in.Host) {
-		broken = append(broken, "host")
+// parseCheck checks a mailbox's details.
+func parseCheck(in CheckInput) (mailbox, error) {
+	var r rules
+	box := parseMailbox(&r, in)
+	if err := r.err(); err != nil {
+		return mailbox{}, err
 	}
-	out.host = strings.ToLower(in.Host)
+	return box, nil
+}
 
-	if in.Port < 1 || in.Port > 65535 {
-		broken = append(broken, "port")
+// parseMailbox checks the sign-in details, in the order the API lists them.
+// The host comes back lowercase.
+func parseMailbox(r *rules, in CheckInput) mailbox {
+	r.check(validHost(in.Host), "host")
+	r.check(validPort(in.Port), "port")
+	security, err := parseSecurity(in.Security)
+	r.check(err == nil, "security")
+	r.check(validUserName(in.UserName), "user_name")
+	r.check(validPassword(in.Password), "password")
+	return mailbox{
+		host: strings.ToLower(in.Host), port: int(in.Port), security: security,
+		userName: in.UserName, password: in.Password,
 	}
-	out.port = int(in.Port)
+}
 
-	switch in.Security {
-	case TLS.String():
-		out.security = TLS
-	case StartTLS.String():
-		out.security = StartTLS
-	default:
-		broken = append(broken, "security")
+// parseChange checks the fields a change sets.
+func parseChange(in MailboxChange) (mailboxChange, error) {
+	var r rules
+	change := mailboxChange{port: changedPort(&r, in.Port), security: changedSecurity(&r, in.Security)}
+	change.password = changedPassword(&r, in.Password)
+	if err := r.err(); err != nil {
+		return mailboxChange{}, err
 	}
+	return change, nil
+}
 
-	if !utf8.ValidString(in.UserName) || !between(len(in.UserName), 1, 1024) ||
-		strings.ContainsFunc(in.UserName, unicode.IsControl) {
-		broken = append(broken, "user_name")
+// parseEdit checks the fields an edit sets, and refuses a host or user name.
+func parseEdit(in EditInput) (edit, error) {
+	var r rules
+	var out edit
+	if in.Name != nil {
+		name, ok := parseName(*in.Name)
+		r.check(ok, "name")
+		out.name = &name
 	}
-	out.userName = in.UserName
-	out.userKey = strings.ToLower(in.UserName)
-
-	if !utf8.ValidString(in.Password) || !between(len(in.Password), 1, 1024) {
-		broken = append(broken, "password")
+	r.check(in.Host == nil, "host")
+	out.change.port = changedPort(&r, in.Port)
+	out.change.security = changedSecurity(&r, in.Security)
+	r.check(in.UserName == nil, "user_name")
+	out.change.password = changedPassword(&r, in.Password)
+	if in.Folders != nil {
+		r.check(validFolders(*in.Folders), "folders")
+		out.folders = *in.Folders
 	}
-	out.password = in.Password
-
-	if !validFolders(in.Folders) {
-		broken = append(broken, "folders")
-	}
-	out.folders = in.Folders
-
-	if broken != nil {
-		return newSource{}, &InvalidFieldsError{Fields: broken}
+	if err := r.err(); err != nil {
+		return edit{}, err
 	}
 	return out, nil
+}
+
+func changedPort(r *rules, port *int64) *int {
+	if port == nil {
+		return nil
+	}
+	r.check(validPort(*port), "port")
+	n := int(*port)
+	return &n
+}
+
+func changedSecurity(r *rules, name *string) *Security {
+	if name == nil {
+		return nil
+	}
+	security, err := parseSecurity(*name)
+	r.check(err == nil, "security")
+	return &security
+}
+
+func changedPassword(r *rules, password *string) *string {
+	if password == nil || *password == "" {
+		return nil
+	}
+	r.check(validPassword(*password), "password")
+	return password
+}
+
+// parseName trims spaces from name and checks what is left.
+func parseName(name string) (string, bool) {
+	trimmed := strings.TrimSpace(name)
+	return trimmed, utf8.ValidString(name) && between(utf8.RuneCountInString(trimmed), 1, 100)
+}
+
+func validPort(port int64) bool { return port >= 1 && port <= 65535 }
+
+func validUserName(userName string) bool {
+	return utf8.ValidString(userName) && between(len(userName), 1, 1024) &&
+		!strings.ContainsFunc(userName, unicode.IsControl)
+}
+
+func validPassword(password string) bool {
+	return utf8.ValidString(password) && between(len(password), 1, 1024)
 }
 
 func between(n, low, high int) bool { return n >= low && n <= high }

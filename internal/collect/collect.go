@@ -40,6 +40,10 @@ type Collector struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
+	// manage lets one administrator action at a time read and change a
+	// source and its loop.
+	manage sync.Mutex
+
 	mu      sync.Mutex
 	started bool
 	stopped bool
@@ -56,7 +60,11 @@ type Collector struct {
 type runner struct {
 	id int64
 	// wake holds at most one pending request to sync.
-	wake     chan struct{}
+	wake chan struct{}
+	// cancel stops the loop and its sync, and done closes when the loop has
+	// ended. Both are nil until the loop starts.
+	cancel   context.CancelFunc
+	done     chan struct{}
 	syncing  bool
 	progress Progress
 	// due is when the next sync starts. It starts at the runner's creation,
@@ -146,16 +154,62 @@ func (c *Collector) Stop() {
 
 // launch runs r's loop. The caller holds mu.
 func (c *Collector) launch(r *runner) {
-	c.wg.Go(func() { c.loop(r) })
+	ctx, cancel := context.WithCancel(c.ctx)
+	r.cancel = cancel
+	r.done = make(chan struct{})
+	c.wg.Go(func() {
+		defer close(r.done)
+		defer cancel()
+		c.loop(ctx, r)
+	})
 }
 
-// addRunner starts a loop for a new source, which syncs at once.
-func (c *Collector) addRunner(id int64) {
+// startRunner starts a loop for a source that has none, which syncs at
+// once. failedAttempts is the row's count, which sets the wait after the
+// next failure.
+func (c *Collector) startRunner(id int64, failedAttempts int) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	r := newRunner(id, c.deps.Now(), 0)
+	r := newRunner(id, c.deps.Now(), failedAttempts)
 	c.runners[id] = r
 	if c.started && !c.stopped {
+		// The first sync starts at once, so the source shows as syncing
+		// from now.
+		r.syncing = true
 		c.launch(r)
+	}
+}
+
+// stopRunner ends the source's loop and waits for it, which stops a running
+// sync and closes its connection. A stopped sync records nothing.
+func (c *Collector) stopRunner(id int64) {
+	c.mu.Lock()
+	r, ok := c.runners[id]
+	if ok {
+		delete(c.runners, id)
+	}
+	c.mu.Unlock()
+	if !ok || r.cancel == nil {
+		return
+	}
+	r.cancel()
+	<-r.done
+}
+
+// requestSync asks r's loop to sync at once, and shows the source as
+// syncing from now. During a sync, the next one starts when it ends, so it
+// reads what changed meanwhile. The caller holds mu.
+func (c *Collector) requestSync(r *runner) {
+	if r.cancel == nil {
+		// The loop hasn't started, and syncs when it does.
+		return
+	}
+	if !r.syncing {
+		r.syncing = true
+		r.progress = Progress{}
+	}
+	select {
+	case r.wake <- struct{}{}:
+	default:
 	}
 }

@@ -3,9 +3,7 @@ package web
 import (
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"net/http"
-	"strconv"
 	"strings"
 	"testing"
 )
@@ -63,50 +61,65 @@ func TestSourceResponsesHaveNoPassword(t *testing.T) {
 		}
 	}
 
-	// Each source route's request, by route pattern. A new route must add one
-	// here, or the test fails.
-	const add = "POST /api/sources"
-	requests := map[string]string{
-		add:                     string(encode(t, sourceBody(t, double))),
-		"GET /api/sources":      "",
-		"GET /api/sources/{id}": "",
+	// Each source route's request, in an order where each answers with
+	// success: the add first, so the others have a source, and the removal
+	// last. then waits for what the request started. A new route must add a
+	// step here, or the test fails.
+	check := sourceBody(t, double)
+	delete(check, "name")
+	delete(check, "folders")
+	// localhost names the same double, and isn't a duplicate of 127.0.0.1.
+	check["host"] = "localhost"
+	var id int64
+	waiting := func(t *testing.T) { h.waitUntilWaiting(t, session, id) }
+	marker := quote(mailboxPassword)
+	steps := []struct {
+		pattern string
+		body    string
+		then    func(t *testing.T)
+	}{
+		{"POST /api/sources", string(encode(t, sourceBody(t, double))), waiting},
+		{"POST /api/sources/check", string(encode(t, check)), nil},
+		{"GET /api/sources", "", nil},
+		{"GET /api/sources/{id}", "", nil},
+		{"POST /api/sources/{id}/check", `{"password":` + marker + `}`, nil},
+		// Saves the marker password, which signs in and syncs.
+		{"PATCH /api/sources/{id}", `{"name":"Anna","password":` + marker + `}`, waiting},
+		{"POST /api/sources/{id}/pause", "", nil},
+		{"POST /api/sources/{id}/resume", "", waiting},
+		{"POST /api/sources/{id}/sync", "", waiting},
+		{"DELETE /api/sources/{id}", "", nil},
 	}
 
-	// Sent first, so the other routes have a source to answer about.
-	response, body := h.send(t, http.MethodPost, "/api/sources", strings.NewReader(requests[add]), session)
-	assertNoPassword(t, add, response, body)
-	var created struct {
-		ID int64 `json:"id"`
-	}
-	if err := json.Unmarshal([]byte(body), &created); err != nil {
-		t.Fatal(err)
-	}
-	waitFor(t, "the first sync", func() bool {
-		response, body := h.do(t, http.MethodGet, "/api/sources/"+strconv.FormatInt(created.ID, 10), session)
-		return response.StatusCode == http.StatusOK && !strings.Contains(body, `"last_success":null`)
-	})
-
-	var checked int
+	routes := map[string]Route{}
 	for _, route := range Routes() {
-		if !strings.HasPrefix(route.Path, "/api/sources") {
-			continue
+		if strings.HasPrefix(route.Path, "/api/sources") {
+			routes[route.pattern()] = route
 		}
-		checked++
-		request, ok := requests[route.pattern()]
-		if !ok {
-			t.Errorf("%s has no request case, so its answer isn't searched", route.pattern())
-			continue
-		}
-		if route.pattern() == add {
-			continue
-		}
-		t.Run(route.pattern(), func(t *testing.T) {
-			response, body := h.send(t, route.Method, concretePath(route.Path, created.ID), strings.NewReader(request), session)
-			assertNoPassword(t, route.pattern(), response, body)
-		})
 	}
-	if checked != len(requests) {
-		t.Errorf("%d source routes, but %d request cases", checked, len(requests))
+	covered := map[string]bool{}
+	for _, step := range steps {
+		covered[step.pattern] = true
+	}
+	for pattern := range routes {
+		if !covered[pattern] {
+			t.Errorf("%s has no step, so its answer isn't searched", pattern)
+		}
+	}
+
+	for _, step := range steps {
+		route, ok := routes[step.pattern]
+		if !ok {
+			t.Fatalf("the step %s names no route", step.pattern)
+		}
+		response, body := h.send(t, route.Method, concretePath(route.Path, id), strings.NewReader(step.body), session)
+		assertNoPassword(t, step.pattern, response, body)
+		if id == 0 {
+			id = createdID(t, body)
+		}
+		if step.then != nil {
+			step.then(t)
+		}
 	}
 
 	for _, path := range []string{"/api/status", "/api/session", "/api/messages"} {
@@ -118,7 +131,7 @@ func TestSourceResponsesHaveNoPassword(t *testing.T) {
 
 	// The list shows the collected message, so its answer had a source to
 	// leak.
-	response, body = h.do(t, http.MethodGet, "/api/messages", session)
+	response, body := h.do(t, http.MethodGet, "/api/messages", session)
 	if !strings.Contains(body, `"source_type":"imap_collection"`) {
 		t.Errorf("GET /api/messages = %d %s, want a collected message", response.StatusCode, body)
 	}

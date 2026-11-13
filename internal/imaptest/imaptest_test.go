@@ -425,3 +425,61 @@ func TestOptionsAreChecked(t *testing.T) {
 		}
 	}
 }
+
+func TestListStatusAndListEntries(t *testing.T) {
+	server, err := imaptest.New(imaptest.Options{Security: imaptest.ImplicitTLS, User: user, Password: password, ListStatus: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { server.Close() })
+	if _, err := server.AddMessage("INBOX", []byte("Subject: Hi\r\n\r\nHi\r\n"), time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+	server.AddListEntry("Archiv/Alt", imap.MailboxAttrNoSelect)
+	client := signIn(t, server, imaptest.ImplicitTLS)
+
+	caps, err := client.Capability().Wait()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !caps.Has(imap.CapListStatus) {
+		t.Errorf("capabilities %v lack LIST-STATUS", caps)
+	}
+
+	listed, err := client.List("", "*", &imap.ListOptions{ReturnStatus: &imap.StatusOptions{NumMessages: true}}).Collect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 2 {
+		t.Fatalf("LIST = %+v, want INBOX and Archiv/Alt", listed)
+	}
+	if listed[0].Mailbox != "INBOX" || listed[0].Status == nil || listed[0].Status.NumMessages == nil || *listed[0].Status.NumMessages != 1 {
+		t.Errorf("first entry = %+v, want INBOX with 1 message", listed[0])
+	}
+	if listed[1].Mailbox != "Archiv/Alt" || !slices.Equal(listed[1].Attrs, []imap.MailboxAttr{imap.MailboxAttrNoSelect}) || listed[1].Status != nil {
+		t.Errorf("second entry = %+v, want Archiv/Alt, \\Noselect, no counts", listed[1])
+	}
+
+	only, err := client.List("", "INBOX", nil).Collect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(only) != 1 || only[0].Mailbox != "INBOX" {
+		t.Errorf(`LIST "" INBOX = %+v, want INBOX alone`, only)
+	}
+	if _, err := client.Status("Archiv/Alt", &imap.StatusOptions{NumMessages: true}).Wait(); err == nil {
+		t.Error("STATUS of a listed entry succeeded")
+	}
+}
+
+func TestWithoutListStatus(t *testing.T) {
+	server := newDouble(t, imaptest.ImplicitTLS)
+	client := signIn(t, server, imaptest.ImplicitTLS)
+	caps, err := client.Capability().Wait()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if caps.Has(imap.CapListStatus) {
+		t.Errorf("capabilities %v hold LIST-STATUS", caps)
+	}
+}

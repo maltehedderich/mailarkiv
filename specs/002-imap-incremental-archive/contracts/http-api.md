@@ -177,7 +177,7 @@ The list entry plus:
 Any of `name`, `port`, `security`, `password`, and `folders`. `folders` is the full list of chosen names. `host` and `user_name` are refused with 400 `invalid_fields` (FR-005).
 
 - A change to `port`, `security`, or `password` signs in first with the new values. A failure answers 422 `check_failed`, and nothing changes, including the other fields in the request.
-- A missing or empty `password` keeps the stored one (FR-028).
+- A missing or empty `password` keeps the stored one (FR-028). If the stored password can't be read, a change to `port` or `security` needs a password, and without one the answer is 400 `invalid_fields` naming `password`.
 - Saving a password clears a rejected sign-in and an unreadable password, then syncs at once unless paused (FR-022, FR-027).
 - Adding a folder syncs at once unless paused (FR-009). Removing one stops collecting it, and its messages stay.
 
@@ -189,7 +189,7 @@ Any of `name`, `port`, `security`, `password`, and `folders`. `folders` is the f
 
 ## `POST /api/sources/{id}/check`
 
-For adding folders while editing. Optional `port`, `security`, and `password`. Missing fields use the stored values. Answers as `POST /api/sources/check`, without `source_exists`.
+For adding folders while editing. Optional `port`, `security`, and `password`. Missing fields use the stored values. Answers as `POST /api/sources/check`, without `source_exists`, and with 404 `not_found` for an unknown source. If the stored password can't be read and the request has none, it answers 400 `invalid_fields` naming `password`.
 
 ## `POST /api/sources/{id}/pause`, `/resume`, `/sync`
 

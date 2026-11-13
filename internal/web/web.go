@@ -63,9 +63,16 @@ func Routes() []Route {
 		{Method: http.MethodGet, Path: "/api/messages/{id}", Access: SignedIn, Handler: readHistory},
 		{Method: http.MethodGet, Path: "/api/messages/{id}/original", Access: SignedIn, Handler: downloadOriginal, NoSession: redirectToSignIn},
 		{Method: http.MethodGet, Path: "/api/status", Access: SignedIn, Handler: readStatus},
+		{Method: http.MethodPost, Path: "/api/sources/check", Access: SignedIn, Handler: checkMailbox, Collection: true},
 		{Method: http.MethodPost, Path: "/api/sources", Access: SignedIn, Handler: addSource, Collection: true},
 		{Method: http.MethodGet, Path: "/api/sources", Access: SignedIn, Handler: listSources, Collection: true},
 		{Method: http.MethodGet, Path: "/api/sources/{id}", Access: SignedIn, Handler: readSource, Collection: true},
+		{Method: http.MethodPatch, Path: "/api/sources/{id}", Access: SignedIn, Handler: editSource, Collection: true},
+		{Method: http.MethodPost, Path: "/api/sources/{id}/check", Access: SignedIn, Handler: checkStoredSource, Collection: true},
+		{Method: http.MethodPost, Path: "/api/sources/{id}/pause", Access: SignedIn, Handler: pauseSource, Collection: true},
+		{Method: http.MethodPost, Path: "/api/sources/{id}/resume", Access: SignedIn, Handler: resumeSource, Collection: true},
+		{Method: http.MethodPost, Path: "/api/sources/{id}/sync", Access: SignedIn, Handler: syncSource, Collection: true},
+		{Method: http.MethodDelete, Path: "/api/sources/{id}", Access: SignedIn, Handler: removeSource, Collection: true},
 		{Path: "/", Access: Public, Handler: serveStatic},
 	}
 }

@@ -69,6 +69,9 @@ type Options struct {
 	// NoStartTLS leaves STARTTLS out of the capabilities of a StartTLS
 	// server, which then answers STARTTLS with NO.
 	NoStartTLS bool
+	// ListStatus adds LIST-EXTENDED and LIST-STATUS to the capabilities.
+	// The server answers LIST RETURN (STATUS ...) either way.
+	ListStatus bool
 }
 
 // Command is one command that reached a session. CAPABILITY, NOOP,
@@ -140,7 +143,9 @@ type Server struct {
 	bodyFetches map[messageKey]int
 	// floods holds, by command name, how many bytes of LIST replies to send
 	// before answering.
-	floods           map[string]int
+	floods map[string]int
+	// listEntries are LIST replies for folders that don't exist.
+	listEntries      []listEntry
 	stallHandshake   bool
 	withholdGreeting bool
 }
@@ -149,6 +154,11 @@ type Server struct {
 type messageKey struct {
 	folder string
 	uid    imap.UID
+}
+
+type listEntry struct {
+	name  string
+	attrs []imap.MailboxAttr
 }
 
 type addedMessage struct {
@@ -203,9 +213,14 @@ func New(options Options) (*Server, error) {
 		tlsConfig.MinVersion = tls.VersionTLS11
 		tlsConfig.MaxVersion = tls.VersionTLS11
 	}
+	caps := imap.CapSet{imap.CapIMAP4rev1: {}}
+	if options.ListStatus {
+		caps[imap.CapListExtended] = struct{}{}
+		caps[imap.CapListStatus] = struct{}{}
+	}
 	serverOptions := &imapserver.Options{
 		NewSession: s.greet,
-		Caps:       imap.CapSet{imap.CapIMAP4rev1: {}},
+		Caps:       caps,
 		// Tests close connections on purpose, and the server logs each one.
 		Logger: log.New(io.Discard, "", 0),
 	}
@@ -324,6 +339,23 @@ func (s *Server) FloodList(command string, size int) {
 		return
 	}
 	s.floods[command] = size
+}
+
+// AddListEntry makes LIST answer with name and attrs, after the folders
+// that exist, for every pattern that matches name. Nothing else knows the
+// folder: EXAMINE and STATUS fail, and LIST RETURN (STATUS) gives no counts
+// for it.
+func (s *Server) AddListEntry(name string, attrs ...imap.MailboxAttr) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.listEntries = append(s.listEntries, listEntry{name: name, attrs: slices.Clone(attrs)})
+}
+
+// listed returns the entries AddListEntry added.
+func (s *Server) listed() []listEntry {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.listEntries)
 }
 
 // AddFolder creates a folder. A folder created again after DeleteFolder has

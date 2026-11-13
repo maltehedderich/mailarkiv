@@ -522,7 +522,7 @@ const crossOrigin = `{"error":"cross_origin"}`
 // A state-changing request from another site is refused before any route
 // runs, with or without a session, and stores nothing.
 func TestCrossOriginRequestsAreRefused(t *testing.T) {
-	h := newHarness(t, Routes())
+	h, double, sourceID := withSource(t)
 	h.createAccount(t, "admin@example.test")
 	session := h.signIn(t, "admin@example.test")
 	response, body := h.send(t, http.MethodPost, "/api/imports", bytes.NewReader(mail("stored before")), session)
@@ -531,6 +531,7 @@ func TestCrossOriginRequestsAreRefused(t *testing.T) {
 	}
 	id := messageID(t, body)
 	before := h.counts(t)
+	sourcesBefore := h.sourceState(t)
 
 	forgeries := []struct {
 		name   string
@@ -538,13 +539,14 @@ func TestCrossOriginRequestsAreRefused(t *testing.T) {
 	}{
 		{"Sec-Fetch-Site cross-site", withHeader("Sec-Fetch-Site", "cross-site")},
 		{"Origin of another site and no Sec-Fetch-Site", withHeader("Origin", "http://elsewhere.test")},
+		{"Origin https://evil.example", withHeader("Origin", "https://evil.example")},
 	}
 	var checked int
 	for _, route := range Routes() {
 		if route.Method == http.MethodGet {
 			continue
 		}
-		method, path := route.Method, concretePath(route.Path, id)
+		method, path := route.Method, routePath(route, id, sourceID)
 		if method == "" {
 			// The static files' route takes every method, and only GET and HEAD
 			// are served.
@@ -560,11 +562,11 @@ func TestCrossOriginRequestsAreRefused(t *testing.T) {
 					change = both(session, forgery.change)
 				}
 				t.Run(name, func(t *testing.T) {
-					var requestBody io.Reader = bytes.NewReader(mail("forged"))
+					forged := requestBody(t, route, double.Addr())
 					if path == "/api/session" && method == http.MethodPost {
-						requestBody = strings.NewReader(`{"email":"admin@example.test","password":"correct horse battery"}`)
+						forged = strings.NewReader(`{"email":"admin@example.test","password":"correct horse battery"}`)
 					}
-					response, body := h.send(t, method, path, requestBody, change)
+					response, body := h.send(t, method, path, forged, change)
 
 					assertJSONResponse(t, response, body, http.StatusForbidden, crossOrigin)
 					if cookie := response.Header.Get("Set-Cookie"); cookie != "" {
@@ -580,6 +582,12 @@ func TestCrossOriginRequestsAreRefused(t *testing.T) {
 
 	if after := h.counts(t); after != before {
 		t.Fatalf("the archive changed: %+v, then %+v", before, after)
+	}
+	if after := h.sourceState(t); after != sourcesBefore {
+		t.Fatalf("the sources changed:\n%s\nthen\n%s", sourcesBefore, after)
+	}
+	if n := double.Logins(); n != 1 {
+		t.Errorf("the double saw %d LOGIN commands, want 1: the source's own", n)
 	}
 	// The forged sign-out didn't end the session.
 	response, body = h.do(t, http.MethodGet, "/api/session", session)

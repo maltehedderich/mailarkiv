@@ -14,6 +14,8 @@ import (
 type State struct{ name string }
 
 var (
+	// Paused waits for Resume.
+	Paused   = State{"paused"}
 	Waiting  = State{"waiting"}
 	Syncing  = State{"syncing"}
 	Retrying = State{"retrying"}
@@ -43,6 +45,7 @@ type Source struct {
 	Collected int
 	// NextSyncAt is set while the source is Waiting or Retrying.
 	NextSyncAt *time.Time
+	PausedAt   *time.Time
 	// Failure is set while the source is Retrying or needs attention.
 	Failure *Failure
 }
@@ -72,6 +75,30 @@ type CheckFailedError struct {
 
 func (e *CheckFailedError) Error() string { return "the sign-in failed: " + e.Category.String() }
 
+// checkFailed turns a failed sign-in or listing into a *CheckFailedError.
+func checkFailed(err error) error {
+	var failed *failure
+	if errors.As(err, &failed) {
+		return &CheckFailedError{Category: failed.category, Reply: failed.reply}
+	}
+	return err
+}
+
+// SourceExistsError means an active source already collects the mailbox:
+// the same host and user name, ignoring case.
+type SourceExistsError struct{ ID int64 }
+
+func (e *SourceExistsError) Error() string {
+	return fmt.Sprintf("source %d already collects this mailbox", e.ID)
+}
+
+var (
+	// ErrAlreadySyncing refuses Sync now while a sync runs.
+	ErrAlreadySyncing = errors.New("the source is already syncing")
+	// ErrPaused refuses Sync now while the source is paused.
+	ErrPaused = errors.New("the source is paused")
+)
+
 type Folder struct {
 	Name             string
 	UnavailableSince *time.Time
@@ -96,8 +123,9 @@ func (c *Collector) HasKey() bool { return c.deps.Key != nil }
 
 // Add checks the input, signs in to the mailbox, and only then saves the
 // source with its folders and starts its first sync. It returns an
-// *InvalidFieldsError, ErrNoKey, or a *CheckFailedError, and saves nothing then.
-// Signing in has the check limit.
+// *InvalidFieldsError, ErrNoKey, a *SourceExistsError, or a
+// *CheckFailedError, and saves nothing then. A duplicate is refused before
+// connecting. Signing in has the check limit.
 func (c *Collector) Add(ctx context.Context, in SourceInput) (Source, error) {
 	source, err := parseInput(in)
 	if err != nil {
@@ -106,16 +134,15 @@ func (c *Collector) Add(ctx context.Context, in SourceInput) (Source, error) {
 	if c.deps.Key == nil {
 		return Source{}, ErrNoKey
 	}
+	if err := refuseDuplicate(ctx, c.deps.DB.Reader, source.box.host, source.userKey); err != nil {
+		return Source{}, err
+	}
 
 	check, cancel := context.WithTimeout(ctx, c.cfg.check)
 	defer cancel()
-	session, err := signIn(check, c.cfg, c.deps.Roots, source.mailbox())
-	var failed *failure
-	if errors.As(err, &failed) {
-		return Source{}, &CheckFailedError{Category: failed.category, Reply: failed.reply}
-	}
+	session, err := signIn(check, c.cfg, c.deps.Roots, source.box)
 	if err != nil {
-		return Source{}, err
+		return Source{}, checkFailed(err)
 	}
 	// Sign-in worked, which is all the check needs to know.
 	_ = session.logout()
@@ -124,7 +151,7 @@ func (c *Collector) Add(ctx context.Context, in SourceInput) (Source, error) {
 	if err != nil {
 		return Source{}, err
 	}
-	c.addRunner(id)
+	c.startRunner(id, 0)
 
 	folders := make([]Folder, len(source.folders))
 	for i, name := range source.folders {
@@ -135,25 +162,32 @@ func (c *Collector) Add(ctx context.Context, in SourceInput) (Source, error) {
 	return Source{
 		ID:       id,
 		Name:     source.name,
-		Host:     source.host,
-		Port:     source.port,
-		Security: source.security,
-		UserName: source.userName,
+		Host:     source.box.host,
+		Port:     source.box.port,
+		Security: source.box.security,
+		UserName: source.box.userName,
 		State:    Syncing,
 		Folders:  folders,
 		Progress: &Progress{},
 	}, nil
 }
 
-// save inserts the source with its sealed password and its folders.
+// save inserts the source with its sealed password and its folders. It
+// returns a *SourceExistsError when an active source has the mailbox.
 func (c *Collector) save(ctx context.Context, source newSource) (int64, error) {
-	sealed := c.deps.Key.Seal(source.password, source.host, source.userName)
+	box := source.box
+	sealed := c.deps.Key.Seal(box.password, box.host, box.userName)
 	var id int64
 	err := sqlitedb.InTx(ctx, c.deps.DB.Writer, func(tx *sql.Tx) error {
+		// The writer runs one transaction at a time, from BEGIN IMMEDIATE, so
+		// no other source can be saved between this check and the insert.
+		if err := refuseDuplicate(ctx, tx, box.host, source.userKey); err != nil {
+			return err
+		}
 		inserted, err := tx.ExecContext(ctx,
 			`INSERT INTO imap_source (name, host, port, security, user_name, user_key, sealed_password, created_at)
 			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-			source.name, source.host, source.port, source.security.String(), source.userName, source.userKey,
+			source.name, box.host, box.port, box.security.String(), box.userName, source.userKey,
 			sealed, c.deps.Now().UnixMilli())
 		if err != nil {
 			return err
@@ -169,10 +203,34 @@ func (c *Collector) save(ctx context.Context, source newSource) (int64, error) {
 		}
 		return nil
 	})
+	var exists *SourceExistsError
+	if errors.As(err, &exists) {
+		return 0, err
+	}
 	if err != nil {
 		return 0, fmt.Errorf("save the source: %w", err)
 	}
 	return id, nil
+}
+
+// querier is a database or a transaction.
+type querier interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+// refuseDuplicate returns a *SourceExistsError when an active source has
+// host and userKey, which are both lowercase.
+func refuseDuplicate(ctx context.Context, db querier, host, userKey string) error {
+	var id int64
+	err := db.QueryRowContext(ctx,
+		"SELECT id FROM imap_source WHERE host = ? AND user_key = ? AND removed_at IS NULL", host, userKey).Scan(&id)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return nil
+	case err != nil:
+		return fmt.Errorf("look for the mailbox among the sources: %w", err)
+	}
+	return &SourceExistsError{ID: id}
 }
 
 // List returns every source that wasn't removed, by name, then ID.
@@ -200,7 +258,7 @@ func (c *Collector) load(ctx context.Context, filter string, args []any) ([]Sour
 		query, err := tx.QueryContext(ctx, `
 SELECT s.id, s.name, s.host, s.port, s.security, s.user_name, s.last_success_at, s.last_success_archived,
        s.sign_in_rejected_at, s.failed_attempts, s.failing_since, s.last_failure_category, s.last_failure_at,
-       s.last_server_reply
+       s.last_server_reply, s.paused_at
 FROM imap_source s
 WHERE s.removed_at IS NULL `+filter+`
 ORDER BY s.name, s.id`, args...)
@@ -215,7 +273,7 @@ ORDER BY s.name, s.id`, args...)
 			var successAt, successArchived sql.NullInt64
 			if err := query.Scan(&source.ID, &source.Name, &source.Host, &source.Port, &security, &source.UserName,
 				&successAt, &successArchived, &row.signInRejectedAt, &row.failedAttempts, &row.failingSince,
-				&row.lastFailureCategory, &row.lastFailureAt, &row.lastServerReply); err != nil {
+				&row.lastFailureCategory, &row.lastFailureAt, &row.lastServerReply, &row.pausedAt); err != nil {
 				return err
 			}
 			if source.Security, err = parseSecurity(security); err != nil {
@@ -264,6 +322,7 @@ ORDER BY s.name, s.id`, args...)
 
 // stateRow is what a source's state comes from in its row.
 type stateRow struct {
+	pausedAt            sql.NullInt64
 	signInRejectedAt    sql.NullInt64
 	failedAttempts      int
 	failingSince        sql.NullInt64
@@ -273,13 +332,18 @@ type stateRow struct {
 }
 
 // setState sets the source's state from its row and its memory, taking the
-// first that applies: Syncing, Needs attention, Retrying, Waiting. An
+// first that applies: Paused, Syncing, Needs attention, Retrying, Waiting. An
 // unreadable password comes before a rejected sign-in, because nothing can
 // sign in until the password opens. The caller holds mu.
 func (c *Collector) setState(source *Source, row *stateRow) error {
 	r, running := c.runners[source.ID]
 	unreadableSince, unreadable := c.unreadable[source.ID]
 	switch {
+	case row.pausedAt.Valid:
+		// A paused source has no loop, so nothing else applies.
+		source.State = Paused
+		source.PausedAt = optionalTime(row.pausedAt)
+		return nil
 	case running && r.syncing:
 		progress := r.progress
 		source.State = Syncing

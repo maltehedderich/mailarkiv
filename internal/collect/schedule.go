@@ -22,20 +22,20 @@ func retryWait(n int) time.Duration {
 	return min(time.Minute<<min(n-1, 6), maxRetryWait)
 }
 
-// loop runs r's syncs, each when it is due or when woken, until the
-// collector stops or the source needs an administrator.
-func (c *Collector) loop(r *runner) {
+// loop runs r's syncs, each when it is due or when woken, until ctx ends or
+// the source needs an administrator.
+func (c *Collector) loop(ctx context.Context, r *runner) {
 	for {
 		due, stop := c.after(c.untilDue(r))
 		select {
-		case <-c.ctx.Done():
+		case <-ctx.Done():
 			stop()
 			return
 		case <-r.wake:
 			stop()
 		case <-due:
 		}
-		if !c.sync(c.ctx, r) {
+		if !c.sync(ctx, r) {
 			return
 		}
 	}
