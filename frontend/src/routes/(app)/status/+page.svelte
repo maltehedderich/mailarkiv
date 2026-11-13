@@ -7,6 +7,8 @@
   import { formatBytes } from "#lib/format/size.js";
   import { formatTime } from "#lib/format/time.js";
   import { historyHref } from "#lib/history.js";
+  import { problemTone } from "#lib/sources/describe.js";
+  import { CATEGORY_WORDS } from "#lib/sources/words.js";
   import {
     CATEGORIES,
     RESTORED_NOTE,
@@ -52,7 +54,7 @@
 
   <div class="body">
     {#if data.session.kind === "ok" && data.status.kind === "ok"}
-      {@const { startedAt, recovery, unreferenced, failures } =
+      {@const { startedAt, recovery, unreferenced, failures, sources } =
         data.status.value}
       {@const groups = groupFailures(failures)}
       <!-- What the Status item counts comes first, because that count is why
@@ -60,12 +62,44 @@
       <section aria-labelledby="problems">
         <h2 id="problems">Problems</h2>
         <div class="content">
-          {#if groups.length === 0 && unreferenced.length === 0}
+          {#if groups.length === 0 && unreferenced.length === 0 && sources.length === 0}
             <p class="value">
               No failures and no unreferenced originals since the latest start.
             </p>
           {:else}
             <ul class="groups">
+              <!-- A source's problem lasts until a sync clears it, so these
+                   come before what happened since the start. The name links
+                   to the source's page, which has the folder and the reply. -->
+              {#each sources as source (source.id)}
+                <li class="group">
+                  <h3 class="state">
+                    <span
+                      class="dot"
+                      class:warn={problemTone(source.category) === "warn"}
+                    ></span>
+                    <a class="name" href="/sources/{source.id}"
+                      ><UntrustedText value={source.name} /></a
+                    >
+                  </h3>
+                  <p class="what">{CATEGORY_WORDS[source.category].label}</p>
+                  <p class="when">
+                    <span
+                      >Since <time datetime={source.since}
+                        >{formatTime(source.since)}</time
+                      ></span
+                    >
+                    {#if source.failedAttempts !== null}
+                      <span>
+                        {numbers.format(source.failedAttempts)}
+                        {source.failedAttempts === 1
+                          ? "failed attempt"
+                          : "failed attempts"}
+                      </span>
+                    {/if}
+                  </p>
+                </li>
+              {/each}
               {#each groups as group (group.key)}
                 {@const words = CATEGORIES[group.category]}
                 <li class="group">
@@ -195,6 +229,10 @@
         This screen covers only the time since the server started at
         <time datetime={startedAt}>{formatTime(startedAt)}</time>. Older
         failures are in the server log.
+        {#if sources.length > 0}
+          A source stays listed until a sync clears its problem, even one that
+          began before the start.
+        {/if}
       </p>
     {:else}
       <FailedLoad />
@@ -295,6 +333,13 @@
 
   .name {
     font-weight: var(--weight-medium);
+  }
+
+  /* A source name, cut in its middle when the line is too narrow. */
+  a.name {
+    display: inline-flex;
+    min-width: 0;
+    max-width: 100%;
   }
 
   .count {
