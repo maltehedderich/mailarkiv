@@ -5,6 +5,8 @@ import {
   getSession,
   getStatus,
   listMessages,
+  listSources,
+  readSource,
   signIn,
   signOut,
   type Fetch,
@@ -536,6 +538,24 @@ describe("getMessage", () => {
   });
 });
 
+// The contract's example problem sources.
+const PROBLEM_SOURCES = [
+  {
+    id: 3,
+    name: "Anna",
+    category: "timed_out",
+    since: "2026-11-08T09:15:00.000Z",
+    failed_attempts: 3,
+  },
+  {
+    id: 5,
+    name: "Office",
+    category: "folder_unavailable",
+    since: "2026-11-08T08:00:00.000Z",
+    failed_attempts: null,
+  },
+];
+
 describe("getStatus", () => {
   const STATUS = {
     started_at: "2026-11-06T15:00:00.000Z",
@@ -545,6 +565,7 @@ describe("getStatus", () => {
       temp_files_not_removed: 0,
       unreferenced_found: 1,
     },
+    sources: [],
     unreferenced: [{ content_hash: HASH, size: 2048 }],
     failures: [
       {
@@ -574,6 +595,7 @@ describe("getStatus", () => {
           tempFilesNotRemoved: 0,
           unreferencedFound: 1,
         },
+        sources: [],
         unreferenced: [{ contentHash: HASH, size: 2048 }],
         failures: [
           {
@@ -670,11 +692,35 @@ describe("getStatus", () => {
     ]);
   });
 
+  test("reads problem sources in the server's order", async () => {
+    const { fetch } = answer(200, { ...STATUS, sources: PROBLEM_SOURCES });
+    const status = await getStatus(fetch);
+    expect(status.kind).toBe("ok");
+    if (status.kind !== "ok") return;
+    expect(status.value.sources).toEqual([
+      {
+        id: 3,
+        name: "Anna",
+        category: "timed_out",
+        since: "2026-11-08T09:15:00.000Z",
+        failedAttempts: 3,
+      },
+      {
+        id: 5,
+        name: "Office",
+        category: "folder_unavailable",
+        since: "2026-11-08T08:00:00.000Z",
+        failedAttempts: null,
+      },
+    ]);
+  });
+
   test("reads a marked 401 as session_ended", async () => {
     const { fetch } = answer(401, { error: "no_session" });
     expect(await getStatus(fetch)).toEqual({ kind: "session_ended" });
   });
 
+  const PROBLEM_SOURCE = PROBLEM_SOURCES[0];
   const FAILURE = STATUS.failures[0];
   const MESSAGE_EVENT = {
     at: "2026-11-08T09:00:01.000Z",
@@ -729,6 +775,30 @@ describe("getStatus", () => {
       200,
       { ...STATUS, failures: [{ ...MESSAGE_EVENT, source_id: -3 }] },
     ],
+    ["no sources field", 200, { ...STATUS, sources: undefined }],
+    [
+      "a problem source with a category the interface doesn't know",
+      200,
+      { ...STATUS, sources: [{ ...PROBLEM_SOURCE, category: "disk_on_fire" }] },
+    ],
+    [
+      "a problem source with an import category",
+      200,
+      {
+        ...STATUS,
+        sources: [{ ...PROBLEM_SOURCE, category: "stored_original_missing" }],
+      },
+    ],
+    [
+      "a problem source with no start time",
+      200,
+      { ...STATUS, sources: [{ ...PROBLEM_SOURCE, since: null }] },
+    ],
+    [
+      "a problem source with negative failed attempts",
+      200,
+      { ...STATUS, sources: [{ ...PROBLEM_SOURCE, failed_attempts: -1 }] },
+    ],
   ])("reads %s as unavailable", async (_name, status, body) => {
     const { fetch } = answer(status, body);
     expect(await getStatus(fetch)).toEqual({ kind: "unavailable" });
@@ -743,5 +813,478 @@ describe("getStatus", () => {
     expect(await getStatus(failing(networkError))).toEqual({
       kind: "unavailable",
     });
+  });
+});
+
+// The contract's list entry, retrying after three timeouts.
+const RETRYING = {
+  id: 3,
+  name: "Anna",
+  host: "imap.example.test",
+  port: 993,
+  security: "tls",
+  user_name: "anna@example.test",
+  state: "retrying",
+  folders: ["INBOX", "Gesendete Objekte"],
+  progress: null,
+  last_success: { at: "2026-11-08T09:10:00.000Z", archived: 12 },
+  collected: 18044,
+  next_sync_at: "2026-11-08T09:24:00.000Z",
+  paused_at: null,
+  failure: {
+    category: "timed_out",
+    since: "2026-11-08T09:15:00.000Z",
+    failed_attempts: 3,
+    last_at: "2026-11-08T09:20:00.000Z",
+    reply: null,
+  },
+  problems: { unavailable_folders: 0, waiting_for_retry: 2, not_archived: 1 },
+};
+
+const RETRYING_PARSED = {
+  id: 3,
+  name: "Anna",
+  host: "imap.example.test",
+  port: 993,
+  security: "tls",
+  userName: "anna@example.test",
+  state: "retrying",
+  folders: ["INBOX", "Gesendete Objekte"],
+  progress: null,
+  lastSuccess: { at: "2026-11-08T09:10:00.000Z", archived: 12 },
+  collected: 18044,
+  nextSyncAt: "2026-11-08T09:24:00.000Z",
+  pausedAt: null,
+  failure: {
+    category: "timed_out",
+    since: "2026-11-08T09:15:00.000Z",
+    failedAttempts: 3,
+    lastAt: "2026-11-08T09:20:00.000Z",
+    reply: null,
+  },
+  problems: { unavailableFolders: 0, waitingForRetry: 2, notArchived: 1 },
+};
+
+// A first sync that is running: everything a sync sets later is null.
+const SYNCING = {
+  ...RETRYING,
+  id: 4,
+  name: "Büro",
+  security: "starttls",
+  port: 143,
+  state: "syncing",
+  progress: { archived: 120, found: 4000 },
+  last_success: null,
+  collected: 120,
+  next_sync_at: null,
+  failure: null,
+  problems: { unavailable_folders: 0, waiting_for_retry: 0, not_archived: 0 },
+};
+
+describe("listSources", () => {
+  test("reads the contract's list, keeping its order", async () => {
+    const { fetch, calls } = answer(200, {
+      collection: "available",
+      sources: [RETRYING, SYNCING],
+    });
+    expect(await listSources(fetch)).toEqual({
+      kind: "ok",
+      value: {
+        collection: "available",
+        sources: [
+          RETRYING_PARSED,
+          {
+            ...RETRYING_PARSED,
+            id: 4,
+            name: "Büro",
+            security: "starttls",
+            port: 143,
+            state: "syncing",
+            progress: { archived: 120, found: 4000 },
+            lastSuccess: null,
+            collected: 120,
+            nextSyncAt: null,
+            failure: null,
+            problems: {
+              unavailableFolders: 0,
+              waitingForRetry: 0,
+              notArchived: 0,
+            },
+          },
+        ],
+      },
+    });
+    expect(calls[0].url).toBe("/api/sources");
+    expect(calls[0].init?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  test("reads every state", async () => {
+    const states = [
+      "waiting",
+      "syncing",
+      "retrying",
+      "needs_attention",
+      "paused",
+    ];
+    const sources = states.map((state, i) => ({
+      ...RETRYING,
+      id: i + 1,
+      state,
+    }));
+    const { fetch } = answer(200, { collection: "available", sources });
+    const list = await listSources(fetch);
+    expect(list.kind).toBe("ok");
+    if (list.kind !== "ok") return;
+    expect(list.value.sources.map((source) => source.state)).toEqual(states);
+  });
+
+  test("reads every failure category a source can have", async () => {
+    const categories = [
+      "server_not_reachable",
+      "secure_connection_failed",
+      "sign_in_rejected",
+      "password_unreadable",
+      "timed_out",
+      "server_error",
+      "storage_full",
+      "storage_write_failed",
+      "catalog_write_failed",
+    ];
+    const sources = categories.map((category, i) => ({
+      ...RETRYING,
+      id: i + 1,
+      failure: { ...RETRYING.failure, category },
+    }));
+    const { fetch } = answer(200, { collection: "available", sources });
+    const list = await listSources(fetch);
+    expect(list.kind).toBe("ok");
+    if (list.kind !== "ok") return;
+    expect(
+      list.value.sources.map((source) => source.failure?.category),
+    ).toEqual(categories);
+  });
+
+  test("reads an unreadable password, which no sign-in tried", async () => {
+    const failure = {
+      category: "password_unreadable",
+      since: "2026-11-08T09:00:00.000Z",
+      failed_attempts: null,
+      last_at: null,
+      reply: null,
+    };
+    const { fetch } = answer(200, {
+      collection: "no_key",
+      sources: [
+        { ...RETRYING, state: "needs_attention", next_sync_at: null, failure },
+      ],
+    });
+    const list = await listSources(fetch);
+    expect(list.kind).toBe("ok");
+    if (list.kind !== "ok") return;
+    expect(list.value.collection).toBe("no_key");
+    expect(list.value.sources[0].failure).toEqual({
+      category: "password_unreadable",
+      since: "2026-11-08T09:00:00.000Z",
+      failedAttempts: null,
+      lastAt: null,
+      reply: null,
+    });
+  });
+
+  test("keeps the server's reply as it came", async () => {
+    const reply = "[UNAVAILABLE] ‮Backend down";
+    const { fetch } = answer(200, {
+      collection: "available",
+      sources: [{ ...RETRYING, failure: { ...RETRYING.failure, reply } }],
+    });
+    const list = await listSources(fetch);
+    expect(list.kind === "ok" && list.value.sources[0].failure?.reply).toBe(
+      reply,
+    );
+  });
+
+  test("reads an empty list", async () => {
+    const { fetch } = answer(200, { collection: "available", sources: [] });
+    expect(await listSources(fetch)).toEqual({
+      kind: "ok",
+      value: { collection: "available", sources: [] },
+    });
+  });
+
+  test("reads a marked 401 as session_ended", async () => {
+    const { fetch } = answer(401, { error: "no_session" });
+    expect(await listSources(fetch)).toEqual({ kind: "session_ended" });
+  });
+
+  const list = (source: unknown) => ({
+    collection: "available",
+    sources: [source],
+  });
+  test.each([
+    ["a server error", 500, { error: "internal_error" }],
+    [
+      "an unknown path, as without the preview flag",
+      404,
+      { error: "not_found" },
+    ],
+    ["a body that isn't JSON", 200, "<!doctype html>"],
+    ["no sources field", 200, { collection: "available" }],
+    ["an unknown collection", 200, { collection: "maybe", sources: [] }],
+    [
+      "a state the interface doesn't know",
+      200,
+      list({ ...RETRYING, state: "napping" }),
+    ],
+    [
+      "a failure category the interface doesn't know",
+      200,
+      list({
+        ...RETRYING,
+        failure: { ...RETRYING.failure, category: "disk_on_fire" },
+      }),
+    ],
+    ["an unknown security", 200, list({ ...RETRYING, security: "ssl" })],
+    ["a port of 0", 200, list({ ...RETRYING, port: 0 })],
+    ["a port over 65535", 200, list({ ...RETRYING, port: 65536 })],
+    [
+      "folders that aren't names",
+      200,
+      list({ ...RETRYING, folders: [{ name: "INBOX" }] }),
+    ],
+    [
+      "progress with no found count",
+      200,
+      list({ ...SYNCING, progress: { archived: 1 } }),
+    ],
+    [
+      "a last success with no time",
+      200,
+      list({ ...RETRYING, last_success: { archived: 1 } }),
+    ],
+    ["a negative collected count", 200, list({ ...RETRYING, collected: -1 })],
+    [
+      "a next sync time that can't be read",
+      200,
+      list({ ...RETRYING, next_sync_at: "soon" }),
+    ],
+    [
+      "a failure with no start time",
+      200,
+      list({ ...RETRYING, failure: { ...RETRYING.failure, since: null } }),
+    ],
+    [
+      "a reply that isn't text",
+      200,
+      list({ ...RETRYING, failure: { ...RETRYING.failure, reply: 7 } }),
+    ],
+    ["no problem counts", 200, list({ ...RETRYING, problems: null })],
+  ])("reads %s as unavailable", async (_name, status, body) => {
+    const { fetch } = answer(status, body);
+    expect(await listSources(fetch)).toEqual({ kind: "unavailable" });
+  });
+
+  test("reads an unmarked answer as unavailable", async () => {
+    const { fetch } = answer(
+      200,
+      { collection: "available", sources: [] },
+      { marked: false },
+    );
+    expect(await listSources(fetch)).toEqual({ kind: "unavailable" });
+  });
+
+  test("reads a timeout as unavailable", async () => {
+    expect(await listSources(failing(timeout))).toEqual({
+      kind: "unavailable",
+    });
+  });
+});
+
+describe("readSource", () => {
+  const WAITING_ITEM = {
+    folder: "INBOX",
+    size: 48211,
+    received_at: "2026-11-07T17:02:11.000Z",
+    recorded_at: "2026-11-08T09:00:03.000Z",
+    category: "message_unavailable",
+  };
+  const DETAIL = {
+    ...RETRYING,
+    folders: [
+      {
+        name: "INBOX",
+        unavailable_since: null,
+        renumbered_at: "2026-11-08T08:00:00.000Z",
+      },
+      {
+        name: "Projekte",
+        unavailable_since: "2026-11-08T09:00:00.000Z",
+        renumbered_at: null,
+      },
+    ],
+    messages: {
+      waiting_for_retry: { total: 2, items: [WAITING_ITEM] },
+      not_archived: {
+        total: 1,
+        items: [
+          {
+            folder: "INBOX",
+            size: 160000000,
+            received_at: null,
+            recorded_at: "2026-11-08T09:00:01.000Z",
+            category: "message_too_large",
+          },
+        ],
+      },
+    },
+  };
+
+  test("reads the contract's page", async () => {
+    const { fetch, calls } = answer(200, DETAIL);
+    expect(await readSource("3", fetch)).toEqual({
+      kind: "ok",
+      value: {
+        ...RETRYING_PARSED,
+        folders: [
+          {
+            name: "INBOX",
+            unavailableSince: null,
+            renumberedAt: "2026-11-08T08:00:00.000Z",
+          },
+          {
+            name: "Projekte",
+            unavailableSince: "2026-11-08T09:00:00.000Z",
+            renumberedAt: null,
+          },
+        ],
+        messages: {
+          waitingForRetry: {
+            total: 2,
+            items: [
+              {
+                folder: "INBOX",
+                size: 48211,
+                receivedAt: "2026-11-07T17:02:11.000Z",
+                recordedAt: "2026-11-08T09:00:03.000Z",
+                category: "message_unavailable",
+              },
+            ],
+          },
+          notArchived: {
+            total: 1,
+            items: [
+              {
+                folder: "INBOX",
+                size: 160000000,
+                receivedAt: null,
+                recordedAt: "2026-11-08T09:00:01.000Z",
+                category: "message_too_large",
+              },
+            ],
+          },
+        },
+      },
+    });
+    expect(calls[0].url).toBe("/api/sources/3");
+    expect(calls[0].init?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  test("sends the ID as typed, encoded", async () => {
+    const { fetch, calls } = answer(404, { error: "not_found" });
+    expect(await readSource("a/b?c", fetch)).toEqual({ kind: "unavailable" });
+    expect(calls[0].url).toBe("/api/sources/a%2Fb%3Fc");
+  });
+
+  test("reads a message with no size", async () => {
+    const { fetch } = answer(200, {
+      ...DETAIL,
+      messages: {
+        ...DETAIL.messages,
+        waiting_for_retry: {
+          total: 1,
+          items: [{ ...WAITING_ITEM, size: null }],
+        },
+      },
+    });
+    const page = await readSource("3", fetch);
+    expect(
+      page.kind === "ok" && page.value.messages.waitingForRetry.items[0].size,
+    ).toBeNull();
+  });
+
+  test("reads a removed message", async () => {
+    const removed = { ...WAITING_ITEM, category: "message_removed" };
+    const { fetch } = answer(200, {
+      ...DETAIL,
+      messages: {
+        ...DETAIL.messages,
+        not_archived: { total: 1, items: [removed] },
+      },
+    });
+    const page = await readSource("3", fetch);
+    expect(
+      page.kind === "ok" && page.value.messages.notArchived.items[0].category,
+    ).toBe("message_removed");
+  });
+
+  test("reads a marked 401 as session_ended", async () => {
+    const { fetch } = answer(401, { error: "no_session" });
+    expect(await readSource("3", fetch)).toEqual({ kind: "session_ended" });
+  });
+
+  const withWaiting = (item: unknown) => ({
+    ...DETAIL,
+    messages: {
+      ...DETAIL.messages,
+      waiting_for_retry: { total: 1, items: [item] },
+    },
+  });
+  test.each([
+    ["an unknown source", 404, { error: "not_found" }],
+    ["the list's folder names", 200, { ...DETAIL, folders: RETRYING.folders }],
+    ["no messages", 200, { ...DETAIL, messages: undefined }],
+    [
+      "a list with no total",
+      200,
+      {
+        ...DETAIL,
+        messages: { ...DETAIL.messages, not_archived: { items: [] } },
+      },
+    ],
+    [
+      "a state the interface doesn't know",
+      200,
+      { ...DETAIL, state: "napping" },
+    ],
+    [
+      "a message category the interface doesn't know",
+      200,
+      withWaiting({ ...WAITING_ITEM, category: "message_lost" }),
+    ],
+    [
+      "a sync category on a message",
+      200,
+      withWaiting({ ...WAITING_ITEM, category: "timed_out" }),
+    ],
+    [
+      "a message with no folder",
+      200,
+      withWaiting({ ...WAITING_ITEM, folder: null }),
+    ],
+    [
+      "a message with no recorded time",
+      200,
+      withWaiting({ ...WAITING_ITEM, recorded_at: null }),
+    ],
+    [
+      "a folder whose unavailable time can't be read",
+      200,
+      {
+        ...DETAIL,
+        folders: [{ ...DETAIL.folders[0], unavailable_since: "soon" }],
+      },
+    ],
+  ])("reads %s as unavailable", async (_name, status, body) => {
+    const { fetch } = answer(status, body);
+    expect(await readSource("3", fetch)).toEqual({ kind: "unavailable" });
   });
 });

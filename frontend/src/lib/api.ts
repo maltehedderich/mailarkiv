@@ -136,6 +136,164 @@ export interface ServerStatus {
   unreferenced: UnreferencedOriginal[];
   /** In the order they happened. */
   failures: FailureEvent[];
+  /** By name, then ID. Each source appears once. */
+  sources: ProblemSource[];
+}
+
+/** A mail source the status screen lists. It names no user or folder. */
+export interface ProblemSource {
+  id: number;
+  /** Untrusted. */
+  name: string;
+  category: SourceProblemCategory;
+  /** When the problem began, RFC 3339 in UTC. */
+  since: string;
+  /** Set for a sync failure only. */
+  failedAttempts: number | null;
+}
+
+/** Source states use the server's names. */
+export const SOURCE_STATES = [
+  "waiting",
+  "syncing",
+  "retrying",
+  "needs_attention",
+  "paused",
+] as const;
+
+export type SourceState = (typeof SOURCE_STATES)[number];
+
+/** The categories a sync can fail with. */
+export const SYNC_CATEGORIES = [
+  "server_not_reachable",
+  "secure_connection_failed",
+  "sign_in_rejected",
+  "password_unreadable",
+  "timed_out",
+  "server_error",
+  "storage_full",
+  "storage_write_failed",
+  "catalog_write_failed",
+] as const;
+
+/** The categories of one message that wasn't archived. */
+export const MESSAGE_PROBLEM_CATEGORIES = [
+  "message_unavailable",
+  "message_too_large",
+  "message_removed",
+] as const;
+
+export type SyncCategory = (typeof SYNC_CATEGORIES)[number];
+export type MessageProblemCategory =
+  (typeof MESSAGE_PROBLEM_CATEGORIES)[number];
+
+/** Every collection failure category, with the server's names. */
+export type CollectionCategory =
+  SyncCategory | "folder_unavailable" | MessageProblemCategory;
+
+/** What the status screen can list a source for. */
+export type SourceProblemCategory =
+  SyncCategory | "folder_unavailable" | "message_unavailable";
+
+export type Security = "tls" | "starttls";
+
+/** `no_key` when the server started without its key file. */
+export type Collection = "available" | "no_key";
+
+export interface SyncProgress {
+  /** Counts only stored messages. */
+  archived: number;
+  found: number;
+}
+
+export interface SyncSuccess {
+  /** RFC 3339 in UTC. */
+  at: string;
+  archived: number;
+}
+
+/** The run of failed syncs a source is in, or its unreadable password. */
+export interface SyncFailure {
+  category: SyncCategory;
+  /** The run's first failure, or when the password was found unreadable. */
+  since: string;
+  /** Null for an unreadable password, which no sign-in tried. */
+  failedAttempts: number | null;
+  lastAt: string | null;
+  /** The server's NO or BAD text, if it sent one. Untrusted. */
+  reply: string | null;
+}
+
+export interface ProblemCounts {
+  unavailableFolders: number;
+  waitingForRetry: number;
+  notArchived: number;
+}
+
+/** A source's name, server, user name, and folders are untrusted. */
+export interface Source {
+  id: number;
+  name: string;
+  host: string;
+  port: number;
+  security: Security;
+  userName: string;
+  state: SourceState;
+  /** Chosen folders in sync order, as mail clients show them. */
+  folders: string[];
+  /** Set while syncing. */
+  progress: SyncProgress | null;
+  /** Null before the first successful sync. */
+  lastSuccess: SyncSuccess | null;
+  /** Distinct messages with an entry from this source. */
+  collected: number;
+  /** Null while paused, syncing, or in Needs attention. */
+  nextSyncAt: string | null;
+  pausedAt: string | null;
+  /** Set while retrying or in Needs attention. */
+  failure: SyncFailure | null;
+  problems: ProblemCounts;
+}
+
+export interface SourceList {
+  collection: Collection;
+  /** By name, then ID. */
+  sources: Source[];
+}
+
+export interface SourceFolder {
+  /** As mail clients show it. Untrusted. */
+  name: string;
+  unavailableSince: string | null;
+  renumberedAt: string | null;
+}
+
+/** A message waiting for retry or not archived. It holds no mail content. */
+export interface ProblemMessage {
+  /** Untrusted. */
+  folder: string;
+  /** Null when the server didn't report it. */
+  size: number | null;
+  /** The server's INTERNALDATE, or null when it reported none. */
+  receivedAt: string | null;
+  recordedAt: string;
+  category: MessageProblemCategory;
+}
+
+export interface ProblemList {
+  /** Counts every message, though `items` holds at most the newest 100. */
+  total: number;
+  /** Newest first. */
+  items: ProblemMessage[];
+}
+
+/** A source as its own page shows it. */
+export interface SourceDetail extends Omit<Source, "folders"> {
+  folders: SourceFolder[];
+  messages: {
+    waitingForRetry: ProblemList;
+    notArchived: ProblemList;
+  };
 }
 
 export type ApiResult<T> =
@@ -190,6 +348,28 @@ export async function getStatus(
   fetch: Fetch = globalThis.fetch,
 ): Promise<ApiResult<ServerStatus>> {
   return getJSON(fetch, "/api/status", parseStatus);
+}
+
+/** Lists the mail sources, unpaged. */
+export async function listSources(
+  fetch: Fetch = globalThis.fetch,
+): Promise<ApiResult<SourceList>> {
+  return getJSON(fetch, "/api/sources", parseSourceList);
+}
+
+/**
+ * Reads one source's page. `id` goes to the server as typed, so one that
+ * names no source comes back as unavailable.
+ */
+export async function readSource(
+  id: string,
+  fetch: Fetch = globalThis.fetch,
+): Promise<ApiResult<SourceDetail>> {
+  return getJSON(
+    fetch,
+    `/api/sources/${encodeURIComponent(id)}`,
+    parseSourceDetail,
+  );
 }
 
 export async function signIn(
@@ -376,11 +556,13 @@ function parseStatus(body: unknown): ServerStatus | null {
   const recovery = parseRecovery(field(body, "recovery"));
   const unreferenced = field(body, "unreferenced");
   const failures = field(body, "failures");
+  const sources = parseAll(field(body, "sources"), parseProblemSource);
   if (
     !isTime(startedAt) ||
     recovery === null ||
     !Array.isArray(unreferenced) ||
-    !Array.isArray(failures)
+    !Array.isArray(failures) ||
+    sources === null
   ) {
     return null;
   }
@@ -393,7 +575,236 @@ function parseStatus(body: unknown): ServerStatus | null {
     recovery,
     unreferenced: originals as UnreferencedOriginal[],
     failures: events as FailureEvent[],
+    sources,
   };
+}
+
+function parseProblemSource(value: unknown): ProblemSource | null {
+  const id = field(value, "id");
+  const name = field(value, "name");
+  const category = field(value, "category");
+  const since = field(value, "since");
+  const failedAttempts = field(value, "failed_attempts");
+  if (
+    !isCount(id) ||
+    typeof name !== "string" ||
+    !isOneOf(category, SOURCE_PROBLEM_CATEGORIES) ||
+    !isTime(since) ||
+    (failedAttempts !== null && !isCount(failedAttempts))
+  ) {
+    return null;
+  }
+  return { id, name, category, since, failedAttempts };
+}
+
+const SOURCE_PROBLEM_CATEGORIES: readonly SourceProblemCategory[] = [
+  ...SYNC_CATEGORIES,
+  "folder_unavailable",
+  "message_unavailable",
+];
+
+function parseSourceList(body: unknown): SourceList | null {
+  const collection = field(body, "collection");
+  const sources = parseAll(field(body, "sources"), (value) => {
+    const fields = parseSourceFields(value);
+    const folders = field(value, "folders");
+    if (fields === null || !isStringArray(folders)) return null;
+    return { ...fields, folders };
+  });
+  if (collection !== "available" && collection !== "no_key") return null;
+  return sources === null ? null : { collection, sources };
+}
+
+function parseSourceDetail(body: unknown): SourceDetail | null {
+  const fields = parseSourceFields(body);
+  const folders = parseAll(field(body, "folders"), parseSourceFolder);
+  const messages = field(body, "messages");
+  const waitingForRetry = parseProblemList(
+    field(messages, "waiting_for_retry"),
+  );
+  const notArchived = parseProblemList(field(messages, "not_archived"));
+  if (
+    fields === null ||
+    folders === null ||
+    waitingForRetry === null ||
+    notArchived === null
+  ) {
+    return null;
+  }
+  return { ...fields, folders, messages: { waitingForRetry, notArchived } };
+}
+
+/** Reads what the list entry and the page share: all but `folders`. */
+function parseSourceFields(value: unknown): Omit<Source, "folders"> | null {
+  const id = field(value, "id");
+  const name = field(value, "name");
+  const host = field(value, "host");
+  const port = field(value, "port");
+  const security = field(value, "security");
+  const userName = field(value, "user_name");
+  const state = field(value, "state");
+  const progress = parseNullable(field(value, "progress"), parseProgress);
+  const lastSuccess = parseNullable(field(value, "last_success"), parseSuccess);
+  const collected = field(value, "collected");
+  const nextSyncAt = field(value, "next_sync_at");
+  const pausedAt = field(value, "paused_at");
+  const failure = parseNullable(field(value, "failure"), parseSyncFailure);
+  const problems = parseProblemCounts(field(value, "problems"));
+  if (
+    !isCount(id) ||
+    typeof name !== "string" ||
+    typeof host !== "string" ||
+    !isCount(port) ||
+    port < 1 ||
+    port > 65535 ||
+    (security !== "tls" && security !== "starttls") ||
+    typeof userName !== "string" ||
+    !isOneOf(state, SOURCE_STATES) ||
+    progress === undefined ||
+    lastSuccess === undefined ||
+    !isCount(collected) ||
+    !isTimeOrNull(nextSyncAt) ||
+    !isTimeOrNull(pausedAt) ||
+    failure === undefined ||
+    problems === null
+  ) {
+    return null;
+  }
+  return {
+    id,
+    name,
+    host,
+    port,
+    security,
+    userName,
+    state,
+    progress,
+    lastSuccess,
+    collected,
+    nextSyncAt,
+    pausedAt,
+    failure,
+    problems,
+  };
+}
+
+function parseProgress(value: unknown): SyncProgress | null {
+  const archived = field(value, "archived");
+  const found = field(value, "found");
+  return isCount(archived) && isCount(found) ? { archived, found } : null;
+}
+
+function parseSuccess(value: unknown): SyncSuccess | null {
+  const at = field(value, "at");
+  const archived = field(value, "archived");
+  return isTime(at) && isCount(archived) ? { at, archived } : null;
+}
+
+function parseSyncFailure(value: unknown): SyncFailure | null {
+  const category = field(value, "category");
+  const since = field(value, "since");
+  const failedAttempts = field(value, "failed_attempts");
+  const lastAt = field(value, "last_at");
+  const reply = field(value, "reply");
+  if (
+    !isOneOf(category, SYNC_CATEGORIES) ||
+    !isTime(since) ||
+    (failedAttempts !== null && !isCount(failedAttempts)) ||
+    !isTimeOrNull(lastAt) ||
+    (reply !== null && typeof reply !== "string")
+  ) {
+    return null;
+  }
+  return { category, since, failedAttempts, lastAt, reply };
+}
+
+function parseProblemCounts(value: unknown): ProblemCounts | null {
+  const unavailableFolders = field(value, "unavailable_folders");
+  const waitingForRetry = field(value, "waiting_for_retry");
+  const notArchived = field(value, "not_archived");
+  if (
+    !isCount(unavailableFolders) ||
+    !isCount(waitingForRetry) ||
+    !isCount(notArchived)
+  ) {
+    return null;
+  }
+  return { unavailableFolders, waitingForRetry, notArchived };
+}
+
+function parseSourceFolder(value: unknown): SourceFolder | null {
+  const name = field(value, "name");
+  const unavailableSince = field(value, "unavailable_since");
+  const renumberedAt = field(value, "renumbered_at");
+  if (
+    typeof name !== "string" ||
+    !isTimeOrNull(unavailableSince) ||
+    !isTimeOrNull(renumberedAt)
+  ) {
+    return null;
+  }
+  return { name, unavailableSince, renumberedAt };
+}
+
+function parseProblemList(value: unknown): ProblemList | null {
+  const total = field(value, "total");
+  const items = parseAll(field(value, "items"), parseProblemMessage);
+  return isCount(total) && items !== null ? { total, items } : null;
+}
+
+function parseProblemMessage(value: unknown): ProblemMessage | null {
+  const folder = field(value, "folder");
+  const size = field(value, "size");
+  const receivedAt = field(value, "received_at");
+  const recordedAt = field(value, "recorded_at");
+  const category = field(value, "category");
+  if (
+    typeof folder !== "string" ||
+    (size !== null && !isCount(size)) ||
+    !isTimeOrNull(receivedAt) ||
+    !isTime(recordedAt) ||
+    !isOneOf(category, MESSAGE_PROBLEM_CATEGORIES)
+  ) {
+    return null;
+  }
+  return { folder, size, receivedAt, recordedAt, category };
+}
+
+/** Parses every element, or returns null if value isn't an array or one fails. */
+function parseAll<T>(
+  value: unknown,
+  parse: (element: unknown) => T | null,
+): T[] | null {
+  if (!Array.isArray(value)) return null;
+  const parsed = value.map(parse);
+  return parsed.some((element) => element === null) ? null : (parsed as T[]);
+}
+
+/** Parses a value that may be null. Undefined means it was neither. */
+function parseNullable<T>(
+  value: unknown,
+  parse: (value: unknown) => T | null,
+): T | null | undefined {
+  if (value === null) return null;
+  return parse(value) ?? undefined;
+}
+
+function isOneOf<T extends string>(
+  value: unknown,
+  allowed: readonly T[],
+): value is T {
+  return allowed.some((member) => member === value);
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return (
+    Array.isArray(value) &&
+    value.every((element) => typeof element === "string")
+  );
+}
+
+function isTimeOrNull(value: unknown): value is string | null {
+  return value === null || isTime(value);
 }
 
 function parseRecovery(value: unknown): RecoveryResult | null {
