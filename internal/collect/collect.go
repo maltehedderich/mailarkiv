@@ -44,6 +44,8 @@ type Collector struct {
 	started bool
 	stopped bool
 	runners map[int64]*runner
+	// collectFn runs one sync. Tests replace it.
+	collectFn func(ctx context.Context, r *runner) (int, error)
 }
 
 // runner is one source's loop. Its fields other than id and wake are
@@ -54,13 +56,15 @@ type runner struct {
 	wake     chan struct{}
 	syncing  bool
 	progress Progress
+	// due is when the next sync starts. It starts at the runner's creation,
+	// so every source syncs as soon as its loop starts.
+	due time.Time
+	// failedAttempts counts the failed syncs in a row, as the row stores it.
+	failedAttempts int
 }
 
-func newRunner(id int64) *runner {
-	r := &runner{id: id, wake: make(chan struct{}, 1)}
-	// Every source syncs as soon as its loop starts.
-	r.wake <- struct{}{}
-	return r
+func newRunner(id int64, now time.Time, failedAttempts int) *runner {
+	return &runner{id: id, wake: make(chan struct{}, 1), due: now, failedAttempts: failedAttempts}
 }
 
 // Open loads the sources that can sync. None syncs before Start.
@@ -70,7 +74,7 @@ func Open(ctx context.Context, deps Deps) (*Collector, error) {
 
 func open(ctx context.Context, deps Deps, cfg config) (*Collector, error) {
 	rows, err := deps.DB.Reader.QueryContext(ctx, `
-SELECT id FROM imap_source
+SELECT id, failed_attempts FROM imap_source
 WHERE removed_at IS NULL AND paused_at IS NULL AND sign_in_rejected_at IS NULL
 ORDER BY id`)
 	if err != nil {
@@ -80,21 +84,24 @@ ORDER BY id`)
 	runners := map[int64]*runner{}
 	for rows.Next() {
 		var id int64
-		if err := rows.Scan(&id); err != nil {
+		var failedAttempts int
+		if err := rows.Scan(&id, &failedAttempts); err != nil {
 			return nil, fmt.Errorf("load sources: %w", err)
 		}
-		runners[id] = newRunner(id)
+		runners[id] = newRunner(id, deps.Now(), failedAttempts)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("load sources: %w", err)
 	}
 
 	c := &Collector{deps: deps, cfg: cfg, runners: runners}
+	c.collectFn = c.collect
 	c.ctx, c.cancel = context.WithCancel(context.Background())
 	return c, nil
 }
 
-// Start starts every loop, and each syncs at once.
+// Start starts every loop, and each syncs at once. A source whose sign-in
+// was rejected has no loop until an administrator acts.
 func (c *Collector) Start() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -119,23 +126,14 @@ func (c *Collector) Stop() {
 
 // launch runs r's loop. The caller holds mu.
 func (c *Collector) launch(r *runner) {
-	c.wg.Go(func() {
-		for {
-			select {
-			case <-c.ctx.Done():
-				return
-			case <-r.wake:
-				c.sync(c.ctx, r)
-			}
-		}
-	})
+	c.wg.Go(func() { c.loop(r) })
 }
 
 // addRunner starts a loop for a new source, which syncs at once.
 func (c *Collector) addRunner(id int64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	r := newRunner(id)
+	r := newRunner(id, c.deps.Now(), 0)
 	c.runners[id] = r
 	if c.started && !c.stopped {
 		c.launch(r)

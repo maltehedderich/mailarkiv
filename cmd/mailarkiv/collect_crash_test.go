@@ -183,6 +183,7 @@ func TestCollectCrashMatrix(t *testing.T) {
 				faulty.waitForKill()
 			} else {
 				faulty.waitForSyncFailure(tt.failedWith)
+				faulty.assertRetrying(token, tt.failedWith)
 				if code := faulty.stop(syscall.SIGTERM); code != 0 {
 					t.Fatalf("exit = %d, want 0:\n%s", code, faulty.stderr())
 				}

@@ -43,11 +43,32 @@ const (
 	StartTLS
 )
 
-// Options configure a server. Every field is required.
+// Certificate is the certificate the server presents.
+type Certificate int
+
+const (
+	// Trusted is signed by the CA in CAPEM and names localhost and 127.0.0.1.
+	Trusted Certificate = iota
+	// OtherCA is signed by a CA that CAPEM doesn't hold.
+	OtherCA
+	// Expired is signed by the CA in CAPEM and expired an hour ago.
+	Expired
+	// OtherName is signed by the CA in CAPEM and names only
+	// other.example.test.
+	OtherName
+)
+
+// Options configure a server. Security, User, and Password are required.
 type Options struct {
-	Security Security
-	User     string
-	Password string
+	Security    Security
+	User        string
+	Password    string
+	Certificate Certificate
+	// OnlyTLS11 accepts TLS 1.1 and nothing else.
+	OnlyTLS11 bool
+	// NoStartTLS leaves STARTTLS out of the capabilities of a StartTLS
+	// server, which then answers STARTTLS with NO.
+	NoStartTLS bool
 }
 
 // Command is one command that reached a session. CAPABILITY, NOOP,
@@ -65,14 +86,27 @@ type Command struct {
 
 // Hook sees each command before the in-memory server does. A non-nil error
 // fails the command: an *imap.Error reaches the client with its type, code,
-// and text, and any other error as NO [SERVERBUG]. A hook runs on the
-// session's goroutine.
+// and text, ErrStall and ErrHangUp do what they say, and any other error
+// reaches it as NO [SERVERBUG]. A hook runs on the session's goroutine.
 type Hook func(Command) error
 
 // No returns an error that a hook can use to answer NO.
 func No(code imap.ResponseCode, text string) error {
 	return &imap.Error{Type: imap.StatusResponseTypeNo, Code: code, Text: text}
 }
+
+// Bad returns an error that a hook can use to answer BAD.
+func Bad(code imap.ResponseCode, text string) error {
+	return &imap.Error{Type: imap.StatusResponseTypeBad, Code: code, Text: text}
+}
+
+var (
+	// ErrStall, returned by a hook, leaves the command unanswered until the
+	// client closes the connection or the server closes.
+	ErrStall = errors.New("imaptest: the command was stalled")
+	// ErrHangUp, returned by a hook, closes the connection without an answer.
+	ErrHangUp = errors.New("imaptest: the server hung up")
+)
 
 // Server is an IMAP server for one user. It is safe for concurrent use.
 type Server struct {
@@ -84,9 +118,11 @@ type Server struct {
 	user     *imapmemserver.User
 	name     string
 
-	// closed ends every held fetch when the server closes.
+	// closed ends every held fetch and stall when the server closes.
 	closed    chan struct{}
 	closeOnce sync.Once
+	stopOnce  sync.Once
+	stopErr   error
 
 	mu       sync.Mutex
 	password string
@@ -102,6 +138,11 @@ type Server struct {
 	faults      map[messageKey]Fault
 	holds       map[messageKey]*Hold
 	bodyFetches map[messageKey]int
+	// floods holds, by command name, how many bytes of LIST replies to send
+	// before answering.
+	floods           map[string]int
+	stallHandshake   bool
+	withholdGreeting bool
 }
 
 // messageKey names a message under its folder's current numbering.
@@ -125,7 +166,10 @@ func New(options Options) (*Server, error) {
 		return nil, errors.New("imaptest: a user and a password are required")
 	}
 
-	caPEM, certificate, err := newCertificates(time.Now())
+	if options.NoStartTLS && options.Security != StartTLS {
+		return nil, errors.New("imaptest: NoStartTLS needs StartTLS")
+	}
+	caPEM, certificate, err := newCertificates(time.Now(), options.Certificate)
 	if err != nil {
 		return nil, err
 	}
@@ -141,6 +185,7 @@ func New(options Options) (*Server, error) {
 		faults:      map[messageKey]Fault{},
 		holds:       map[messageKey]*Hold{},
 		bodyFetches: map[messageKey]int{},
+		floods:      map[string]int{},
 		// The session checks the password itself, so the user's own is never
 		// used. A random one keeps it from matching anything.
 		user: imapmemserver.NewUser(options.User, rand.Text()),
@@ -149,12 +194,18 @@ func New(options Options) (*Server, error) {
 		return nil, err
 	}
 
-	tlsConfig := &tls.Config{Certificates: []tls.Certificate{certificate}, MinVersion: tls.VersionTLS12}
+	tlsConfig := &tls.Config{
+		Certificates:       []tls.Certificate{certificate},
+		MinVersion:         tls.VersionTLS12,
+		GetConfigForClient: s.handshaking,
+	}
+	if options.OnlyTLS11 {
+		tlsConfig.MinVersion = tls.VersionTLS11
+		tlsConfig.MaxVersion = tls.VersionTLS11
+	}
 	serverOptions := &imapserver.Options{
-		NewSession: func(conn *imapserver.Conn) (imapserver.Session, *imapserver.GreetingData, error) {
-			return s.newSession(conn), nil, nil
-		},
-		Caps: imap.CapSet{imap.CapIMAP4rev1: {}},
+		NewSession: s.greet,
+		Caps:       imap.CapSet{imap.CapIMAP4rev1: {}},
 		// Tests close connections on purpose, and the server logs each one.
 		Logger: log.New(io.Discard, "", 0),
 	}
@@ -168,7 +219,9 @@ func New(options Options) (*Server, error) {
 	case ImplicitTLS:
 		listener = tls.NewListener(listener, tlsConfig)
 	case StartTLS:
-		serverOptions.TLSConfig = tlsConfig
+		if !options.NoStartTLS {
+			serverOptions.TLSConfig = tlsConfig
+		}
 	}
 
 	s.listener = listener
@@ -177,16 +230,23 @@ func New(options Options) (*Server, error) {
 	return s, nil
 }
 
-// Close stops the server and closes every connection. A held fetch ends
-// with an error.
+// Close stops the server and closes every connection. A held fetch or a
+// stall ends with an error.
 func (s *Server) Close() error {
 	s.closeOnce.Do(func() { close(s.closed) })
-	// Closing the listener first ends Serve whether or not it has begun to
-	// accept. Closing the server first races with Serve, which then returns
-	// an error and leaves the listener open.
-	err := s.listener.Close()
-	err = errors.Join(err, <-s.served)
-	return errors.Join(err, s.imap.Close())
+	return errors.Join(s.StopAccepting(), s.imap.Close())
+}
+
+// StopAccepting closes the listener, so a new connection is refused. Open
+// connections stay.
+func (s *Server) StopAccepting() error {
+	s.stopOnce.Do(func() {
+		// Closing the listener first ends Serve whether or not it has begun
+		// to accept. Closing the server first races with Serve, which then
+		// returns an error and leaves the listener open.
+		s.stopErr = errors.Join(s.listener.Close(), <-s.served)
+	})
+	return s.stopErr
 }
 
 // Addr is the server's address, such as 127.0.0.1:41923.
@@ -220,6 +280,50 @@ func (s *Server) Commands() []Command {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return slices.Clone(s.commands)
+}
+
+// Logins counts the LOGIN commands that reached a session.
+func (s *Server) Logins() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var n int
+	for _, command := range s.commands {
+		if command.Name == "LOGIN" {
+			n++
+		}
+	}
+	return n
+}
+
+// StallHandshake makes each TLS handshake from now on wait, at connect or
+// after STARTTLS, until the client closes the connection or the server
+// closes. False lets them through again.
+func (s *Server) StallHandshake(stall bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.stallHandshake = stall
+}
+
+// WithholdGreeting makes each connection from now on wait before the
+// greeting, after any TLS handshake, until the client closes it or the server
+// closes. False greets again.
+func (s *Server) WithholdGreeting(withhold bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.withholdGreeting = withhold
+}
+
+// FloodList makes each command named command send LIST replies of at least
+// size bytes in all, for folders that don't exist, before its answer. Zero
+// stops it.
+func (s *Server) FloodList(command string, size int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if size == 0 {
+		delete(s.floods, command)
+		return
+	}
+	s.floods[command] = size
 }
 
 // AddFolder creates a folder. A folder created again after DeleteFolder has
@@ -428,16 +532,71 @@ func (v *folderView) Close() {
 }
 
 // record logs command and runs the hook outside the lock, so a hook may
-// call the server.
-func (s *Server) record(command Command) error {
+// call the server. It also returns the bytes of LIST replies to flood the
+// command with.
+func (s *Server) record(command Command) (flood int, err error) {
 	s.mu.Lock()
 	s.commands = append(s.commands, command)
 	hook := s.hook
+	flood = s.floods[command.Name]
 	s.mu.Unlock()
 	if hook == nil {
-		return nil
+		return flood, nil
 	}
-	return hook(command)
+	return flood, hook(command)
+}
+
+// greet starts a session, after a stall if the greeting is withheld.
+func (s *Server) greet(conn *imapserver.Conn) (imapserver.Session, *imapserver.GreetingData, error) {
+	s.mu.Lock()
+	withhold := s.withholdGreeting
+	s.mu.Unlock()
+	if !withhold {
+		return s.newSession(conn), nil, nil
+	}
+	netConn := conn.NetConn()
+	// With implicit TLS the handshake would wait for the greeting, so it
+	// runs first, and only the greeting is withheld.
+	if encrypted, ok := netConn.(*tls.Conn); ok {
+		if err := encrypted.Handshake(); err != nil {
+			return nil, nil, err
+		}
+	}
+	s.waitForClose(netConn)
+	return nil, nil, errors.New("imaptest: the greeting was withheld")
+}
+
+// handshaking stalls a TLS handshake when StallHandshake says so. A nil
+// config keeps the server's own.
+func (s *Server) handshaking(hello *tls.ClientHelloInfo) (*tls.Config, error) {
+	s.mu.Lock()
+	stall := s.stallHandshake
+	s.mu.Unlock()
+	if !stall {
+		return nil, nil
+	}
+	s.waitForClose(hello.Conn)
+	return nil, errors.New("imaptest: the handshake was stalled")
+}
+
+// waitForClose blocks until the client closes conn or the server closes, and
+// discards what the client sends meanwhile. The connection can't be used
+// after.
+func (s *Server) waitForClose(conn net.Conn) {
+	// The protocol layer sets read deadlines of its own.
+	_ = conn.SetReadDeadline(time.Time{})
+	ended := make(chan struct{})
+	go func() {
+		defer close(ended)
+		// Ends with the connection, which is the point.
+		_, _ = io.Copy(io.Discard, conn)
+	}()
+	select {
+	case <-ended:
+	case <-s.closed:
+		conn.Close()
+		<-ended
+	}
 }
 
 func (s *Server) accepts(userName, password string) bool {
@@ -453,35 +612,15 @@ func (s *Server) newSession(conn *imapserver.Conn) *session {
 	return &session{server: s, conn: conn, number: s.sessions}
 }
 
-// newCertificates makes a CA and a server certificate for localhost and
-// 127.0.0.1 that it signed, valid from an hour before now for a day.
-func newCertificates(now time.Time) (caPEM []byte, server tls.Certificate, err error) {
-	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+// newCertificates makes a CA, valid from an hour before now for a day, and a
+// server certificate of the kind asked for.
+func newCertificates(now time.Time, kind Certificate) (caPEM []byte, server tls.Certificate, err error) {
+	ca, caKey, err := newCA(now)
 	if err != nil {
 		return nil, tls.Certificate{}, err
 	}
-	caTemplate := &x509.Certificate{
-		SerialNumber:          serial(),
-		Subject:               pkix.Name{CommonName: "MailArkiv test CA"},
-		NotBefore:             now.Add(-time.Hour),
-		NotAfter:              now.Add(24 * time.Hour),
-		IsCA:                  true,
-		BasicConstraintsValid: true,
-		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
-	}
-	caDER, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, &caKey.PublicKey, caKey)
-	if err != nil {
-		return nil, tls.Certificate{}, err
-	}
-	ca, err := x509.ParseCertificate(caDER)
-	if err != nil {
-		return nil, tls.Certificate{}, err
-	}
+	caPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ca.Raw})
 
-	serverKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		return nil, tls.Certificate{}, err
-	}
 	serverTemplate := &x509.Certificate{
 		SerialNumber: serial(),
 		Subject:      pkix.Name{CommonName: "localhost"},
@@ -492,13 +631,54 @@ func newCertificates(now time.Time) (caPEM []byte, server tls.Certificate, err e
 		KeyUsage:     x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 	}
+	switch kind {
+	case Trusted:
+	case OtherCA:
+		if ca, caKey, err = newCA(now); err != nil {
+			return nil, tls.Certificate{}, err
+		}
+	case Expired:
+		serverTemplate.NotBefore = now.Add(-48 * time.Hour)
+		serverTemplate.NotAfter = now.Add(-time.Hour)
+	case OtherName:
+		serverTemplate.Subject.CommonName = "other.example.test"
+		serverTemplate.DNSNames = []string{"other.example.test"}
+		serverTemplate.IPAddresses = nil
+	default:
+		return nil, tls.Certificate{}, fmt.Errorf("imaptest: unknown certificate %d", kind)
+	}
+
+	serverKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, tls.Certificate{}, err
+	}
 	serverDER, err := x509.CreateCertificate(rand.Reader, serverTemplate, ca, &serverKey.PublicKey, caKey)
 	if err != nil {
 		return nil, tls.Certificate{}, err
 	}
-
-	caPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER})
 	return caPEM, tls.Certificate{Certificate: [][]byte{serverDER}, PrivateKey: serverKey}, nil
+}
+
+func newCA(now time.Time) (*x509.Certificate, *ecdsa.PrivateKey, error) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, nil, err
+	}
+	template := &x509.Certificate{
+		SerialNumber:          serial(),
+		Subject:               pkix.Name{CommonName: "MailArkiv test CA"},
+		NotBefore:             now.Add(-time.Hour),
+		NotAfter:              now.Add(24 * time.Hour),
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		return nil, nil, err
+	}
+	ca, err := x509.ParseCertificate(der)
+	return ca, key, err
 }
 
 // serial returns a random 128-bit serial number. rand.Int fails only if

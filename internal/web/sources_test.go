@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/emersion/go-imap/v2"
+
 	"github.com/maltehedderich/mailarkiv/internal/archive"
 	"github.com/maltehedderich/mailarkiv/internal/imaptest"
 )
@@ -87,13 +89,13 @@ func (h *harness) sourceIDs(t *testing.T) int {
 }
 
 // entryJSON is a source's list entry as the contract writes it, while
-// syncing or waiting.
-func entryJSON(id int64, port int, state, progress, lastSuccess string, collected int) string {
+// syncing or waiting. progress, lastSuccess, and nextSyncAt are JSON.
+func entryJSON(id int64, port int, state, progress, lastSuccess, nextSyncAt string, collected int) string {
 	return fmt.Sprintf(`{"id":%d,"name":"Anna","host":"127.0.0.1","port":%d,"security":"tls","user_name":%q,`+
 		`"state":%q,"folders":["INBOX","Archiv"],"progress":%s,"last_success":%s,"collected":%d,`+
-		`"next_sync_at":null,"paused_at":null,"failure":null,`+
+		`"next_sync_at":%s,"paused_at":null,"failure":null,`+
 		`"problems":{"unavailable_folders":0,"waiting_for_retry":0,"not_archived":0}}`,
-		id, port, mailboxUser, state, progress, lastSuccess, collected)
+		id, port, mailboxUser, state, progress, lastSuccess, collected, nextSyncAt)
 }
 
 // Contract: POST /api/sources saves a source whose sign-in worked, and starts
@@ -130,7 +132,7 @@ func TestAddSource(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertJSONResponse(t, response, answer, http.StatusCreated,
-		entryJSON(created.ID, port, "syncing", `{"archived":0,"found":0}`, "null", 0))
+		entryJSON(created.ID, port, "syncing", `{"archived":0,"found":0}`, "null", "null", 0))
 	if strings.Contains(answer, mailboxPassword) {
 		t.Error("the answer holds the password")
 	}
@@ -141,16 +143,18 @@ func TestAddSource(t *testing.T) {
 		return response.StatusCode == http.StatusOK && !strings.Contains(body, `"last_success":null`)
 	})
 	finished := fmt.Sprintf(`{"at":%q,"archived":2}`, testTime)
+	// The next sync is due 5 minutes after the first ended.
+	nextSync := `"2026-11-06T15:55:52.123Z"`
 
 	t.Run("the list", func(t *testing.T) {
 		response, body := h.do(t, http.MethodGet, "/api/sources", session)
 		assertJSONResponse(t, response, body, http.StatusOK,
-			`{"collection":"available","sources":[`+entryJSON(created.ID, port, "waiting", "null", finished, 2)+`]}`)
+			`{"collection":"available","sources":[`+entryJSON(created.ID, port, "waiting", "null", finished, nextSync, 2)+`]}`)
 	})
 
 	t.Run("one source", func(t *testing.T) {
 		response, body := h.do(t, http.MethodGet, path, session)
-		want := strings.Replace(entryJSON(created.ID, port, "waiting", "null", finished, 2),
+		want := strings.Replace(entryJSON(created.ID, port, "waiting", "null", finished, nextSync, 2),
 			`"folders":["INBOX","Archiv"]`,
 			`"folders":[{"name":"INBOX","unavailable_since":null,"renumbered_at":null},{"name":"Archiv","unavailable_since":null,"renumbered_at":null}],`+
 				`"messages":{"waiting_for_retry":{"total":0,"items":[]},"not_archived":{"total":0,"items":[]}}`, 1)
@@ -409,4 +413,81 @@ func TestSourcesWithoutCollector(t *testing.T) {
 			assertJSONResponse(t, response, body, http.StatusUnauthorized, noSession)
 		})
 	}
+}
+
+// Contract: POST /api/sources whose sign-in fails answers 422 check_failed
+// with the category and the server's reply, which is absent when it sent
+// none, and saves nothing.
+func TestAddSourceCheckFailed(t *testing.T) {
+	double := newMailbox(t)
+	// The harness trusts only double's CA, so another double's certificate
+	// fails.
+	untrusted := newMailbox(t)
+	closed, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, closedPort, err := net.SplitHostPort(closed.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	closed.Close()
+	h := newHarnessWith(t, Routes(), harnessOptions{key: true, roots: trusting(t, double), start: true})
+	h.createAccount(t, "admin@example.test")
+	session := h.signIn(t, "admin@example.test")
+
+	login := func(answer error) imaptest.Hook {
+		return func(command imaptest.Command) error {
+			if command.Name == "LOGIN" {
+				return answer
+			}
+			return nil
+		}
+	}
+	cases := []struct {
+		name string
+		body func() map[string]any
+		want string
+	}{
+		{"server_not_reachable", func() map[string]any {
+			body := sourceBody(t, double)
+			body["port"], _ = strconv.Atoi(closedPort)
+			return body
+		}, `{"error":"check_failed","category":"server_not_reachable"}`},
+		{"secure_connection_failed", func() map[string]any {
+			return sourceBody(t, untrusted)
+		}, `{"error":"check_failed","category":"secure_connection_failed"}`},
+		{"sign_in_rejected", func() map[string]any {
+			double.SetHook(login(imaptest.No(imap.ResponseCodeAuthenticationFailed, "Invalid credentials")))
+			return sourceBody(t, double)
+		}, `{"error":"check_failed","category":"sign_in_rejected","reply":"[AUTHENTICATIONFAILED] Invalid credentials"}`},
+		{"server_error", func() map[string]any {
+			double.SetHook(login(imaptest.Bad("", "Command syntax error")))
+			return sourceBody(t, double)
+		}, `{"error":"check_failed","category":"server_error","reply":"Command syntax error"}`},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			response, body := h.send(t, http.MethodPost, "/api/sources", bytes.NewReader(encode(t, tt.body())), session)
+			assertJSONResponse(t, response, body, http.StatusUnprocessableEntity, tt.want)
+			if n := h.sourceIDs(t); n != 0 {
+				t.Errorf("%d sources were saved, want none", n)
+			}
+		})
+	}
+
+	t.Run("timed_out", func(t *testing.T) {
+		stalled := newMailbox(t)
+		stalled.SetHook(login(imaptest.ErrStall))
+		h := newHarnessWith(t, Routes(), harnessOptions{key: true, roots: trusting(t, stalled), start: true, checkLimit: 2 * time.Second})
+		h.createAccount(t, "admin@example.test")
+		session := h.signIn(t, "admin@example.test")
+
+		response, body := h.send(t, http.MethodPost, "/api/sources", bytes.NewReader(encode(t, sourceBody(t, stalled))), session)
+
+		assertJSONResponse(t, response, body, http.StatusUnprocessableEntity, `{"error":"check_failed","category":"timed_out"}`)
+		if n := h.sourceIDs(t); n != 0 {
+			t.Errorf("%d sources were saved, want none", n)
+		}
+	})
 }

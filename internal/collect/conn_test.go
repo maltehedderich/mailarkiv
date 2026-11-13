@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -91,12 +92,17 @@ func readTag(t *testing.T, lines *bufio.Reader) string {
 // greeting, as dial does after its handshake.
 func plainClient(t *testing.T, addr string, cfg config) (*imapclient.Client, *conn) {
 	t.Helper()
+	return plainClientWith(t, addr, cfg, nil)
+}
+
+func plainClientWith(t *testing.T, addr string, cfg config, options *imapclient.Options) (*imapclient.Client, *conn) {
+	t.Helper()
 	raw, err := net.Dial("tcp", addr)
 	if err != nil {
 		t.Fatal(err)
 	}
-	wrapped := newConn(raw, time.Now().Add(cfg.connect), cfg.idle)
-	client := imapclient.New(wrapped, nil)
+	wrapped := newConn(raw, time.Now().Add(cfg.connect), cfg)
+	client := imapclient.New(wrapped, options)
 	t.Cleanup(func() { client.Close() })
 	if err := client.WaitGreeting(); err != nil {
 		t.Fatalf("greeting: %v", err)
@@ -129,7 +135,7 @@ func assertCategory(t *testing.T, err error, want Category) {
 // A server that accepts and then sends nothing fails at the connect limit,
 // whether the TLS handshake or the plain greeting is what never comes.
 func TestNoGreetingTimesOut(t *testing.T) {
-	cfg := config{connect: 300 * time.Millisecond, idle: 5 * time.Second, check: 5 * time.Second}
+	cfg := shortLimits(300*time.Millisecond, 5*time.Second)
 	for _, security := range []Security{TLS, StartTLS} {
 		t.Run(security.String(), func(t *testing.T) {
 			addr := script(t, silent)
@@ -152,7 +158,7 @@ func TestNoGreetingTimesOut(t *testing.T) {
 
 // A server that greets and then stalls on LOGIN fails at the idle limit.
 func TestStalledLoginTimesOut(t *testing.T) {
-	cfg := config{connect: 5 * time.Second, idle: 300 * time.Millisecond, check: 5 * time.Second}
+	cfg := shortLimits(5*time.Second, 300*time.Millisecond)
 	double := newDouble(t, imaptest.ImplicitTLS)
 	release := make(chan struct{})
 	// Registered after the double's cleanup, so it runs first and lets the
@@ -183,7 +189,7 @@ func TestStalledLoginTimesOut(t *testing.T) {
 // A transfer that keeps sending isn't cut off, however long it takes in
 // total.
 func TestSlowLiteralArrivesWhole(t *testing.T) {
-	cfg := config{connect: time.Second, idle: 200 * time.Millisecond, check: 5 * time.Second}
+	cfg := shortLimits(time.Second, 200*time.Millisecond)
 	// One byte every half idle limit, for three idle limits.
 	const literal = "abcdef"
 	addr := script(t, func(conn net.Conn, lines *bufio.Reader) {
@@ -237,7 +243,7 @@ func TestSlowLiteralArrivesWhole(t *testing.T) {
 // commands doesn't fail the next one. The pause also outlasts the connect
 // limit, which must end once connected.
 func TestGapBetweenCommands(t *testing.T) {
-	cfg := config{connect: 300 * time.Millisecond, idle: 200 * time.Millisecond, check: 5 * time.Second}
+	cfg := shortLimits(300*time.Millisecond, 200*time.Millisecond)
 	addr := script(t, func(conn net.Conn, lines *bufio.Reader) {
 		io.WriteString(conn, "* OK [CAPABILITY IMAP4rev1] ready\r\n")
 		for {
@@ -266,7 +272,7 @@ func TestGapBetweenCommands(t *testing.T) {
 // After a timeout the connection is done: every later read returns the same
 // error at once, rather than waiting out another limit.
 func TestTimeoutIsSticky(t *testing.T) {
-	cfg := config{connect: time.Second, idle: 200 * time.Millisecond, check: 5 * time.Second}
+	cfg := shortLimits(time.Second, 200*time.Millisecond)
 	addr := script(t, func(conn net.Conn, lines *bufio.Reader) {
 		io.WriteString(conn, "* OK [CAPABILITY IMAP4rev1] ready\r\n")
 		silent(conn, lines)
@@ -295,5 +301,137 @@ func TestTimeoutIsSticky(t *testing.T) {
 		if err == nil || err != first {
 			t.Errorf("a later read returned %v, want the first error %v", err, first)
 		}
+	}
+}
+
+// stallPoint stalls one step of a sync, and undoes the stall.
+type stallPoint struct {
+	name     string
+	security imaptest.Security
+	// connecting is whether the connect limit applies rather than the idle
+	// limit.
+	connecting bool
+	stall      func(t *testing.T, double *imaptest.Server, cfg *config, held imap.UID)
+	undo       func(t *testing.T, double *imaptest.Server, held imap.UID)
+}
+
+// stallCommand stalls each command named name.
+func stallCommand(name string) func(*testing.T, *imaptest.Server, *config, imap.UID) {
+	return func(_ *testing.T, double *imaptest.Server, _ *config, _ imap.UID) {
+		double.SetHook(func(command imaptest.Command) error {
+			if command.Name == name {
+				return imaptest.ErrStall
+			}
+			return nil
+		})
+	}
+}
+
+func clearHook(_ *testing.T, double *imaptest.Server, _ imap.UID) { double.SetHook(nil) }
+
+var stallPoints = []stallPoint{
+	{
+		name: "the dial", security: imaptest.ImplicitTLS, connecting: true,
+		stall: func(_ *testing.T, _ *imaptest.Server, cfg *config, _ imap.UID) {
+			cfg.dial = func(ctx context.Context, _ string) (net.Conn, error) {
+				<-ctx.Done()
+				return nil, ctx.Err()
+			}
+		},
+		undo: func(*testing.T, *imaptest.Server, imap.UID) {},
+	},
+	{
+		name: "the TLS handshake", security: imaptest.ImplicitTLS, connecting: true,
+		stall: func(_ *testing.T, double *imaptest.Server, _ *config, _ imap.UID) { double.StallHandshake(true) },
+		undo:  func(_ *testing.T, double *imaptest.Server, _ imap.UID) { double.StallHandshake(false) },
+	},
+	{
+		name: "the greeting", security: imaptest.ImplicitTLS, connecting: true,
+		stall: func(_ *testing.T, double *imaptest.Server, _ *config, _ imap.UID) { double.WithholdGreeting(true) },
+		undo:  func(_ *testing.T, double *imaptest.Server, _ imap.UID) { double.WithholdGreeting(false) },
+	},
+	{
+		name: "STARTTLS", security: imaptest.StartTLS, connecting: true,
+		stall: func(_ *testing.T, double *imaptest.Server, _ *config, _ imap.UID) { double.StallHandshake(true) },
+		undo:  func(_ *testing.T, double *imaptest.Server, _ imap.UID) { double.StallHandshake(false) },
+	},
+	{name: "LOGIN", security: imaptest.StartTLS, stall: stallCommand("LOGIN"), undo: clearHook},
+	{name: "EXAMINE", security: imaptest.ImplicitTLS, stall: stallCommand("EXAMINE"), undo: clearHook},
+	{name: "UID SEARCH", security: imaptest.ImplicitTLS, stall: stallCommand("UID SEARCH"), undo: clearHook},
+	// The metadata fetch is the sync's first UID FETCH.
+	{name: "the metadata fetch", security: imaptest.ImplicitTLS, stall: stallCommand("UID FETCH"), undo: clearHook},
+	{
+		name: "partway through a literal", security: imaptest.StartTLS,
+		stall: func(t *testing.T, double *imaptest.Server, _ *config, held imap.UID) {
+			if err := double.SetFault("INBOX", held, imaptest.Fault{Body: imaptest.BodyStalled}); err != nil {
+				t.Fatal(err)
+			}
+		},
+		undo: func(t *testing.T, double *imaptest.Server, held imap.UID) {
+			if err := double.SetFault("INBOX", held, imaptest.Fault{}); err != nil {
+				t.Fatal(err)
+			}
+		},
+	},
+}
+
+// A sync that stalls at any step ends as timed_out once its limit passes,
+// and changes nothing in the archive or the checkpoints. The next sync
+// archives the message the stall held back.
+func TestStallAtEachStep(t *testing.T) {
+	for _, point := range stallPoints {
+		t.Run(point.name, func(t *testing.T) {
+			t.Parallel()
+			double := newDouble(t, point.security)
+			mail := threeInInbox()[:2]
+			addMessages(t, double, mail[:1])
+			f := newFixture(t, double)
+			security := map[imaptest.Security]string{imaptest.ImplicitTLS: "tls", imaptest.StartTLS: "starttls"}[point.security]
+			collector := f.start(t)
+			id := addSource(t, f, collector, sourceFor(t, double, security, "INBOX"))
+			inbox := f.folderIDs(t, id)["INBOX"]
+			addMessages(t, double, mail[1:])
+			uidValidity, lastUID := f.checkpoint(t, inbox)
+
+			cfg := testConfig
+			point.stall(t, double, &cfg, mail[1].uid)
+			limit := cfg.idle
+			if point.connecting {
+				limit = cfg.connect
+			}
+			collector.Stop()
+			f.clock.Advance(time.Minute)
+			before := len(f.logEntries(t, "sync failed"))
+			started := time.Now()
+			collector = f.startWith(t, cfg)
+			category := f.waitForSyncFailure(t, before)
+			took := time.Since(started)
+
+			if category != TimedOut.String() {
+				t.Errorf("the sync failed with %q, want timed_out", category)
+			}
+			if took < limit || took > limit+time.Second {
+				t.Errorf("the sync failed after %v, want the limit of %v", took, limit)
+			}
+			if row := f.sourceRow(t, id); row.LastFailureAt != nullInt(f.clock.Now().UnixMilli()) {
+				t.Errorf("last_failure_at = %v, want the sync's time", row.LastFailureAt)
+			}
+			if got, want := f.listed(t), hashesOf(mail[0].body); !slices.Equal(got, want) {
+				t.Errorf("listed %v, want the first message alone", got)
+			}
+			if temp := f.tempFiles(t); len(temp) != 0 {
+				t.Errorf("tmp/ holds %v", temp)
+			}
+			if gotValidity, gotUID := f.checkpoint(t, inbox); gotValidity != uidValidity || gotUID != lastUID {
+				t.Errorf("checkpoint = %v %d, want %v %d", gotValidity, gotUID, uidValidity, lastUID)
+			}
+
+			point.undo(t, double, mail[1].uid)
+			collector = f.syncAgain(t, collector)
+			waitForSuccess(t, collector, id, f.clock)
+			if got, want := f.listed(t), hashesOf(mail[0].body, mail[1].body); !slices.Equal(got, want) {
+				t.Errorf("listed %v after the stall ended, want both messages", got)
+			}
+		})
 	}
 }

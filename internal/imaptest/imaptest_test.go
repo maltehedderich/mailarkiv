@@ -416,6 +416,8 @@ func TestOptionsAreChecked(t *testing.T) {
 		{User: user, Password: password},
 		{Security: imaptest.ImplicitTLS, Password: password},
 		{Security: imaptest.ImplicitTLS, User: user},
+		{Security: imaptest.ImplicitTLS, User: user, Password: password, NoStartTLS: true},
+		{Security: imaptest.StartTLS, User: user, Password: password, Certificate: imaptest.OtherName + 1},
 	} {
 		if server, err := imaptest.New(options); err == nil {
 			server.Close()

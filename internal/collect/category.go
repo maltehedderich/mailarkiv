@@ -2,6 +2,8 @@
 // imap_folder, and imap_message_problem tables.
 package collect
 
+import "fmt"
+
 // Category is why a sync, a folder, or a message failed. Its field is
 // private, so no other package can make another.
 type Category struct {
@@ -37,3 +39,16 @@ func (c Category) String() string { return c.name }
 
 // Sync reports whether the category ends a sync.
 func (c Category) Sync() bool { return c.sync }
+
+// parseSyncCategory returns the sync category stored under name.
+func parseSyncCategory(name string) (Category, error) {
+	for _, category := range []Category{
+		ServerNotReachable, SecureConnectionFailed, SignInRejected, TimedOut,
+		ServerError, StorageFull, StorageWriteFailed, CatalogWriteFailed,
+	} {
+		if category.name == name {
+			return category, nil
+		}
+	}
+	return Category{}, fmt.Errorf("unknown sync category %q", name)
+}

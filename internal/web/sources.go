@@ -56,9 +56,12 @@ func addSource(s *server, w http.ResponseWriter, r *http.Request) {
 		Folders:  decodeField[[]string](request.Folders),
 	})
 	var invalid *collect.InvalidFieldsError
+	var checkFailed *collect.CheckFailedError
 	switch {
 	case errors.As(err, &invalid):
 		writeInvalidFields(w, invalid.Fields)
+	case errors.As(err, &checkFailed):
+		writeCheckFailed(w, checkFailed)
 	case errors.Is(err, collect.ErrNoKey):
 		writeError(w, http.StatusConflict, "no_key")
 	case err != nil:
@@ -101,6 +104,16 @@ func writeInvalidFields(w http.ResponseWriter, fields []string) {
 		Error  string   `json:"error"`
 		Fields []string `json:"fields"`
 	}{"invalid_fields", fields})
+}
+
+// writeCheckFailed answers a sign-in that failed. The reply is what the
+// server sent, so the administrator can tell why.
+func writeCheckFailed(w http.ResponseWriter, failed *collect.CheckFailedError) {
+	writeJSON(w, http.StatusUnprocessableEntity, struct {
+		Error    string `json:"error"`
+		Category string `json:"category"`
+		Reply    string `json:"reply,omitempty"`
+	}{"check_failed", failed.Category.String(), failed.Reply})
 }
 
 // listSources answers GET /api/sources.
@@ -160,26 +173,34 @@ func readSource(s *server, w http.ResponseWriter, r *http.Request) {
 
 // sourceJSON is a source's list entry.
 type sourceJSON struct {
-	ID          int64         `json:"id"`
-	Name        string        `json:"name"`
-	Host        string        `json:"host"`
-	Port        int           `json:"port"`
-	Security    string        `json:"security"`
-	UserName    string        `json:"user_name"`
-	State       string        `json:"state"`
-	Folders     any           `json:"folders"`
-	Progress    *progressJSON `json:"progress"`
-	LastSuccess *successJSON  `json:"last_success"`
-	Collected   int           `json:"collected"`
-	NextSyncAt  *string       `json:"next_sync_at"`
-	PausedAt    *string       `json:"paused_at"`
-	Failure     *struct{}     `json:"failure"`
-	Problems    problemsJSON  `json:"problems"`
+	ID          int64            `json:"id"`
+	Name        string           `json:"name"`
+	Host        string           `json:"host"`
+	Port        int              `json:"port"`
+	Security    string           `json:"security"`
+	UserName    string           `json:"user_name"`
+	State       string           `json:"state"`
+	Folders     any              `json:"folders"`
+	Progress    *progressJSON    `json:"progress"`
+	LastSuccess *successJSON     `json:"last_success"`
+	Collected   int              `json:"collected"`
+	NextSyncAt  *string          `json:"next_sync_at"`
+	PausedAt    *string          `json:"paused_at"`
+	Failure     *syncFailureJSON `json:"failure"`
+	Problems    problemsJSON     `json:"problems"`
 }
 
 type sourceDetailJSON struct {
 	sourceJSON
 	Messages messagesJSON `json:"messages"`
+}
+
+type syncFailureJSON struct {
+	Category       string  `json:"category"`
+	Since          string  `json:"since"`
+	FailedAttempts *int    `json:"failed_attempts"`
+	LastAt         *string `json:"last_at"`
+	Reply          *string `json:"reply"`
 }
 
 type progressJSON struct {
@@ -215,8 +236,7 @@ type problemMessagesJSON struct {
 }
 
 // newSourceJSON writes a source's list entry. Collection doesn't yet record
-// failures, schedules, pauses, or problem messages, so those fields are
-// always empty.
+// pauses or problem messages, so those fields are always empty.
 func newSourceJSON(source collect.Source) sourceJSON {
 	names := make([]string, len(source.Folders))
 	for i, folder := range source.Folders {
@@ -238,6 +258,16 @@ func newSourceJSON(source collect.Source) sourceJSON {
 	}
 	if source.LastSuccess != nil {
 		entry.LastSuccess = &successJSON{At: formatTime(source.LastSuccess.At), Archived: source.LastSuccess.Archived}
+	}
+	entry.NextSyncAt = optionalTime(source.NextSyncAt)
+	if failure := source.Failure; failure != nil {
+		entry.Failure = &syncFailureJSON{
+			Category:       failure.Category.String(),
+			Since:          formatTime(failure.Since),
+			FailedAttempts: failure.FailedAttempts,
+			LastAt:         optionalTime(failure.LastAt),
+			Reply:          failure.Reply,
+		}
 	}
 	return entry
 }

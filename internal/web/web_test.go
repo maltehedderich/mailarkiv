@@ -94,6 +94,9 @@ type harnessOptions struct {
 	roots *x509.CertPool
 	// start starts the collector. It stops when the test ends.
 	start bool
+	// checkLimit, if set, gives each request a deadline that far ahead. A
+	// request that signs in then ends as collect's check limit would end it.
+	checkLimit time.Duration
 }
 
 func newHarness(t *testing.T, routes []Route) *harness {
@@ -108,9 +111,21 @@ func newHarnessWith(t *testing.T, routes []Route, options harnessOptions) *harne
 	if !options.noCollector {
 		deps.Collect = h.openCollector(t, options)
 	}
-	h.server = httptest.NewServer(newHandler(deps, routes))
+	handler := newHandler(deps, routes)
+	if options.checkLimit > 0 {
+		handler = withDeadline(handler, options.checkLimit)
+	}
+	h.server = httptest.NewServer(handler)
 	t.Cleanup(h.server.Close)
 	return h
+}
+
+func withDeadline(next http.Handler, limit time.Duration) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), limit)
+		defer cancel()
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
 }
 
 func (h *harness) openCollector(t *testing.T, options harnessOptions) *collect.Collector {

@@ -27,8 +27,37 @@ type session struct {
 
 var _ imapserver.SessionIMAP4rev2 = (*session)(nil)
 
+// record logs the command and runs the hook. A stall or hang-up leaves the
+// connection unusable, so the error it returns reaches nobody.
 func (s *session) record(name, mailbox string) error {
-	return s.server.record(Command{Session: s.number, Name: name, Mailbox: mailbox})
+	flood, err := s.server.record(Command{Session: s.number, Name: name, Mailbox: mailbox})
+	switch {
+	case errors.Is(err, ErrStall):
+		s.server.waitForClose(s.conn.NetConn())
+		return err
+	case errors.Is(err, ErrHangUp):
+		return errors.Join(err, s.conn.NetConn().Close())
+	case err != nil:
+		return err
+	case flood > 0:
+		return s.writeFlood(flood)
+	}
+	return nil
+}
+
+// floodLine is one LIST reply of 1 KiB, numbered by its argument.
+var floodLine = "* LIST () \"/\" \"Flood %08d " + strings.Repeat("x", 1024-len("* LIST () \"/\" \"Flood 00000000 \"\r\n")) + "\"\r\n"
+
+// writeFlood writes LIST replies of at least size bytes straight to the
+// connection. Each response before them ended with a flush, so nothing is
+// left buffered.
+func (s *session) writeFlood(size int) error {
+	var flood bytes.Buffer
+	for i := 0; flood.Len() < size; i++ {
+		fmt.Fprintf(&flood, floodLine, i)
+	}
+	_, err := s.conn.NetConn().Write(flood.Bytes())
+	return err
 }
 
 // uidPrefix names the command the way the client sent it.
@@ -310,6 +339,15 @@ func (s *session) writeFaulted(m faulted, options *imap.FetchOptions) error {
 			conn := s.conn.NetConn()
 			_, err := conn.Write(response.Bytes())
 			return errors.Join(err, conn.Close(), errors.New("imaptest: the literal was cut"))
+		case BodyStalled:
+			fmt.Fprintf(&response, "BODY[] {%d}\r\n", len(m.message.body))
+			response.Write(m.message.body[:len(m.message.body)/2])
+			conn := s.conn.NetConn()
+			if _, err := conn.Write(response.Bytes()); err != nil {
+				return err
+			}
+			s.server.waitForClose(conn)
+			return errors.New("imaptest: the literal was stalled")
 		}
 	}
 	response.WriteString(")\r\n")

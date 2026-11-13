@@ -31,40 +31,6 @@ type folderRow struct {
 	lastUID     imap.UID
 }
 
-// sync runs one sync of r's source and records how it ended.
-func (c *Collector) sync(ctx context.Context, r *runner) {
-	c.setSyncing(r, true)
-	archived, err := c.collect(ctx, r)
-	// The state leaves syncing before the success is recorded, so a reader
-	// never sees the new success beside the syncing state.
-	c.setSyncing(r, false)
-
-	logger := c.deps.Logger.With("source_id", r.id)
-	var failed *failure
-	switch {
-	case ctx.Err() != nil:
-		// Stopped. That isn't a failure, so nothing is recorded.
-	case errors.Is(err, errPasswordUnreadable):
-		logger.Warn("password unreadable", "category", PasswordUnreadable.String())
-	case errors.As(err, &failed):
-		// The error may hold the server's reply, which stays out of the log.
-		logger.Warn("sync failed", "category", failed.category.String())
-	case err != nil:
-		logger.Error("sync failed", "category", CatalogWriteFailed.String(), "error", err.Error())
-	default:
-		if err := c.recordSuccess(context.WithoutCancel(ctx), r.id, archived); err != nil {
-			logger.Error("sync failed", "category", CatalogWriteFailed.String(), "error", err.Error())
-		}
-	}
-}
-
-func (c *Collector) setSyncing(r *runner, syncing bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	r.syncing = syncing
-	r.progress = Progress{}
-}
-
 func (c *Collector) addProgress(r *runner, found, archived int) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -135,8 +101,22 @@ func (m message) collectedMeta() archive.CollectedMeta {
 // rising UID order, and then retries the messages waiting for it.
 func (c *Collector) collectFolder(ctx context.Context, s *session, r *runner, folder folderRow) (int, error) {
 	selected, err := s.examine(folder.name)
+	var imapErr *imap.Error
+	if errors.As(err, &imapErr) && imapErr.Type == imap.StatusResponseTypeNo {
+		// The sync goes on with the next folder, and tries this one again
+		// at the next sync.
+		if err := c.markUnavailable(context.WithoutCancel(ctx), folder.id); err != nil {
+			return 0, catalogFailure(err)
+		}
+		c.deps.Logger.Warn("folder unavailable",
+			"source_id", r.id, "folder_id", folder.id, "category", FolderUnavailable.String())
+		return 0, nil
+	}
 	if err != nil {
 		return 0, err
+	}
+	if err := c.markAvailable(context.WithoutCancel(ctx), folder.id); err != nil {
+		return 0, catalogFailure(err)
 	}
 
 	uidValidity := selected.UIDValidity
@@ -288,7 +268,7 @@ func (c *Collector) fetchBody(ctx context.Context, s *session, m message) (fetch
 	outcome := fetchedNothing
 	var announced sql.NullInt64
 	var failed error
-	err := s.do(func() error {
+	err := s.doBody(func() error {
 		fetch := s.client.Fetch(imap.UIDSetNum(m.uid), &imap.FetchOptions{
 			UID:         true,
 			BodySection: []*imap.FetchItemBodySection{{Peek: true}},
@@ -340,7 +320,7 @@ func (s *session) storeFailure(uid imap.UID, result archive.Result, err error) e
 	case archive.Failed:
 		return &failure{category: captureCategory(result.Category), err: errors.New("archive didn't store the message")}
 	case archive.Dropped:
-		return classify(s.ctx, s.conn, fmt.Errorf("UID %d's body ended early", uid))
+		return classify(s.ctx, s.conn, commanding, fmt.Errorf("UID %d's body ended early", uid))
 	default:
 		return &failure{category: ServerError, err: fmt.Errorf("archive returned %T for UID %d", result, uid)}
 	}

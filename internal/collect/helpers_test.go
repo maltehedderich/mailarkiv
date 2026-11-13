@@ -35,12 +35,16 @@ const (
 // testNow is where the fake clock starts.
 var testNow = time.Date(2026, 11, 6, 15, 50, 52, 123_000_000, time.UTC)
 
-// testConfig keeps each limit short, so a stall fails in well under a second
+// testConfig keeps each limit short, so a stall fails within two seconds
 // and a healthy step never comes near one.
-var testConfig = config{
-	connect: 2 * time.Second,
-	idle:    time.Second,
-	check:   5 * time.Second,
+var testConfig = shortLimits(2*time.Second, time.Second)
+
+// shortLimits is the production config with the connect and idle limits
+// given and a check limit of 5 seconds.
+func shortLimits(connect, idle time.Duration) config {
+	cfg := productionConfig()
+	cfg.connect, cfg.idle, cfg.check = connect, idle, 5*time.Second
+	return cfg
 }
 
 type lockedBuffer struct {
@@ -61,9 +65,16 @@ func (b *lockedBuffer) String() string {
 }
 
 // fakeClock stands in for time. Deadlines on connections use real time.
+// Its timers fire only when Advance passes them.
 type fakeClock struct {
-	mu  sync.Mutex
-	now time.Time
+	mu     sync.Mutex
+	now    time.Time
+	timers []*fakeTimer
+}
+
+type fakeTimer struct {
+	at    time.Time
+	fired chan time.Time
 }
 
 func (c *fakeClock) Now() time.Time {
@@ -76,6 +87,43 @@ func (c *fakeClock) Advance(d time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.now = c.now.Add(d)
+	c.timers = slices.DeleteFunc(c.timers, func(timer *fakeTimer) bool {
+		if timer.at.After(c.now) {
+			return false
+		}
+		timer.fired <- c.now
+		return true
+	})
+}
+
+// After is the timer option for the fake clock.
+func (c *fakeClock) After(d time.Duration) (<-chan time.Time, func() bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	timer := &fakeTimer{at: c.now.Add(d), fired: make(chan time.Time, 1)}
+	if d <= 0 {
+		timer.fired <- c.now
+		return timer.fired, func() bool { return false }
+	}
+	c.timers = append(c.timers, timer)
+	return timer.fired, func() bool {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		before := len(c.timers)
+		c.timers = slices.DeleteFunc(c.timers, func(other *fakeTimer) bool { return other == timer })
+		return len(c.timers) < before
+	}
+}
+
+// waitForTimers waits until n timers are set, so an Advance after it fires
+// them.
+func (c *fakeClock) waitForTimers(t *testing.T, n int) {
+	t.Helper()
+	waitFor(t, strconv.Itoa(n)+" timers", func() bool {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		return len(c.timers) == n
+	})
 }
 
 // fixture is a data directory with a real catalog and archive, and a key
@@ -150,7 +198,13 @@ func (f *fixture) deps() Deps {
 // starts it. It stops when the test ends.
 func (f *fixture) start(t *testing.T) *Collector {
 	t.Helper()
-	collector, err := open(context.Background(), f.deps(), testConfig)
+	return f.startWith(t, testConfig)
+}
+
+// startWith is start with another config.
+func (f *fixture) startWith(t *testing.T, cfg config) *Collector {
+	t.Helper()
+	collector, err := open(context.Background(), f.deps(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,6 +212,58 @@ func (f *fixture) start(t *testing.T) *Collector {
 	t.Cleanup(collector.Stop)
 	return collector
 }
+
+// insertSource saves a source straight to the catalog, as Add does after a
+// sign-in that worked, and returns its ID. A collector opened after it
+// syncs it at start.
+func insertSource(t *testing.T, deps Deps, input SourceInput) int64 {
+	t.Helper()
+	source, err := parseInput(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := (&Collector{deps: deps}).save(context.Background(), source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+// sourceRow is a source's failure and success columns.
+type sourceRow struct {
+	FailedAttempts      int64
+	FailingSince        sql.NullInt64
+	LastFailureCategory sql.NullString
+	LastFailureAt       sql.NullInt64
+	LastServerReply     sql.NullString
+	SignInRejectedAt    sql.NullInt64
+	LastSuccessAt       sql.NullInt64
+	LastSuccessArchived sql.NullInt64
+}
+
+func (f *fixture) sourceRow(t *testing.T, id int64) sourceRow {
+	t.Helper()
+	var row sourceRow
+	if err := f.db.Reader.QueryRow(`
+SELECT failed_attempts, failing_since, last_failure_category, last_failure_at, last_server_reply,
+       sign_in_rejected_at, last_success_at, last_success_archived
+FROM imap_source WHERE id = ?`, id).Scan(&row.FailedAttempts, &row.FailingSince, &row.LastFailureCategory,
+		&row.LastFailureAt, &row.LastServerReply, &row.SignInRejectedAt, &row.LastSuccessAt, &row.LastSuccessArchived); err != nil {
+		t.Fatal(err)
+	}
+	return row
+}
+
+func (f *fixture) get(t *testing.T, collector *Collector, id int64) Source {
+	t.Helper()
+	source, err := collector.Get(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return source
+}
+
+func nullString(s string) sql.NullString { return sql.NullString{String: s, Valid: true} }
 
 func newDouble(t *testing.T, security imaptest.Security) *imaptest.Server {
 	t.Helper()

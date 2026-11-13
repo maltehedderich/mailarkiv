@@ -64,13 +64,24 @@ func (c *Collector) storeUIDValidity(ctx context.Context, folderID int64, uidVal
 	return nil
 }
 
-// recordSuccess records the end of a sync that succeeded.
-func (c *Collector) recordSuccess(ctx context.Context, sourceID int64, archived int) error {
+// markUnavailable records that the server refused to open the folder. The
+// first refusal in a row is kept.
+func (c *Collector) markUnavailable(ctx context.Context, folderID int64) error {
 	_, err := c.deps.DB.Writer.ExecContext(ctx,
-		"UPDATE imap_source SET last_success_at = ?, last_success_archived = ? WHERE id = ?",
-		c.deps.Now().UnixMilli(), archived, sourceID)
+		"UPDATE imap_folder SET unavailable_since = COALESCE(unavailable_since, ?) WHERE id = ?",
+		c.deps.Now().UnixMilli(), folderID)
 	if err != nil {
-		return fmt.Errorf("record source %d's success: %w", sourceID, err)
+		return fmt.Errorf("mark folder %d unavailable: %w", folderID, err)
+	}
+	return nil
+}
+
+// markAvailable clears the folder's unavailable mark, if it has one.
+func (c *Collector) markAvailable(ctx context.Context, folderID int64) error {
+	_, err := c.deps.DB.Writer.ExecContext(ctx,
+		"UPDATE imap_folder SET unavailable_since = NULL WHERE id = ? AND unavailable_since IS NOT NULL", folderID)
+	if err != nil {
+		return fmt.Errorf("mark folder %d available: %w", folderID, err)
 	}
 	return nil
 }

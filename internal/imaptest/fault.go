@@ -25,6 +25,10 @@ const (
 	// BodyCut announces a literal of Fault.Announced bytes, sends the
 	// message's bytes, which are fewer, and closes the connection.
 	BodyCut
+	// BodyStalled announces the message's literal, sends the first half of
+	// its bytes, and waits until the client closes the connection or the
+	// server closes.
+	BodyStalled
 )
 
 // Fault changes what a FETCH returns for one message. The zero Fault
