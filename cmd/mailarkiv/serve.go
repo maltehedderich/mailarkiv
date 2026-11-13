@@ -85,7 +85,13 @@ func serve(args []string) int {
 	if *keyFile != "" {
 		loaded, reason, err := loadKey(*dataDir, *keyFile)
 		if err != nil {
-			logger.Error("startup failed", "cause", causeKey, "reason", reason, "error", err.Error())
+			fields := []any{"cause", causeKey, "reason", reason}
+			// An invalid file's error would describe its content, so the
+			// log gets the reason alone.
+			if reason != keyReasonInvalid {
+				fields = append(fields, "error", err.Error())
+			}
+			logger.Error("startup failed", fields...)
 			return exitFailed
 		}
 		options.key = loaded
