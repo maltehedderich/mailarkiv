@@ -86,6 +86,8 @@ Spacing tokens are named for their pixel values (`--space-2` through `--space-32
 | `--content-width`        | 880 px | Centred reading and status column        |
 | `--drawer-width`         | 440 px | Right-hand modal detail drawer           |
 | `--form-width`           | 300 px | Standalone forms and error messages      |
+| `--form-width-wide`      | 440 px | Adding and editing a source              |
+| `--dialog-width`         | 400 px | Confirmation dialogs                     |
 | `--toast-width`          | 380 px | Desktop toast notifications              |
 
 Signed-in pages pair a sticky `--sidebar-width` sidebar on `--canvas` with a single `--panel` surface inset by `--space-8`. Both the sidebar's logo row and the view's header are `--header-height` (52 px) tall, aligning the logo with the view title. The Messages header sticks to the top, because it carries the pager, and the page keeps `scroll-padding-top` at its height so focus scrolls clear of it (WCAG 2.4.11). Sign out sits at the foot of the sidebar; if sign-out fails, the error line goes above the button so the button stays under the pointer for the next try. Focused reading and status views centre their body in `--content-width`.
@@ -213,6 +215,29 @@ A source's page has a header with a `Sources` link in `--text-2`, a chevron, and
 The list and a source's page reload their data every 3 seconds while a source on them syncs, so the archived count climbs as messages are stored. Each reload starts after the last one finished, reloads stop once nothing syncs, and focus stays where it was. A failed reload shows the failed-load block, because stale counts could claim a sync that has ended.
 
 On Status, problem sources come first in the Problems section, above the failure groups. Each has a dot beside its name, which links to its page: `--state-bad` for a failed sync, and `--state-warn` for an unavailable folder or a message waiting for retry, since the rest of the source still collects. Below the name come the category label in `--text-2`, then `Since` with the time and the failed attempts at label size in `--text-3`. A source's problem can predate the latest start, so while any is listed the footnote adds that a source stays listed until a sync clears its problem.
+
+### Adding, changing, and removing a source
+
+The Sources header ends with `Add a source`, a link styled `button primary`. It's left out while the server has no key, because the notice says why nothing can be added.
+
+`/sources/new` has a source page's header, titled `Add a source`. Its form is one column `--form-width-wide` (440 px) wide at the start of the content column, in two steps:
+
+1. `Connect to the mailbox`: `Name`, `Server`, `Connection security` (TLS and STARTTLS radios side by side), `Port`, `User name`, and `Password`. The port reads 993 for TLS and 143 for STARTTLS and follows the security until the administrator types a port. `Connect` is a large primary button. A check can take 150 seconds, so while it waits the button reads `Connecting…` with `aria-disabled`, keeping focus.
+2. `Choose folders`, whose heading takes focus. A line in `--text-2` names the mailbox (`anna@example.test on imap.example.org, port 993, TLS`), with a `Change details` button that goes back to step one with everything as typed. Then the folder checklist: a fieldset with the legend `Folders`, a row per folder in the server's order, and `INBOX` checked. A row is a 16 px checkbox, the name in medium `--text-1` cut in its middle, and the count (`1,204 messages`) at label size in `--text-3` at the row's end. The count describes the checkbox, so the folder name alone is its accessible name. Above `Save` sits a notice box with the removal warning, `Archived mail can't be removed in this version.`, in `--text-2`, then `Messages stay in the archive after you remove a folder or the source.` in `--text-3`. `Save` is large and primary and reads `Saving…` while it waits. It opens the new source's page, where the first sync shows.
+
+Results go below the step's button in a `role="status"`, so the fields never move:
+
+- A failed check: a `--state-bad` dot beside the category label in medium `--text-1`, then facts for `What happened`, `Next step`, and `Server's reply` in full, then `Nothing was saved.`
+- An existing source with this server and user name: `A source for this server and user name already exists.` and the link `Open the existing source`.
+- No key: the Sources notice's words and link.
+- A field the server refused: a line under that field, such as `Enter the server's name or address.`, and focus moves to the first such field, so its line is heard. The check doesn't send the name, so `Connect` checks it first. A refused field after `Save` returns to step one.
+- No answer within 150 seconds: `Connect didn't finish within 150 seconds. Nothing was saved. Try again. If this repeats, check the server log.` Any other failure drops `within 150 seconds`. `Save` reads the same with its own name.
+
+On a source's page, `Sync now` and `Pause` sit below the state line and any failure, as default buttons. Pause and Resume are one button whose label follows the state, so focus stays on it. `Sync now` is disabled while paused. An action reloads the page as soon as it's answered, which also drops a reload that started before it and would show the old state. A visually hidden status says each new state (`State: Paused`) without moving focus, whether an action or a reload brought it. A refusal shows below the buttons in `--text-2`: `A sync is already running.` or `The source is paused. Resume it to sync.`
+
+`Edit` and `Remove` sit below the source's facts. `Edit` replaces the page's body with a form headed `Edit source`, which takes focus. It has the add form's fields, except that `Server` and `User name` show as facts with `These can't change. To collect another mailbox, add a source.` `Password` starts empty, described by `Leave empty to keep the stored password.` `Folders` lists the source's folders, checked, then `Add folders`, which signs in with the form's details and appends the server's other folders, unchecked, with their counts. It stays, so focus does, and a status line below it says what it added (`2 more folders listed, unchecked.`). Once it has listed them, the removal warning shows above `Save`. `Save` and `Cancel` both return to the page with focus on `Edit`. A failed check shows as on the add form, ending `Nothing was changed.`
+
+`Remove` opens a confirmation: a native `<dialog>` opened with `showModal()`, centred, `--dialog-width` (400 px) wide, on `--raised` with `--radius-large`, `--shadow-pop`, and `--scrim`. Its title names the source at section size (`Remove Anna?`). The text in `--text-2` says that collection stops and the stored password is deleted, and that collected messages stay in the archive with their history naming the source. `Cancel` (large default) takes focus first, so `Enter` alone removes nothing, then `Remove source` (large primary) reads `Removing…` while it waits. `Escape` and `Cancel` close it and return focus to `Remove`. Success opens the Sources list. A failure keeps the dialog open with a line below its buttons. At 720 px and below the dialog keeps 16 px from each edge.
 
 ## Motion
 

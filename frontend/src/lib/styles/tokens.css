@@ -55,6 +55,8 @@
   --content-width: 880px;
   --drawer-width: 440px;
   --form-width: 300px;
+  --form-width-wide: 440px;
+  --dialog-width: 400px;
   --toast-width: 380px;
   --icon-size: 16px;
   --icon-size-small: 14px;
