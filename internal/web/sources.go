@@ -352,7 +352,7 @@ func readSource(s *server, w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	source, err := s.collect.Get(r.Context(), id)
+	source, err := s.collect.Detail(r.Context(), id)
 	if err != nil {
 		s.writeSourceError(w, r, err)
 		return
@@ -360,9 +360,8 @@ func readSource(s *server, w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, newSourceDetailJSON(source))
 }
 
-// newSourceDetailJSON writes a source's page. Collection doesn't yet record
-// problem messages, so those lists are always empty.
-func newSourceDetailJSON(source collect.Source) sourceDetailJSON {
+// newSourceDetailJSON writes a source's page.
+func newSourceDetailJSON(source collect.SourceDetail) sourceDetailJSON {
 	folders := make([]folderJSON, len(source.Folders))
 	for i, folder := range source.Folders {
 		folders[i] = folderJSON{
@@ -371,13 +370,29 @@ func newSourceDetailJSON(source collect.Source) sourceDetailJSON {
 			RenumberedAt:     optionalTime(folder.RenumberedAt),
 		}
 	}
-	entry := newSourceJSON(source)
+	entry := newSourceJSON(source.Source)
 	entry.Folders = folders
-	empty := problemMessagesJSON{Items: []struct{}{}}
 	return sourceDetailJSON{
 		sourceJSON: entry,
-		Messages:   messagesJSON{WaitingForRetry: empty, NotArchived: empty},
+		Messages: messagesJSON{
+			WaitingForRetry: newProblemListJSON(source.Messages.WaitingForRetry),
+			NotArchived:     newProblemListJSON(source.Messages.NotArchived),
+		},
 	}
+}
+
+func newProblemListJSON(list collect.ProblemList) problemListJSON {
+	items := make([]problemMessageJSON, len(list.Items))
+	for i, item := range list.Items {
+		items[i] = problemMessageJSON{
+			Folder:     item.Folder,
+			Size:       item.Size,
+			ReceivedAt: optionalTime(item.ReceivedAt),
+			RecordedAt: formatTime(item.RecordedAt),
+			Category:   item.Category.String(),
+		}
+	}
+	return problemListJSON{Total: list.Total, Items: items}
 }
 
 // sourceJSON is a source's list entry.
@@ -435,17 +450,24 @@ type problemsJSON struct {
 }
 
 type messagesJSON struct {
-	WaitingForRetry problemMessagesJSON `json:"waiting_for_retry"`
-	NotArchived     problemMessagesJSON `json:"not_archived"`
+	WaitingForRetry problemListJSON `json:"waiting_for_retry"`
+	NotArchived     problemListJSON `json:"not_archived"`
 }
 
-type problemMessagesJSON struct {
-	Total int        `json:"total"`
-	Items []struct{} `json:"items"`
+type problemListJSON struct {
+	Total int                  `json:"total"`
+	Items []problemMessageJSON `json:"items"`
 }
 
-// newSourceJSON writes a source's list entry. Collection doesn't yet count
-// problems, so those counts are always zero.
+type problemMessageJSON struct {
+	Folder     string  `json:"folder"`
+	Size       *int64  `json:"size"`
+	ReceivedAt *string `json:"received_at"`
+	RecordedAt string  `json:"recorded_at"`
+	Category   string  `json:"category"`
+}
+
+// newSourceJSON writes a source's list entry.
 func newSourceJSON(source collect.Source) sourceJSON {
 	names := make([]string, len(source.Folders))
 	for i, folder := range source.Folders {
@@ -461,6 +483,11 @@ func newSourceJSON(source collect.Source) sourceJSON {
 		State:     source.State.String(),
 		Folders:   names,
 		Collected: source.Collected,
+		Problems: problemsJSON{
+			UnavailableFolders: source.Problems.UnavailableFolders,
+			WaitingForRetry:    source.Problems.WaitingForRetry,
+			NotArchived:        source.Problems.NotArchived,
+		},
 	}
 	if source.Progress != nil {
 		entry.Progress = &progressJSON{Archived: source.Progress.Archived, Found: source.Progress.Found}

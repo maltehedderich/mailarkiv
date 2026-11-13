@@ -888,3 +888,50 @@ func TestRemoveSourceRoute(t *testing.T) {
 		t.Errorf("POST /api/sources after removal = %d %s, want 201", response.StatusCode, answer)
 	}
 }
+
+// Contract: a source counts its unavailable folders, messages waiting for
+// retry, and messages not archived. Its page lists those messages with their
+// folder, size, server time, and reason, and null where the server reported
+// nothing.
+func TestSourcePageListsProblems(t *testing.T) {
+	h := newHarness(t, Routes())
+	h.createAccount(t, "admin@example.test")
+	session := h.signIn(t, "admin@example.test")
+	id := h.insertKeylessSource(t)
+	unavailable, received := testNow.Add(-time.Hour), testNow.Add(-24*time.Hour)
+	waitingAt, tooLargeAt := testNow.Add(-10*time.Minute), testNow.Add(-20*time.Minute)
+	for _, statement := range []string{
+		fmt.Sprintf(`INSERT INTO imap_folder (source_id, name, chosen, uid_validity, unavailable_since)
+		             VALUES (%d, 'Projekte', 1, 7, %d)`, id, unavailable.UnixMilli()),
+		`UPDATE imap_folder SET uid_validity = 7 WHERE name = 'INBOX'`,
+		fmt.Sprintf(`INSERT INTO imap_message_problem (folder_id, uid_validity, uid, kind, size, received_at, recorded_at)
+		             SELECT id, 7, 5, 'waiting_for_retry', 48211, %d, %d FROM imap_folder WHERE name = 'INBOX'`,
+			received.UnixMilli(), waitingAt.UnixMilli()),
+		fmt.Sprintf(`INSERT INTO imap_message_problem (folder_id, uid_validity, uid, kind, size, received_at, recorded_at)
+		             SELECT id, 7, 6, 'too_large', 160000000, NULL, %d FROM imap_folder WHERE name = 'INBOX'`,
+			tooLargeAt.UnixMilli()),
+	} {
+		if _, err := h.db.Writer.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	entry := func(folders, extra string) string {
+		return fmt.Sprintf(`{"id":%d,"name":"Anna","host":"imap.example.test","port":993,"security":"tls","user_name":%q,`+
+			`"state":"waiting","folders":%s,"progress":null,"last_success":null,"collected":0,"next_sync_at":null,`+
+			`"paused_at":null,"failure":null,"problems":{"unavailable_folders":1,"waiting_for_retry":1,"not_archived":1}%s}`,
+			id, mailboxUser, folders, extra)
+	}
+
+	response, body := h.do(t, http.MethodGet, "/api/sources", session)
+	assertJSONResponse(t, response, body, http.StatusOK,
+		`{"collection":"no_key","sources":[`+entry(`["INBOX","Projekte"]`, "")+`]}`)
+
+	response, body = h.do(t, http.MethodGet, "/api/sources/"+strconv.FormatInt(id, 10), session)
+	assertJSONResponse(t, response, body, http.StatusOK, entry(
+		fmt.Sprintf(`[{"name":"INBOX","unavailable_since":null,"renumbered_at":null},`+
+			`{"name":"Projekte","unavailable_since":%q,"renumbered_at":null}]`, formatTime(unavailable)),
+		fmt.Sprintf(`,"messages":{`+
+			`"waiting_for_retry":{"total":1,"items":[{"folder":"INBOX","size":48211,"received_at":%q,"recorded_at":%q,"category":"message_unavailable"}]},`+
+			`"not_archived":{"total":1,"items":[{"folder":"INBOX","size":160000000,"received_at":null,"recorded_at":%q,"category":"message_too_large"}]}}`,
+			formatTime(received), formatTime(waitingAt), formatTime(tooLargeAt))))
+}

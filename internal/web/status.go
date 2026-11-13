@@ -3,6 +3,8 @@ package web
 import (
 	"fmt"
 	"net/http"
+
+	"github.com/maltehedderich/mailarkiv/internal/collect"
 )
 
 type recoveryJSON struct {
@@ -17,6 +19,14 @@ type unreferencedJSON struct {
 	Size        int64  `json:"size"`
 }
 
+type problemSourceJSON struct {
+	ID             int64  `json:"id"`
+	Name           string `json:"name"`
+	Category       string `json:"category"`
+	Since          string `json:"since"`
+	FailedAttempts *int   `json:"failed_attempts"`
+}
+
 type failureJSON struct {
 	At          string  `json:"at"`
 	Category    string  `json:"category"`
@@ -27,9 +37,15 @@ type failureJSON struct {
 	Restored    bool    `json:"restored"`
 }
 
-// readStatus answers GET /api/status. It reads opstatus and the names of the
-// sources its events point to, and no route here changes the archive.
+// readStatus answers GET /api/status. It reads opstatus, the names of the
+// sources its events point to, and the sources with problems. No route here
+// changes the archive.
 func readStatus(s *server, w http.ResponseWriter, r *http.Request) {
+	problemSources, err := s.problemSources(r)
+	if err != nil {
+		s.writeInternalError(w, r, err)
+		return
+	}
 	snapshot := s.status.Snapshot()
 	var sourceIDs []int64
 	for _, failure := range snapshot.Failures {
@@ -79,10 +95,31 @@ func readStatus(s *server, w http.ResponseWriter, r *http.Request) {
 		failures = append(failures, event)
 	}
 
+	sources := make([]problemSourceJSON, len(problemSources))
+	for i, source := range problemSources {
+		sources[i] = problemSourceJSON{
+			ID:             source.ID,
+			Name:           source.Name,
+			Category:       source.Category.String(),
+			Since:          formatTime(source.Since),
+			FailedAttempts: source.FailedAttempts,
+		}
+	}
+
 	writeJSON(w, http.StatusOK, struct {
-		StartedAt    string             `json:"started_at"`
-		Recovery     *recoveryJSON      `json:"recovery"`
-		Unreferenced []unreferencedJSON `json:"unreferenced"`
-		Failures     []failureJSON      `json:"failures"`
-	}{formatTime(snapshot.StartedAt), recovery, unreferenced, failures})
+		StartedAt    string              `json:"started_at"`
+		Recovery     *recoveryJSON       `json:"recovery"`
+		Sources      []problemSourceJSON `json:"sources"`
+		Unreferenced []unreferencedJSON  `json:"unreferenced"`
+		Failures     []failureJSON       `json:"failures"`
+	}{formatTime(snapshot.StartedAt), recovery, sources, unreferenced, failures})
+}
+
+// problemSources returns the sources the status screen lists. Without
+// collection there are none.
+func (s *server) problemSources(r *http.Request) ([]collect.ProblemSource, error) {
+	if s.collect == nil {
+		return nil, nil
+	}
+	return s.collect.ProblemSources(r.Context())
 }

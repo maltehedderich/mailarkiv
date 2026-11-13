@@ -255,7 +255,7 @@ func TestSavedPasswordWhilePaused(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Edit: %v", err)
 	}
-	assertPaused(t, edited, pausedAt)
+	assertPaused(t, edited.Source, pausedAt)
 	m.passPeriods(t, 1)
 	if n := double.Logins() - logins; n != 1 {
 		t.Errorf("%d LOGIN commands, want 1: the check", n)

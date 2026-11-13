@@ -59,6 +59,7 @@ func TestStatus(t *testing.T) {
 				"temp_files_not_removed": 3,
 				"unreferenced_found": 2
 			},
+			"sources": [],
 			"unreferenced": [
 				{"content_hash": %[4]q, "size": 2048},
 				{"content_hash": %[5]q, "size": 150000000}
@@ -99,6 +100,7 @@ func TestStatus(t *testing.T) {
 		assertJSONResponse(t, response, body, http.StatusOK, fmt.Sprintf(`{
 			"started_at": %[1]q,
 			"recovery": null,
+			"sources": [],
 			"unreferenced": [],
 			"failures": [
 				{"at": %[1]q, "category": "message_too_large", "source_id": 3, "source_name": "Anna", "restored": false},
@@ -108,6 +110,71 @@ func TestStatus(t *testing.T) {
 		if strings.Contains(body, "Geheimordner") {
 			t.Error("the status names a folder")
 		}
+	})
+
+	// Contract: each problem source appears once, by name, with its category,
+	// when the problem began, and its failed attempts for a sync failure. No
+	// entry names a user, a folder, or the server's reply.
+	t.Run("problem sources", func(t *testing.T) {
+		h := newHarness(t, Routes())
+		h.createAccount(t, account)
+		session := h.signIn(t, account)
+		const (
+			user   = "MARKER-USER-6b1a@example.test"
+			folder = "MARKER-FOLDER-2c7e"
+			reply  = "MARKER-REPLY-9d2e"
+		)
+		failingSince, unavailableSince := testNow.Add(-30*time.Minute), testNow.Add(-50*time.Minute)
+		for _, statement := range []string{
+			fmt.Sprintf(`INSERT INTO imap_source (id, name, host, port, security, user_name, user_key, sealed_password, created_at,
+			             failed_attempts, failing_since, last_failure_category, last_failure_at, last_server_reply)
+			 VALUES (3, 'Anna', 'imap.example.test', 993, 'tls', '%[1]s', lower('%[1]s'), x'00', 0, 3, %[2]d, 'timed_out', %[2]d, '%[3]s')`,
+				user, failingSince.UnixMilli(), reply),
+			fmt.Sprintf(`INSERT INTO imap_source (id, name, host, port, security, user_name, user_key, sealed_password, created_at)
+			 VALUES (5, 'Office', 'imap.example.test', 993, 'tls', 'office-%[1]s', lower('office-%[1]s'), x'00', 0),
+			        (7, 'Healthy', 'imap.example.test', 993, 'tls', 'ok-%[1]s', lower('ok-%[1]s'), x'00', 0)`, user),
+			fmt.Sprintf(`INSERT INTO imap_folder (id, source_id, name, chosen, unavailable_since)
+			 VALUES (1, 3, '%[1]s', 1, NULL), (2, 5, '%[1]s', 1, %[2]d), (3, 7, '%[1]s', 1, NULL)`, folder, unavailableSince.UnixMilli()),
+		} {
+			if _, err := h.db.Writer.Exec(statement); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		response, body := h.do(t, http.MethodGet, "/api/status", session)
+
+		assertJSONResponse(t, response, body, http.StatusOK, fmt.Sprintf(`{
+			"started_at": %[1]q,
+			"recovery": null,
+			"sources": [
+				{"id": 3, "name": "Anna", "category": "timed_out", "since": %[2]q, "failed_attempts": 3},
+				{"id": 5, "name": "Office", "category": "folder_unavailable", "since": %[3]q, "failed_attempts": null}
+			],
+			"unreferenced": [],
+			"failures": []
+		}`, testTime, formatTime(failingSince), formatTime(unavailableSince)))
+		for _, marker := range []string{"MARKER-USER", folder, reply} {
+			if strings.Contains(strings.ToUpper(body), marker) {
+				t.Errorf("the status holds %s: %s", marker, body)
+			}
+		}
+	})
+
+	// Without collection there are no sources to report.
+	t.Run("no collector", func(t *testing.T) {
+		h := newHarnessWith(t, Routes(), harnessOptions{noCollector: true})
+		h.createAccount(t, account)
+		session := h.signIn(t, account)
+
+		response, body := h.do(t, http.MethodGet, "/api/status", session)
+
+		assertJSONResponse(t, response, body, http.StatusOK, fmt.Sprintf(`{
+			"started_at": %q,
+			"recovery": null,
+			"sources": [],
+			"unreferenced": [],
+			"failures": []
+		}`, testTime))
 	})
 
 	t.Run("empty lists are empty arrays", func(t *testing.T) {
@@ -121,6 +188,7 @@ func TestStatus(t *testing.T) {
 		assertJSONResponse(t, response, body, http.StatusOK, fmt.Sprintf(`{
 			"started_at": %[1]q,
 			"recovery": {"finished_at": %[1]q, "temp_files_removed": 0, "temp_files_not_removed": 0, "unreferenced_found": 0},
+			"sources": [],
 			"unreferenced": [],
 			"failures": []
 		}`, testTime))
@@ -148,6 +216,7 @@ func TestStatus(t *testing.T) {
 		assertJSONResponse(t, response, body, http.StatusOK, fmt.Sprintf(`{
 			"started_at": %q,
 			"recovery": %s,
+			"sources": [],
 			"unreferenced": [{"content_hash": %q, "size": %d}],
 			"failures": []
 		}`, testTime, recovery, hash, len(content)))
@@ -163,6 +232,7 @@ func TestStatus(t *testing.T) {
 		assertJSONResponse(t, response, body, http.StatusOK, fmt.Sprintf(`{
 			"started_at": %q,
 			"recovery": %s,
+			"sources": [],
 			"unreferenced": [],
 			"failures": []
 		}`, testTime, recovery))
@@ -223,4 +293,36 @@ func TestProblemCountAddsFailuresAndUnreferenced(t *testing.T) {
 
 	h.status.RemoveUnreferenced(first)
 	assertCount(t, `{"problem_count":4}`)
+}
+
+// Contract: the problem count adds one for each problem source on the status
+// screen, however many problems the source has.
+func TestProblemCountAddsProblemSources(t *testing.T) {
+	h := newHarness(t, Routes())
+	h.createAccount(t, "admin@example.test")
+	session := h.signIn(t, "admin@example.test")
+	h.status.RecordFailure(opstatus.FailureEvent{Category: opstatus.StorageFull})
+
+	for _, statement := range []string{
+		// A failing source with an unavailable folder and a waiting message
+		// counts once.
+		`INSERT INTO imap_source (id, name, host, port, security, user_name, user_key, sealed_password, created_at,
+		                          failed_attempts, failing_since, last_failure_category, last_failure_at)
+		 VALUES (3, 'Anna', 'imap.example.test', 993, 'tls', 'anna@example.test', 'anna@example.test', x'00', 0,
+		         2, 0, 'server_error', 0)`,
+		`INSERT INTO imap_source (id, name, host, port, security, user_name, user_key, sealed_password, created_at)
+		 VALUES (5, 'Office', 'imap.example.test', 993, 'tls', 'office@example.test', 'office@example.test', x'00', 0),
+		        (7, 'Healthy', 'imap.example.test', 993, 'tls', 'ok@example.test', 'ok@example.test', x'00', 0)`,
+		`INSERT INTO imap_folder (id, source_id, name, chosen, uid_validity, unavailable_since)
+		 VALUES (1, 3, 'INBOX', 1, 7, 0), (2, 5, 'INBOX', 1, 7, NULL), (3, 7, 'INBOX', 1, 7, NULL)`,
+		`INSERT INTO imap_message_problem (folder_id, uid_validity, uid, kind, recorded_at)
+		 VALUES (1, 7, 1, 'waiting_for_retry', 0), (2, 7, 1, 'waiting_for_retry', 0), (3, 7, 1, 'too_large', 0)`,
+	} {
+		if _, err := h.db.Writer.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	response, body := h.do(t, http.MethodGet, "/api/session", session)
+	assertJSONResponse(t, response, body, http.StatusOK, `{"problem_count":3}`)
 }

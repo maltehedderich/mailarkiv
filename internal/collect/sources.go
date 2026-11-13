@@ -47,7 +47,8 @@ type Source struct {
 	NextSyncAt *time.Time
 	PausedAt   *time.Time
 	// Failure is set while the source is Retrying or needs attention.
-	Failure *Failure
+	Failure  *Failure
+	Problems ProblemCounts
 }
 
 // Failure is the run of failed syncs a source is in, or its unreadable
@@ -294,7 +295,10 @@ ORDER BY s.name, s.id`, args...)
 		for i := range sources {
 			byID[sources[i].ID] = &sources[i]
 		}
-		return loadFolders(ctx, tx, filter, args, byID)
+		if err := loadFolders(ctx, tx, filter, args, byID); err != nil {
+			return err
+		}
+		return loadProblemCounts(ctx, tx, filter, args, byID)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("read sources: %w", err)

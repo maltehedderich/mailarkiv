@@ -89,9 +89,16 @@ func newSessionCookie(value string, maxAge int) *http.Cookie {
 }
 
 // readSession answers GET /api/session. The guard has already checked the
-// session, so this only reports the problem count.
-func readSession(s *server, w http.ResponseWriter, _ *http.Request) {
+// session, so this only reports the problem count: the failure events and
+// unreferenced originals opstatus counts, plus each source the status screen
+// lists.
+func readSession(s *server, w http.ResponseWriter, r *http.Request) {
+	sources, err := s.problemSources(r)
+	if err != nil {
+		s.writeInternalError(w, r, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, struct {
 		ProblemCount int `json:"problem_count"`
-	}{s.status.ProblemCount()})
+	}{s.status.ProblemCount() + len(sources)})
 }

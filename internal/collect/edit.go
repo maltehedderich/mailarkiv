@@ -13,31 +13,32 @@ import (
 // together. A new port, security, or password signs in with the new values
 // first, within the check limit, and nothing changes if that fails. Host and
 // user name can't change. It returns an *InvalidFieldsError, ErrNotFound,
-// ErrNoKey, or a *CheckFailedError.
+// ErrNoKey, or a *CheckFailedError. It returns the source as its page shows
+// it.
 //
 // A saved password clears a rejected sign-in and the unreadable mark. It,
 // and an added folder, sync at once unless the source is paused. A sync
 // that is running goes on with the old values, and the next one starts when
 // it ends.
-func (c *Collector) Edit(ctx context.Context, id int64, in EditInput) (Source, error) {
+func (c *Collector) Edit(ctx context.Context, id int64, in EditInput) (SourceDetail, error) {
 	change, err := parseEdit(in)
 	if err != nil {
-		return Source{}, err
+		return SourceDetail{}, err
 	}
 	stored, err := c.loadStored(ctx, id)
 	if err != nil {
-		return Source{}, err
+		return SourceDetail{}, err
 	}
 	box := stored.box
 	if signsIn(stored.box, change.change) {
 		if box, err = c.mailboxFor(stored, change.change); err != nil {
-			return Source{}, err
+			return SourceDetail{}, err
 		}
 		check, cancel := context.WithTimeout(ctx, c.cfg.check)
 		session, err := signIn(check, c.cfg, c.deps.Roots, box)
 		cancel()
 		if err != nil {
-			return Source{}, checkFailed(err)
+			return SourceDetail{}, checkFailed(err)
 		}
 		_ = session.logout()
 	}
@@ -77,10 +78,10 @@ WHERE id = ?`, change.name, box.port, box.security.String(), sealed, sealed, id)
 		return nil
 	})
 	if errors.Is(err, ErrNotFound) {
-		return Source{}, err
+		return SourceDetail{}, err
 	}
 	if err != nil {
-		return Source{}, fmt.Errorf("edit source %d: %w", id, err)
+		return SourceDetail{}, fmt.Errorf("edit source %d: %w", id, err)
 	}
 
 	saved := change.change.password != nil
@@ -101,7 +102,7 @@ WHERE id = ?`, change.name, box.port, box.security.String(), sealed, sealed, id)
 			defer c.startRunner(id, row.failedAttempts)()
 		}
 	}
-	return c.Get(ctx, id)
+	return c.Detail(ctx, id)
 }
 
 // signsIn reports whether change needs a sign-in: a password, or a port or

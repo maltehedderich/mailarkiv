@@ -193,7 +193,7 @@ For adding folders while editing. Optional `port`, `security`, and `password`. M
 
 ## `POST /api/sources/{id}/pause`, `/resume`, `/sync`
 
-No body. Each answers 200 with the source as in the list.
+No body. Each answers 200 with the source as in the list. When `resume` or `sync` starts a sync, the answer's state is `syncing`.
 
 | Route | Refused with | When |
 | ----- | ------------ | ---- |
@@ -289,7 +289,7 @@ Adds `sources`, and failure events for messages not archived:
 }
 ```
 
-Each problem source appears once (FR-037, FR-038). Its category is the sync failure if it's Retrying or in Needs attention, otherwise `folder_unavailable` if a folder is unavailable, otherwise `message_unavailable`. `since` is when that problem began. `failed_attempts` is null for anything but a sync failure. No entry carries a user name, folder name, server reply, or message content.
+Each problem source appears once (FR-037, FR-038). Its category is the sync failure if it's Retrying or in Needs attention, otherwise `folder_unavailable` if a folder is unavailable, otherwise `message_unavailable`. A failing source keeps its sync failure while its next attempt runs, so it stays listed until a sync succeeds. A paused source shows no sync failure. Only chosen folders count, for both unavailable folders and messages waiting for retry. `since` is when that problem began. `failed_attempts` is null for anything but a sync failure. No entry carries a user name, folder name, server reply, or message content.
 
 ## Changed: `GET /api/session`
 
