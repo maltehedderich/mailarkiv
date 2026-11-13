@@ -5,7 +5,15 @@ import { dirname, join } from "node:path";
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
+import { startImap, type ImapServer } from "./support/imap";
 import { startServer, type TestServer } from "./support/server";
+import {
+  connect,
+  expectState,
+  folderChoice,
+  MAILBOX,
+  REMOVAL_WARNING,
+} from "./support/sources";
 
 // Every screen works by keyboard, at 360 px with no sideways scroll, and
 // meets WCAG 2.2 AA in both themes. Data that didn't arrive says so and
@@ -306,6 +314,107 @@ for (const colorScheme of ["light", "dark"] as const) {
     });
   }
 }
+
+test.describe("the sources screens", () => {
+  let imap: ImapServer;
+
+  // Collection needs a key and a mail server, so this server replaces the
+  // one every test starts. The top-level afterEach stops it.
+  test.beforeEach(async () => {
+    await server.stop();
+    imap = await startImap({
+      ...MAILBOX,
+      folders: [
+        { name: "INBOX", messages: 2 },
+        { name: "Gesendete Objekte", messages: 1 },
+      ],
+    });
+    server = await startServer({ collection: { caFile: imap.caFile } });
+    await server.createAccount(EMAIL, PASSWORD);
+  });
+
+  test.afterEach(async () => {
+    await imap.stop();
+  });
+
+  /**
+   * Opens each sources screen in turn and runs check on each: the empty
+   * list, the add form plain, with field problems, and with a failed check,
+   * the folder choice, a source, its edit form, its remove confirmation, and
+   * the list with the source.
+   */
+  async function visitSourceScreens(
+    page: Page,
+    check: (screen: string) => Promise<void>,
+  ) {
+    await signIn(page);
+    await page.goto(`${server.origin}/sources`);
+    await expect(page.getByText("No sources.")).toBeVisible();
+    await check("the empty sources list");
+
+    await page.getByRole("link", { name: "Add a source" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Connect to the mailbox" }),
+    ).toBeVisible();
+    await check("the add form");
+
+    await page.getByLabel("Name", { exact: true }).fill("Anna");
+    await page.getByRole("button", { name: "Connect" }).click();
+    await expect(page.getByLabel("Server", { exact: true })).toHaveAttribute(
+      "aria-invalid",
+      "true",
+    );
+    await check("the add form with field problems");
+
+    await connect(page, imap, {
+      name: "Anna",
+      password: "not the mailbox password",
+    });
+    await expect(
+      page.getByText("Sign-in rejected", { exact: true }),
+    ).toBeVisible();
+    await check("the add form with a failed check");
+
+    await connect(page, imap, { name: "Anna" });
+    await expect(folderChoice(page).getByRole("checkbox")).toHaveCount(2);
+    await check("the folder choice");
+
+    await page.getByRole("button", { name: "Save" }).click();
+    await expectState(page, "Waiting", 20_000);
+    await check("a source");
+
+    await page.getByRole("button", { name: "Edit" }).click();
+    await page.getByRole("button", { name: "Add folders" }).click();
+    await expect(page.getByText(REMOVAL_WARNING)).toBeVisible();
+    await check("the edit form");
+    await page.getByRole("button", { name: "Cancel" }).click();
+
+    await page.getByRole("button", { name: "Remove", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Remove Anna?" });
+    await expect(dialog).toBeVisible();
+    await check("the remove confirmation");
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+
+    await page.goto(`${server.origin}/sources`);
+    await expect(page.getByRole("link", { name: "Anna" })).toBeVisible();
+    await check("the sources list");
+  }
+
+  for (const colorScheme of ["light", "dark"] as const) {
+    for (const width of [1280, 360]) {
+      test(`meet WCAG 2.2 AA in the ${colorScheme} theme at ${width} px`, async ({
+        page,
+      }) => {
+        await page.emulateMedia({ colorScheme });
+        await page.setViewportSize({ width, height: 800 });
+        await visitSourceScreens(page, async (screen) => {
+          await expectNoSidewaysScroll(page, screen);
+          await expectNoAxeViolations(page, screen);
+        });
+      });
+    }
+  }
+});
 
 // DESIGN.md: beside the sidebar, rows take two lines up to 1040 px, so the
 // name has room. At 721 px one line used to leave the name no width at all.
