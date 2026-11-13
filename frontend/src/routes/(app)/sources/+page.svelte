@@ -51,6 +51,10 @@
 <main>
   <header>
     <h1 bind:this={heading} tabindex="-1">Sources</h1>
+    <!-- Left out without the key, which the notice explains. -->
+    {#if data.sources.kind === "ok" && data.sources.value.collection === "available"}
+      <a class="button primary" href="/sources/new">Add a source</a>
+    {/if}
   </header>
 
   <div class="body">
@@ -95,6 +99,8 @@
   header {
     display: flex;
     align-items: center;
+    justify-content: space-between;
+    gap: var(--space-12);
     height: var(--header-height);
     padding: 0 var(--space-24);
     border-bottom: 1px solid var(--line);
