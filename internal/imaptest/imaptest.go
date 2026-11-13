@@ -113,13 +113,17 @@ var (
 
 // Server is an IMAP server for one user. It is safe for concurrent use.
 type Server struct {
-	addr     string
-	caPEM    []byte
-	listener net.Listener
-	imap     *imapserver.Server
-	served   chan error
-	user     *imapmemserver.User
-	name     string
+	addr  string
+	caPEM []byte
+	ca    *x509.Certificate
+	caKey *ecdsa.PrivateKey
+	// tlsConfig is set before the server accepts and never changes.
+	tlsConfig *tls.Config
+	listener  net.Listener
+	imap      *imapserver.Server
+	served    chan error
+	user      *imapmemserver.User
+	name      string
 
 	// closed ends every held fetch and stall when the server closes.
 	closed    chan struct{}
@@ -148,6 +152,8 @@ type Server struct {
 	listEntries      []listEntry
 	stallHandshake   bool
 	withholdGreeting bool
+	// certificate replaces the one in tlsConfig when it is set.
+	certificate *tls.Certificate
 }
 
 // messageKey names a message under its folder's current numbering.
@@ -179,13 +185,20 @@ func New(options Options) (*Server, error) {
 	if options.NoStartTLS && options.Security != StartTLS {
 		return nil, errors.New("imaptest: NoStartTLS needs StartTLS")
 	}
-	caPEM, certificate, err := newCertificates(time.Now(), options.Certificate)
+	now := time.Now()
+	ca, caKey, err := newCA(now)
+	if err != nil {
+		return nil, err
+	}
+	certificate, err := serverCertificate(now, ca, caKey, options.Certificate)
 	if err != nil {
 		return nil, err
 	}
 
 	s := &Server{
-		caPEM:       caPEM,
+		caPEM:       pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ca.Raw}),
+		ca:          ca,
+		caKey:       caKey,
 		served:      make(chan error, 1),
 		closed:      make(chan struct{}),
 		name:        options.User,
@@ -213,6 +226,7 @@ func New(options Options) (*Server, error) {
 		tlsConfig.MinVersion = tls.VersionTLS11
 		tlsConfig.MaxVersion = tls.VersionTLS11
 	}
+	s.tlsConfig = tlsConfig
 	caps := imap.CapSet{imap.CapIMAP4rev1: {}}
 	if options.ListStatus {
 		caps[imap.CapListExtended] = struct{}{}
@@ -317,6 +331,19 @@ func (s *Server) StallHandshake(stall bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.stallHandshake = stall
+}
+
+// SetCertificate makes each TLS handshake from now on present a new
+// certificate of kind. CAPEM stays the same.
+func (s *Server) SetCertificate(kind Certificate) error {
+	certificate, err := serverCertificate(time.Now(), s.ca, s.caKey, kind)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.certificate = &certificate
+	return nil
 }
 
 // WithholdGreeting makes each connection from now on wait before the
@@ -598,17 +625,24 @@ func (s *Server) greet(conn *imapserver.Conn) (imapserver.Session, *imapserver.G
 	return nil, nil, errors.New("imaptest: the greeting was withheld")
 }
 
-// handshaking stalls a TLS handshake when StallHandshake says so. A nil
-// config keeps the server's own.
+// handshaking stalls a TLS handshake when StallHandshake says so, and
+// presents the certificate SetCertificate made. A nil config keeps the
+// server's own.
 func (s *Server) handshaking(hello *tls.ClientHelloInfo) (*tls.Config, error) {
 	s.mu.Lock()
-	stall := s.stallHandshake
+	stall, certificate := s.stallHandshake, s.certificate
 	s.mu.Unlock()
-	if !stall {
+	if stall {
+		s.waitForClose(hello.Conn)
+		return nil, errors.New("imaptest: the handshake was stalled")
+	}
+	if certificate == nil {
 		return nil, nil
 	}
-	s.waitForClose(hello.Conn)
-	return nil, errors.New("imaptest: the handshake was stalled")
+	config := s.tlsConfig.Clone()
+	config.Certificates = []tls.Certificate{*certificate}
+	config.GetConfigForClient = nil
+	return config, nil
 }
 
 // waitForClose blocks until the client closes conn or the server closes, and
@@ -644,15 +678,11 @@ func (s *Server) newSession(conn *imapserver.Conn) *session {
 	return &session{server: s, conn: conn, number: s.sessions}
 }
 
-// newCertificates makes a CA, valid from an hour before now for a day, and a
-// server certificate of the kind asked for.
-func newCertificates(now time.Time, kind Certificate) (caPEM []byte, server tls.Certificate, err error) {
-	ca, caKey, err := newCA(now)
-	if err != nil {
-		return nil, tls.Certificate{}, err
-	}
-	caPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ca.Raw})
-
+// serverCertificate makes a server certificate of kind, valid from an hour
+// before now for a day unless kind says otherwise, signed by ca unless kind
+// is OtherCA.
+func serverCertificate(now time.Time, ca *x509.Certificate, caKey *ecdsa.PrivateKey, kind Certificate) (tls.Certificate, error) {
+	var err error
 	serverTemplate := &x509.Certificate{
 		SerialNumber: serial(),
 		Subject:      pkix.Name{CommonName: "localhost"},
@@ -667,7 +697,7 @@ func newCertificates(now time.Time, kind Certificate) (caPEM []byte, server tls.
 	case Trusted:
 	case OtherCA:
 		if ca, caKey, err = newCA(now); err != nil {
-			return nil, tls.Certificate{}, err
+			return tls.Certificate{}, err
 		}
 	case Expired:
 		serverTemplate.NotBefore = now.Add(-48 * time.Hour)
@@ -677,18 +707,18 @@ func newCertificates(now time.Time, kind Certificate) (caPEM []byte, server tls.
 		serverTemplate.DNSNames = []string{"other.example.test"}
 		serverTemplate.IPAddresses = nil
 	default:
-		return nil, tls.Certificate{}, fmt.Errorf("imaptest: unknown certificate %d", kind)
+		return tls.Certificate{}, fmt.Errorf("imaptest: unknown certificate %d", kind)
 	}
 
 	serverKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		return nil, tls.Certificate{}, err
+		return tls.Certificate{}, err
 	}
 	serverDER, err := x509.CreateCertificate(rand.Reader, serverTemplate, ca, &serverKey.PublicKey, caKey)
 	if err != nil {
-		return nil, tls.Certificate{}, err
+		return tls.Certificate{}, err
 	}
-	return caPEM, tls.Certificate{Certificate: [][]byte{serverDER}, PrivateKey: serverKey}, nil
+	return tls.Certificate{Certificate: [][]byte{serverDER}, PrivateKey: serverKey}, nil
 }
 
 func newCA(now time.Time) (*x509.Certificate, *ecdsa.PrivateKey, error) {

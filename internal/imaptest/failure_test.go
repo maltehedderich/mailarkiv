@@ -421,6 +421,28 @@ func TestCertificates(t *testing.T) {
 					t.Errorf("the double saw %d LOGIN commands", logins)
 				}
 			})
+
+			// A server that presented a trusted certificate presents the new
+			// one from the next handshake.
+			t.Run(kind.name+" set later/"+tt.name, func(t *testing.T) {
+				server := newDoubleWith(t, imaptest.Options{Security: tt.security})
+				client, err := dial(server, tt.security, trusting(t, server))
+				if err != nil {
+					t.Fatalf("the trusted certificate failed: %v", err)
+				}
+				client.Close()
+				if err := server.SetCertificate(kind.certificate); err != nil {
+					t.Fatal(err)
+				}
+				client, err = dial(server, tt.security, trusting(t, server))
+				if err == nil {
+					client.Close()
+					t.Fatal("connected")
+				}
+				if !kind.failed(err) {
+					t.Errorf("error = %v", err)
+				}
+			})
 		}
 	}
 }
