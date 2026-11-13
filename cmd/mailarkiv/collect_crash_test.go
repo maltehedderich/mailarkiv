@@ -249,7 +249,13 @@ func TestCollectCrashMatrix(t *testing.T) {
 // category.
 func (p *serverProcess) waitForSyncFailure(category string) {
 	p.t.Helper()
-	deadline := time.Now().Add(processTimeout)
+	p.waitForSyncFailureWithin(category, processTimeout)
+}
+
+// waitForSyncFailureWithin is waitForSyncFailure with its own limit.
+func (p *serverProcess) waitForSyncFailureWithin(category string, limit time.Duration) {
+	p.t.Helper()
+	deadline := time.Now().Add(limit)
 	for {
 		for line := range strings.Lines(p.stderr()) {
 			var entry struct {
@@ -261,7 +267,7 @@ func (p *serverProcess) waitForSyncFailure(category string) {
 			}
 		}
 		if time.Now().After(deadline) {
-			p.t.Fatalf("no sync failed with %s within %s:\n%s", category, processTimeout, p.stderr())
+			p.t.Fatalf("no sync failed with %s within %s:\n%s", category, limit, p.stderr())
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
