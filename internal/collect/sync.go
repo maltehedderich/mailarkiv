@@ -14,6 +14,7 @@ import (
 
 	"github.com/maltehedderich/mailarkiv/internal/archive"
 	"github.com/maltehedderich/mailarkiv/internal/opstatus"
+	"github.com/maltehedderich/mailarkiv/internal/passwordkey"
 )
 
 // metadataBatch is how many UIDs one metadata fetch asks for.
@@ -22,6 +23,19 @@ const metadataBatch = 500
 // errPasswordUnreadable means the source's password can't be opened: there
 // is no key, or the stored password doesn't open with it.
 var errPasswordUnreadable = errors.New("the stored password can't be opened")
+
+// openPassword returns the password sealed for host and userName, or
+// errPasswordUnreadable. key is nil when serve has no key.
+func openPassword(key *passwordkey.Key, sealed []byte, host, userName string) (string, error) {
+	if key == nil {
+		return "", errPasswordUnreadable
+	}
+	password, err := key.Open(sealed, host, userName)
+	if err != nil {
+		return "", errPasswordUnreadable
+	}
+	return password, nil
+}
 
 // folderRow is a chosen folder with its checkpoint.
 type folderRow struct {
@@ -45,11 +59,8 @@ func (c *Collector) collect(ctx context.Context, r *runner) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	if c.deps.Key == nil {
-		return 0, errPasswordUnreadable
-	}
-	if box.password, err = c.deps.Key.Open(sealed, box.host, box.userName); err != nil {
-		return 0, errPasswordUnreadable
+	if box.password, err = openPassword(c.deps.Key, sealed, box.host, box.userName); err != nil {
+		return 0, err
 	}
 	folders, err := c.chosenFolders(ctx, r.id)
 	if err != nil {

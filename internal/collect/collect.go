@@ -44,6 +44,9 @@ type Collector struct {
 	started bool
 	stopped bool
 	runners map[int64]*runner
+	// unreadable holds when each source's password was found not to open,
+	// at this start or at a later sign-in. Such a source has no runner.
+	unreadable map[int64]time.Time
 	// collectFn runs one sync. Tests replace it.
 	collectFn func(ctx context.Context, r *runner) (int, error)
 }
@@ -67,41 +70,58 @@ func newRunner(id int64, now time.Time, failedAttempts int) *runner {
 	return &runner{id: id, wake: make(chan struct{}, 1), due: now, failedAttempts: failedAttempts}
 }
 
-// Open loads the sources that can sync. None syncs before Start.
+// Open loads the sources and tries to open each stored password. A source
+// whose password doesn't open needs attention and gets no loop. None syncs
+// before Start.
 func Open(ctx context.Context, deps Deps) (*Collector, error) {
 	return open(ctx, deps, productionConfig())
 }
 
 func open(ctx context.Context, deps Deps, cfg config) (*Collector, error) {
 	rows, err := deps.DB.Reader.QueryContext(ctx, `
-SELECT id, failed_attempts FROM imap_source
-WHERE removed_at IS NULL AND paused_at IS NULL AND sign_in_rejected_at IS NULL
+SELECT id, host, user_name, sealed_password, failed_attempts,
+       paused_at IS NOT NULL OR sign_in_rejected_at IS NOT NULL
+FROM imap_source
+WHERE removed_at IS NULL
 ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("load sources: %w", err)
 	}
 	defer rows.Close()
+	now := deps.Now()
 	runners := map[int64]*runner{}
+	unreadable := map[int64]time.Time{}
 	for rows.Next() {
 		var id int64
+		var host, userName string
+		var sealed []byte
 		var failedAttempts int
-		if err := rows.Scan(&id, &failedAttempts); err != nil {
+		var waitsForAdmin bool
+		if err := rows.Scan(&id, &host, &userName, &sealed, &failedAttempts, &waitsForAdmin); err != nil {
 			return nil, fmt.Errorf("load sources: %w", err)
 		}
-		runners[id] = newRunner(id, deps.Now(), failedAttempts)
+		if _, err := openPassword(deps.Key, sealed, host, userName); err != nil {
+			unreadable[id] = now
+			deps.Logger.Warn("password unreadable", "source_id", id, "category", PasswordUnreadable.String())
+			continue
+		}
+		if !waitsForAdmin {
+			runners[id] = newRunner(id, now, failedAttempts)
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("load sources: %w", err)
 	}
 
-	c := &Collector{deps: deps, cfg: cfg, runners: runners}
+	c := &Collector{deps: deps, cfg: cfg, runners: runners, unreadable: unreadable}
 	c.collectFn = c.collect
 	c.ctx, c.cancel = context.WithCancel(context.Background())
 	return c, nil
 }
 
 // Start starts every loop, and each syncs at once. A source whose sign-in
-// was rejected has no loop until an administrator acts.
+// was rejected, or whose password doesn't open, has no loop until an
+// administrator acts.
 func (c *Collector) Start() {
 	c.mu.Lock()
 	defer c.mu.Unlock()

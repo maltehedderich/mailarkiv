@@ -47,11 +47,15 @@ type Source struct {
 	Failure *Failure
 }
 
-// Failure is the run of failed syncs a source is in.
+// Failure is the run of failed syncs a source is in, or its unreadable
+// password.
 type Failure struct {
 	Category Category
-	// Since is the first failure of the run.
-	Since          time.Time
+	// Since is the first failure of the run, or when the password was found
+	// unreadable.
+	Since time.Time
+	// FailedAttempts and LastAt are nil for an unreadable password, which
+	// no sign-in tried.
 	FailedAttempts *int
 	LastAt         *time.Time
 	// Reply is the last failure's NO or BAD code and text, if the server
@@ -268,16 +272,22 @@ type stateRow struct {
 	lastServerReply     sql.NullString
 }
 
-// setState sets the source's state from its row and its runner, taking the
-// first that applies: Syncing, Needs attention, Retrying, Waiting. The
-// caller holds mu.
+// setState sets the source's state from its row and its memory, taking the
+// first that applies: Syncing, Needs attention, Retrying, Waiting. An
+// unreadable password comes before a rejected sign-in, because nothing can
+// sign in until the password opens. The caller holds mu.
 func (c *Collector) setState(source *Source, row *stateRow) error {
 	r, running := c.runners[source.ID]
+	unreadableSince, unreadable := c.unreadable[source.ID]
 	switch {
 	case running && r.syncing:
 		progress := r.progress
 		source.State = Syncing
 		source.Progress = &progress
+		return nil
+	case unreadable:
+		source.State = NeedsAttention
+		source.Failure = &Failure{Category: PasswordUnreadable, Since: unreadableSince}
 		return nil
 	case row.signInRejectedAt.Valid:
 		source.State = NeedsAttention

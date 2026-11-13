@@ -86,7 +86,8 @@ func (c *Collector) sync(ctx context.Context, r *runner) bool {
 		c.setSyncing(r, false)
 		return false
 	case errors.Is(err, errPasswordUnreadable):
-		c.end(r)
+		// No sign-in was tried, so it isn't a failed attempt.
+		c.endUnreadable(r, ended)
 		logger.Warn("password unreadable", "category", PasswordUnreadable.String())
 		return false
 	case err == nil:
@@ -152,6 +153,20 @@ func (c *Collector) finish(r *runner, attempts int, due time.Time) {
 func (c *Collector) end(r *runner) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.removeRunner(r)
+}
+
+// endUnreadable ends r's sync and its loop, and marks its password as found
+// unreadable at at.
+func (c *Collector) endUnreadable(r *runner, at time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.removeRunner(r)
+	c.unreadable[r.id] = at
+}
+
+// removeRunner ends r's sync and drops it. The caller holds mu.
+func (c *Collector) removeRunner(r *runner) {
 	r.syncing = false
 	if c.runners[r.id] == r {
 		delete(c.runners, r.id)
