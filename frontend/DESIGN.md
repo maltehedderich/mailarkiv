@@ -187,6 +187,33 @@ Toasts sit in a polite live region (`aria-live="polite"`, `--toast-width`, 24 px
 
 When a view or drawer cannot load its data, replace the content area with a block that starts where the content would: what happened in `--text-2` and the next step in `--text-3` in a `role="status"`, a default `Try again` button, and `Last tried` with the time at label size in its own `role="status"`, as on the error page. The time gives the server log a place to look, and a failed try fades a new one in, so even a quick failure is seen and heard. A try that lasts 400 ms reads `Trying again…` with `aria-disabled`, so focus stays, and presses while it runs send nothing. A streamed list counts as part of the try. When `Try again` succeeds and removes the button, move focus to the view's heading.
 
+### Sources
+
+A source's state is a dot beside the state word in medium `--text-1`, then what the state is shown with in `--text-2`. State words and category text come from [`words.ts`](src/lib/sources/words.ts), which copies the spec's tables.
+
+| State           | Dot            | Shown with                                                             |
+| --------------- | -------------- | ---------------------------------------------------------------------- |
+| Waiting         | `--state-ok`   | `Next sync` and its time                                               |
+| Syncing         | `--text-4`     | `Archived 120 of 4,500 found`                                          |
+| Retrying        | `--state-warn` | `Timed out. Next attempt` and its time                                 |
+| Needs attention | `--state-bad`  | The category label and its next step: `Sign-in rejected. Save the …`   |
+| Paused          | `--text-4`     | `Since` and its time                                                   |
+
+The Sources list centres in `--content-width`. Each source is a block, separated from the next by `--line`: its name as a link to its page in medium weight, the state line, then facts. Facts sit in Status's 136 px label column at label size, labels in `--text-3` and values in `--text-2`, and stack at 720 px and below. They are `Server` (`imap.example.org, port 993, TLS`), `User name`, `Folders` (the chosen folders in sync order, separated by commas, each cut in its own middle), `Last successful sync` (the time and `archived 12`, or `None yet`), `Collected`, and, when any count is above zero, `Problems` (`1 folder unavailable, 2 messages waiting for retry`). Only times and counts use tabular numerals, because they widen Inter's hyphen in names such as `Sign-in` or `mail-1.example.org`. With no sources the list reads `No sources.`
+
+When the server started without its key, a notice box (`--fill-1`, `--radius-medium`, transparent border) above the list says what happened in `--text-2`, then the next step in `--text-3`, linking to the key section of the [operator guide](../docs/OPERATIONS.md). The link targets the `#the-key` anchor, so the guide's section must keep the heading `The key`.
+
+A source's page has a header with a `Sources` link in `--text-2`, a chevron, and the source name as its title. The body uses Status's sections, with each heading in the 136 px label column:
+
+- `State`: the state line. A failure adds its category label in medium `--text-1` and facts: `What happened`, `What MailArkiv does`, and `Next step` from the spec's table, then `Failing since`, `Failed attempts`, `Last attempt`, and `Server's reply`, leaving out any that are null. The reply keeps `--text-1` and wraps in full through `UntrustedText`, because it's the evidence an administrator reads.
+- `Source`: the list's facts, without `Folders` and `Problems`.
+- `Folders`: each chosen folder on its own line, in medium `--text-1`. An unavailable one has a `--state-warn` dot and `Unavailable since` with the time, and the folder category's three facts follow the list once. A renumbered one notes `Renumbered by the server` with the time, `so MailArkiv collected it again`.
+- `Waiting for retry` and `Not archived`: the heading carries the total. Each message takes two lines: the folder in medium `--text-1` and the category label in `--text-2`, then the exact size or `Size unknown`, `Received` with the server's time or `Received time unknown`, and `Recorded` with MailArkiv's time, at label size in `--text-3`. The server sends the newest 100, so a larger total adds `Showing the newest 100 of 1,284.` Each category in the list follows it once with its three facts. An empty list reads `None.`
+
+The list and a source's page reload their data every 3 seconds while a source on them syncs, so the archived count climbs as messages are stored. Each reload starts after the last one finished, reloads stop once nothing syncs, and focus stays where it was. A failed reload shows the failed-load block, because stale counts could claim a sync that has ended.
+
+On Status, problem sources come first in the Problems section, above the failure groups. Each has a dot beside its name, which links to its page: `--state-bad` for a failed sync, and `--state-warn` for an unavailable folder or a message waiting for retry, since the rest of the source still collects. Below the name come the category label in `--text-2`, then `Since` with the time and the failed attempts at label size in `--text-3`. A source's problem can predate the latest start, so while any is listed the footnote adds that a source stays listed until a sync clears its problem.
+
 ## Motion
 
 Motion confirms a state change and never decorates it:
