@@ -90,13 +90,15 @@ WHERE id = ?`, change.name, box.port, box.security.String(), sealed, sealed, id)
 	if !row.paused && (saved || added) {
 		c.mu.Lock()
 		r, running := c.runners[id]
+		wake := func() {}
 		if running {
-			c.requestSync(r)
+			wake = c.requestSync(r)
 		}
 		_, unreadable := c.unreadable[id]
 		c.mu.Unlock()
+		defer wake()
 		if !running && !row.rejected && !unreadable {
-			c.startRunner(id, row.failedAttempts)
+			defer c.startRunner(id, row.failedAttempts)()
 		}
 	}
 	return c.Get(ctx, id)

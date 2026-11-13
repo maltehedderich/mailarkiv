@@ -151,7 +151,8 @@ func (c *Collector) Add(ctx context.Context, in SourceInput) (Source, error) {
 	if err != nil {
 		return Source{}, err
 	}
-	c.startRunner(id, 0)
+	// The answer is built here, not read, so the loop can start now.
+	c.startRunner(id, 0)()
 
 	folders := make([]Folder, len(source.folders))
 	for i, name := range source.folders {

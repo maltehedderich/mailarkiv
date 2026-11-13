@@ -164,19 +164,28 @@ func (c *Collector) launch(r *runner) {
 	})
 }
 
-// startRunner starts a loop for a source that has none, which syncs at
-// once. failedAttempts is the row's count, which sets the wait after the
-// next failure.
-func (c *Collector) startRunner(id int64, failedAttempts int) {
+// startRunner adds a loop for a source that has none, and returns the
+// function that starts it. The loop syncs at once, so the source shows as
+// syncing from now. A caller that answers with the source reads it before
+// it starts the loop, so a short sync can't end before the answer.
+// failedAttempts is the row's count, which sets the wait after the next
+// failure.
+func (c *Collector) startRunner(id int64, failedAttempts int) (start func()) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	r := newRunner(id, c.deps.Now(), failedAttempts)
 	c.runners[id] = r
-	if c.started && !c.stopped {
-		// The first sync starts at once, so the source shows as syncing
-		// from now.
-		r.syncing = true
-		c.launch(r)
+	if !c.started || c.stopped {
+		// Start launches it.
+		return func() {}
+	}
+	r.syncing = true
+	return func() {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		if !c.stopped {
+			c.launch(r)
+		}
 	}
 }
 
@@ -196,20 +205,24 @@ func (c *Collector) stopRunner(id int64) {
 	<-r.done
 }
 
-// requestSync asks r's loop to sync at once, and shows the source as
-// syncing from now. During a sync, the next one starts when it ends, so it
-// reads what changed meanwhile. The caller holds mu.
-func (c *Collector) requestSync(r *runner) {
+// requestSync shows the source as syncing from now, and returns the
+// function that wakes r's loop to sync. A caller that answers with the
+// source reads it first, as with startRunner. During a sync, the next one
+// starts when it ends, so it reads what changed meanwhile. The caller holds
+// mu.
+func (c *Collector) requestSync(r *runner) (wake func()) {
 	if r.cancel == nil {
 		// The loop hasn't started, and syncs when it does.
-		return
+		return func() {}
 	}
 	if !r.syncing {
 		r.syncing = true
 		r.progress = Progress{}
 	}
-	select {
-	case r.wake <- struct{}{}:
-	default:
+	return func() {
+		select {
+		case r.wake <- struct{}{}:
+		default:
+		}
 	}
 }

@@ -63,7 +63,7 @@ func (c *Collector) Resume(ctx context.Context, id int64) (Source, error) {
 			return Source{}, fmt.Errorf("resume source %d: %w", id, err)
 		}
 		if !row.rejected && !c.isUnreadable(id) {
-			c.startRunner(id, row.failedAttempts)
+			defer c.startRunner(id, row.failedAttempts)()
 		}
 	}
 	return c.Get(ctx, id)
@@ -95,8 +95,9 @@ func (c *Collector) SyncNow(ctx context.Context, id int64) (Source, error) {
 
 	if running {
 		c.mu.Lock()
-		c.requestSync(r)
+		wake := c.requestSync(r)
 		c.mu.Unlock()
+		defer wake()
 		return c.Get(ctx, id)
 	}
 	if row.rejected {
@@ -108,7 +109,7 @@ func (c *Collector) SyncNow(ctx context.Context, id int64) (Source, error) {
 	// The sync opens the password again, and marks it unreadable if it still
 	// doesn't open.
 	c.clearUnreadable(id)
-	c.startRunner(id, row.failedAttempts)
+	defer c.startRunner(id, row.failedAttempts)()
 	return c.Get(ctx, id)
 }
 
