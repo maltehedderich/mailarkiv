@@ -1,14 +1,23 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  addSource,
+  checkNewSource,
+  checkSource,
+  editSource,
   getMessage,
   getSession,
   getStatus,
   listMessages,
   listSources,
+  pauseSource,
   readSource,
+  removeSource,
+  resumeSource,
+  SIGN_IN_TIMEOUT_MS,
   signIn,
   signOut,
+  syncSource,
   type Fetch,
 } from "./api";
 
@@ -1286,5 +1295,432 @@ describe("readSource", () => {
   ])("reads %s as unavailable", async (_name, status, body) => {
     const { fetch } = answer(status, body);
     expect(await readSource("3", fetch)).toEqual({ kind: "unavailable" });
+  });
+});
+
+// Calls that change a source. Each ends in one of a closed set of results,
+// so a form can't mistake a refusal for success. The answers come from the
+// HTTP contract.
+
+const DETAILS = {
+  host: "imap.example.test",
+  port: 993,
+  security: "tls",
+  userName: "anna@example.test",
+  password: "MARKER-PW-4f1c",
+} as const;
+
+const DETAILS_JSON = {
+  host: "imap.example.test",
+  port: 993,
+  security: "tls",
+  user_name: "anna@example.test",
+  password: "MARKER-PW-4f1c",
+};
+
+const EMPTY_DETAIL = {
+  ...RETRYING,
+  folders: [{ name: "INBOX", unavailable_since: null, renumbered_at: null }],
+  messages: {
+    waiting_for_retry: { total: 0, items: [] },
+    not_archived: { total: 0, items: [] },
+  },
+};
+
+describe("SIGN_IN_TIMEOUT_MS", () => {
+  // The server has 120 seconds and raises its write deadline to 130.
+  test("is 150 seconds", () => {
+    expect(SIGN_IN_TIMEOUT_MS).toBe(150_000);
+  });
+});
+
+describe("checkNewSource", () => {
+  test("posts the details and reads the folders in the server's order", async () => {
+    const { fetch, calls } = answer(200, {
+      folders: [
+        { name: "INBOX", messages: 1204 },
+        { name: "Gesendete Objekte", messages: 311 },
+        { name: "Archiv/2025", messages: null },
+      ],
+    });
+    expect(await checkNewSource(DETAILS, fetch)).toEqual({
+      kind: "ok",
+      value: [
+        { name: "INBOX", messages: 1204 },
+        { name: "Gesendete Objekte", messages: 311 },
+        { name: "Archiv/2025", messages: null },
+      ],
+    });
+    expect(calls[0].url).toBe("/api/sources/check");
+    expect(calls[0].init?.method).toBe("POST");
+    expect(new Headers(calls[0].init?.headers).get("Content-Type")).toBe(
+      "application/json",
+    );
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual(DETAILS_JSON);
+    expect(calls[0].init?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  test("sends a port that isn't a number as null, for the server to refuse", async () => {
+    const { fetch, calls } = answer(200, { folders: [] });
+    await checkNewSource({ ...DETAILS, port: null }, fetch);
+    expect(JSON.parse(String(calls[0].init?.body)).port).toBeNull();
+  });
+
+  test("reads a failed sign-in with its category and the server's reply", async () => {
+    const { fetch } = answer(422, {
+      error: "check_failed",
+      category: "sign_in_rejected",
+      reply: "[AUTHENTICATIONFAILED] Invalid credentials",
+    });
+    expect(await checkNewSource(DETAILS, fetch)).toEqual({
+      kind: "check_failed",
+      category: "sign_in_rejected",
+      reply: "[AUTHENTICATIONFAILED] Invalid credentials",
+    });
+  });
+
+  test.each([
+    "server_not_reachable",
+    "secure_connection_failed",
+    "sign_in_rejected",
+    "timed_out",
+    "server_error",
+  ])("reads the check category %s, with no reply", async (category) => {
+    const { fetch } = answer(422, { error: "check_failed", category });
+    expect(await checkNewSource(DETAILS, fetch)).toEqual({
+      kind: "check_failed",
+      category,
+      reply: null,
+    });
+  });
+
+  test("reads an existing source with its ID", async () => {
+    const { fetch } = answer(409, { error: "source_exists", source_id: 3 });
+    expect(await checkNewSource(DETAILS, fetch)).toEqual({
+      kind: "source_exists",
+      sourceId: 3,
+    });
+  });
+
+  test("reads a server without its key", async () => {
+    const { fetch } = answer(409, { error: "no_key" });
+    expect(await checkNewSource(DETAILS, fetch)).toEqual({ kind: "no_key" });
+  });
+
+  test("reads the fields that broke a rule", async () => {
+    const { fetch } = answer(400, {
+      error: "invalid_fields",
+      fields: ["port", "password"],
+    });
+    expect(await checkNewSource(DETAILS, fetch)).toEqual({
+      kind: "invalid_fields",
+      fields: ["port", "password"],
+    });
+  });
+
+  // A body that isn't JSON or has unknown fields names no field.
+  test("reads a refusal that names no field", async () => {
+    const { fetch } = answer(400, { error: "invalid_fields", fields: [] });
+    expect(await checkNewSource(DETAILS, fetch)).toEqual({
+      kind: "invalid_fields",
+      fields: [],
+    });
+  });
+
+  test("reads the client's timeout as timed out", async () => {
+    expect(await checkNewSource(DETAILS, failing(timeout))).toEqual({
+      kind: "timed_out",
+    });
+  });
+
+  test("reads a marked 401 as session_ended", async () => {
+    const { fetch } = answer(401, { error: "no_session" });
+    expect(await checkNewSource(DETAILS, fetch)).toEqual({
+      kind: "session_ended",
+    });
+  });
+
+  test.each([
+    ["a network error", failing(networkError)],
+    [
+      "an unmarked answer",
+      answer(200, { folders: [] }, { marked: false }).fetch,
+    ],
+    ["an internal error", answer(500, { error: "internal_error" }).fetch],
+    ["a body that isn't JSON", answer(200, "<html>").fetch],
+    [
+      "a folder with no name",
+      answer(200, { folders: [{ name: null, messages: 1 }] }).fetch,
+    ],
+    [
+      "a count that isn't a count",
+      answer(200, { folders: [{ name: "INBOX", messages: -1 }] }).fetch,
+    ],
+    [
+      "a check category the interface doesn't know",
+      answer(422, { error: "check_failed", category: "storage_full" }).fetch,
+    ],
+    [
+      "a reply that isn't text",
+      answer(422, {
+        error: "check_failed",
+        category: "server_error",
+        reply: 5,
+      }).fetch,
+    ],
+    [
+      "a field the interface doesn't know",
+      answer(400, { error: "invalid_fields", fields: ["colour"] }).fetch,
+    ],
+    [
+      "an existing source with no ID",
+      answer(409, { error: "source_exists" }).fetch,
+    ],
+    // Sync now's refusals don't answer a check.
+    ["a sync refusal", answer(409, { error: "already_syncing" }).fetch],
+  ])("reads %s as unavailable", async (_name, fetch) => {
+    expect(await checkNewSource(DETAILS, fetch)).toEqual({
+      kind: "unavailable",
+    });
+  });
+});
+
+describe("addSource", () => {
+  test("posts the details, name, and folders, and reads the new source", async () => {
+    const { fetch, calls } = answer(201, RETRYING);
+    expect(
+      await addSource(
+        { ...DETAILS, name: "Anna", folders: ["INBOX", "Gesendete Objekte"] },
+        fetch,
+      ),
+    ).toEqual({ kind: "ok", value: RETRYING_PARSED });
+    expect(calls[0].url).toBe("/api/sources");
+    expect(calls[0].init?.method).toBe("POST");
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({
+      ...DETAILS_JSON,
+      name: "Anna",
+      folders: ["INBOX", "Gesendete Objekte"],
+    });
+  });
+
+  test.each([
+    [
+      422,
+      { error: "check_failed", category: "timed_out" },
+      { kind: "check_failed", category: "timed_out", reply: null },
+    ],
+    [
+      409,
+      { error: "source_exists", source_id: 3 },
+      { kind: "source_exists", sourceId: 3 },
+    ],
+    [409, { error: "no_key" }, { kind: "no_key" }],
+    [
+      400,
+      { error: "invalid_fields", fields: ["folders"] },
+      { kind: "invalid_fields", fields: ["folders"] },
+    ],
+  ])("reads a %d %j", async (status, body, want) => {
+    const { fetch } = answer(status, body);
+    expect(
+      await addSource({ ...DETAILS, name: "Anna", folders: [] }, fetch),
+    ).toEqual(want);
+  });
+
+  test("reads the client's timeout as timed out", async () => {
+    expect(
+      await addSource(
+        { ...DETAILS, name: "Anna", folders: ["INBOX"] },
+        failing(timeout),
+      ),
+    ).toEqual({ kind: "timed_out" });
+  });
+
+  test("reads a 201 that isn't a source as unavailable", async () => {
+    const { fetch } = answer(201, { ...RETRYING, state: "napping" });
+    expect(
+      await addSource({ ...DETAILS, name: "Anna", folders: ["INBOX"] }, fetch),
+    ).toEqual({ kind: "unavailable" });
+  });
+});
+
+describe("editSource", () => {
+  test("sends only the given fields and reads the source's page", async () => {
+    const { fetch, calls } = answer(200, EMPTY_DETAIL);
+    const result = await editSource(
+      "3",
+      { name: "Anna B", folders: ["INBOX"] },
+      fetch,
+    );
+    expect(result.kind).toBe("ok");
+    expect(calls[0].url).toBe("/api/sources/3");
+    expect(calls[0].init?.method).toBe("PATCH");
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({
+      name: "Anna B",
+      folders: ["INBOX"],
+    });
+  });
+
+  test("sends a port, security, and password when given", async () => {
+    const { fetch, calls } = answer(200, EMPTY_DETAIL);
+    await editSource(
+      "3",
+      { port: 143, security: "starttls", password: "new password" },
+      fetch,
+    );
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({
+      port: 143,
+      security: "starttls",
+      password: "new password",
+    });
+  });
+
+  test.each([
+    [
+      422,
+      { error: "check_failed", category: "sign_in_rejected", reply: "No" },
+      { kind: "check_failed", category: "sign_in_rejected", reply: "No" },
+    ],
+    [409, { error: "no_key" }, { kind: "no_key" }],
+    [
+      400,
+      { error: "invalid_fields", fields: ["host", "user_name"] },
+      { kind: "invalid_fields", fields: ["host", "user_name"] },
+    ],
+    // A removed source, or one another administrator just removed.
+    [404, { error: "not_found" }, { kind: "unavailable" }],
+    // Only a new source can exist already.
+    [409, { error: "source_exists", source_id: 3 }, { kind: "unavailable" }],
+  ])("reads a %d %j", async (status, body, want) => {
+    const { fetch } = answer(status, body);
+    expect(await editSource("3", { name: "Anna" }, fetch)).toEqual(want);
+  });
+
+  test("reads the client's timeout as timed out", async () => {
+    expect(
+      await editSource("3", { password: "new" }, failing(timeout)),
+    ).toEqual({ kind: "timed_out" });
+  });
+});
+
+describe("checkSource", () => {
+  test("posts the changed details and reads the folders", async () => {
+    const { fetch, calls } = answer(200, {
+      folders: [{ name: "INBOX", messages: 3 }],
+    });
+    expect(await checkSource("3", { port: 1993 }, fetch)).toEqual({
+      kind: "ok",
+      value: [{ name: "INBOX", messages: 3 }],
+    });
+    expect(calls[0].url).toBe("/api/sources/3/check");
+    expect(calls[0].init?.method).toBe("POST");
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ port: 1993 });
+  });
+
+  test("posts an empty object when nothing changed", async () => {
+    const { fetch, calls } = answer(200, { folders: [] });
+    await checkSource("3", {}, fetch);
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({});
+  });
+
+  test.each([
+    [
+      422,
+      { error: "check_failed", category: "server_error", reply: "BAD" },
+      { kind: "check_failed", category: "server_error", reply: "BAD" },
+    ],
+    [409, { error: "no_key" }, { kind: "no_key" }],
+    [
+      400,
+      { error: "invalid_fields", fields: ["password"] },
+      { kind: "invalid_fields", fields: ["password"] },
+    ],
+    [404, { error: "not_found" }, { kind: "unavailable" }],
+  ])("reads a %d %j", async (status, body, want) => {
+    const { fetch } = answer(status, body);
+    expect(await checkSource("3", {}, fetch)).toEqual(want);
+  });
+
+  test("reads the client's timeout as timed out", async () => {
+    expect(await checkSource("3", {}, failing(timeout))).toEqual({
+      kind: "timed_out",
+    });
+  });
+});
+
+describe("pauseSource, resumeSource, and syncSource", () => {
+  test.each([
+    ["pause", pauseSource],
+    ["resume", resumeSource],
+    ["sync", syncSource],
+  ] as const)(
+    "%s posts with no body and reads the source",
+    async (path, act) => {
+      const { fetch, calls } = answer(200, SYNCING);
+      const result = await act("4", fetch);
+      expect(result.kind).toBe("ok");
+      expect(result.kind === "ok" && result.value.state).toBe("syncing");
+      expect(calls[0].url).toBe(`/api/sources/4/${path}`);
+      expect(calls[0].init?.method).toBe("POST");
+      expect(calls[0].init?.body).toBeUndefined();
+      expect(calls[0].init?.signal).toBeInstanceOf(AbortSignal);
+    },
+  );
+
+  test.each([
+    [{ error: "already_syncing" }, { kind: "already_syncing" }],
+    [{ error: "paused" }, { kind: "paused" }],
+    [{ error: "no_key" }, { kind: "no_key" }],
+  ])("sync reads a 409 %j", async (body, want) => {
+    const { fetch } = answer(409, body);
+    expect(await syncSource("4", fetch)).toEqual(want);
+  });
+
+  test.each([
+    ["pause", pauseSource],
+    ["resume", resumeSource],
+  ] as const)("%s reads a sync refusal as unavailable", async (_path, act) => {
+    const { fetch } = answer(409, { error: "already_syncing" });
+    expect(await act("4", fetch)).toEqual({ kind: "unavailable" });
+  });
+
+  test.each([
+    [
+      "a marked 401",
+      answer(401, { error: "no_session" }).fetch,
+      "session_ended",
+    ],
+    ["a 404", answer(404, { error: "not_found" }).fetch, "unavailable"],
+    // Only a sign-in waits long enough to call a timeout timed out.
+    ["a timeout", failing(timeout), "unavailable"],
+    ["a network error", failing(networkError), "unavailable"],
+  ] as const)("sync reads %s as %s", async (_name, fetch, kind) => {
+    expect(await syncSource("4", fetch)).toEqual({ kind });
+  });
+});
+
+describe("removeSource", () => {
+  test("sends DELETE and succeeds on a marked 204", async () => {
+    const { fetch, calls } = answer(204, undefined);
+    expect(await removeSource("3", fetch)).toEqual({ kind: "ok", value: null });
+    expect(calls[0].url).toBe("/api/sources/3");
+    expect(calls[0].init?.method).toBe("DELETE");
+  });
+
+  test.each([
+    [
+      "a marked 401",
+      answer(401, { error: "no_session" }).fetch,
+      "session_ended",
+    ],
+    ["a 404", answer(404, { error: "not_found" }).fetch, "unavailable"],
+    [
+      "an unmarked 204",
+      answer(204, undefined, { marked: false }).fetch,
+      "unavailable",
+    ],
+    ["a timeout", failing(timeout), "unavailable"],
+  ] as const)("reads %s as %s", async (_name, fetch, kind) => {
+    expect(await removeSource("3", fetch)).toEqual({ kind });
   });
 });

@@ -296,10 +296,105 @@ export interface SourceDetail extends Omit<Source, "folders"> {
   };
 }
 
+/**
+ * A call that signs in to the mail server waits this long. The server has 120
+ * seconds and raises its write deadline to 130.
+ */
+export const SIGN_IN_TIMEOUT_MS = 150_000;
+
+/** The categories a sign-in check can fail with. */
+export const CHECK_CATEGORIES = [
+  "server_not_reachable",
+  "secure_connection_failed",
+  "sign_in_rejected",
+  "timed_out",
+  "server_error",
+] as const;
+
+export type CheckCategory = (typeof CHECK_CATEGORIES)[number];
+
+/** The fields a source's requests have, with the server's names. */
+export const SOURCE_FIELDS = [
+  "name",
+  "host",
+  "port",
+  "security",
+  "user_name",
+  "password",
+  "folders",
+] as const;
+
+export type SourceField = (typeof SOURCE_FIELDS)[number];
+
+/** A folder the mail server lists. Its name is untrusted. */
+export interface ServerFolder {
+  name: string;
+  /** Null when the server didn't report a count. */
+  messages: number | null;
+}
+
+/** How to reach and sign in to a mailbox. */
+export interface Connection {
+  host: string;
+  /** Null when the field holds no number, which the server refuses. */
+  port: number | null;
+  security: Security;
+  userName: string;
+  password: string;
+}
+
+export interface NewSource extends Connection {
+  name: string;
+  /** In sync order. */
+  folders: string[];
+}
+
+/** What a check while editing changes. Missing fields use the stored ones. */
+export interface ConnectionChange {
+  port?: number | null;
+  security?: Security;
+  password?: string;
+}
+
+/** The fields an edit sends. A missing password keeps the stored one. */
+export interface SourceChange extends ConnectionChange {
+  name?: string;
+  folders?: string[];
+}
+
 export type ApiResult<T> =
   | { kind: "ok"; value: T }
   | { kind: "session_ended" }
   | { kind: "unavailable" };
+
+/** Why the server refused to change a source, as it answered. */
+export type Refusal =
+  | { kind: "check_failed"; category: CheckCategory; reply: string | null }
+  | { kind: "source_exists"; sourceId: number }
+  | { kind: "no_key" }
+  | { kind: "invalid_fields"; fields: SourceField[] }
+  | { kind: "already_syncing" }
+  | { kind: "paused" };
+
+type RefusalOf<K extends Refusal["kind"]> = Extract<Refusal, { kind: K }>;
+
+/** The client gave up on a call that signs in. */
+export type TimedOut = { kind: "timed_out" };
+
+/** What a new source's check or save ends in. */
+export type NewSourceResult<T> =
+  | ApiResult<T>
+  | RefusalOf<"check_failed" | "source_exists" | "no_key" | "invalid_fields">
+  | TimedOut;
+
+/** What an edit, or a check while editing, ends in. */
+export type ChangeResult<T> =
+  | ApiResult<T>
+  | RefusalOf<"check_failed" | "no_key" | "invalid_fields">
+  | TimedOut;
+
+export type SyncResult =
+  ApiResult<Source> | RefusalOf<"already_syncing" | "paused" | "no_key">;
 
 export type SignInResult =
   | { kind: "ok" }
@@ -370,6 +465,127 @@ export async function readSource(
     `/api/sources/${encodeURIComponent(id)}`,
     parseSourceDetail,
   );
+}
+
+/** Signs in to the mailbox and lists its folders, saving nothing. */
+export async function checkNewSource(
+  connection: Connection,
+  fetch: Fetch = globalThis.fetch,
+): Promise<NewSourceResult<ServerFolder[]>> {
+  const reply = await send(fetch, "POST", "/api/sources/check", {
+    body: connectionJSON(connection),
+    signsIn: true,
+  });
+  return read(reply, 200, parseServerFolders, [
+    "check_failed",
+    "source_exists",
+    "no_key",
+    "invalid_fields",
+  ]);
+}
+
+/** Saves a source, which signs in again first. Its first sync starts. */
+export async function addSource(
+  source: NewSource,
+  fetch: Fetch = globalThis.fetch,
+): Promise<NewSourceResult<Source>> {
+  const reply = await send(fetch, "POST", "/api/sources", {
+    body: {
+      ...connectionJSON(source),
+      name: source.name,
+      folders: source.folders,
+    },
+    signsIn: true,
+  });
+  return read(reply, 201, parseListedSource, [
+    "check_failed",
+    "source_exists",
+    "no_key",
+    "invalid_fields",
+  ]);
+}
+
+/**
+ * Changes a source. A new port, security, or password signs in first, so
+ * the call waits as long as a sign-in.
+ */
+export async function editSource(
+  id: string,
+  change: SourceChange,
+  fetch: Fetch = globalThis.fetch,
+): Promise<ChangeResult<SourceDetail>> {
+  const reply = await send(fetch, "PATCH", sourcePath(id), {
+    body: changeJSON(change),
+    signsIn: true,
+  });
+  return read(reply, 200, parseSourceDetail, [
+    "check_failed",
+    "no_key",
+    "invalid_fields",
+  ]);
+}
+
+/** Lists a saved source's folders, signing in with the changed details. */
+export async function checkSource(
+  id: string,
+  change: ConnectionChange,
+  fetch: Fetch = globalThis.fetch,
+): Promise<ChangeResult<ServerFolder[]>> {
+  const reply = await send(fetch, "POST", `${sourcePath(id)}/check`, {
+    body: changeJSON(change),
+    signsIn: true,
+  });
+  return read(reply, 200, parseServerFolders, [
+    "check_failed",
+    "no_key",
+    "invalid_fields",
+  ]);
+}
+
+/** Stops a running sync, and any sync until the source is resumed. */
+export async function pauseSource(
+  id: string,
+  fetch: Fetch = globalThis.fetch,
+): Promise<ApiResult<Source>> {
+  const reply = await send(fetch, "POST", `${sourcePath(id)}/pause`);
+  return withoutTimedOut(read(reply, 200, parseListedSource, []));
+}
+
+/** Resuming a paused source starts a sync at once. */
+export async function resumeSource(
+  id: string,
+  fetch: Fetch = globalThis.fetch,
+): Promise<ApiResult<Source>> {
+  const reply = await send(fetch, "POST", `${sourcePath(id)}/resume`);
+  return withoutTimedOut(read(reply, 200, parseListedSource, []));
+}
+
+export async function syncSource(
+  id: string,
+  fetch: Fetch = globalThis.fetch,
+): Promise<SyncResult> {
+  const reply = await send(fetch, "POST", `${sourcePath(id)}/sync`);
+  return withoutTimedOut(
+    read(reply, 200, parseListedSource, [
+      "already_syncing",
+      "paused",
+      "no_key",
+    ]),
+  );
+}
+
+/** Removes a source and its password. Its messages and history stay. */
+export async function removeSource(
+  id: string,
+  fetch: Fetch = globalThis.fetch,
+): Promise<ApiResult<null>> {
+  const reply = await send(fetch, "DELETE", sourcePath(id));
+  if (reply.kind !== "answer") {
+    return reply.kind === "timed_out" ? { kind: "unavailable" } : reply;
+  }
+  return reply.status === 204
+    ? { kind: "ok", value: null }
+    : { kind: "unavailable" };
 }
 
 export async function signIn(
@@ -468,6 +684,153 @@ async function discard(response: Response): Promise<void> {
   } catch {
     // The answer is already decided by the status and the marker.
   }
+}
+
+/** A marked answer with its JSON body, or why there was none to read. */
+type Reply =
+  | { kind: "answer"; status: number; body: unknown }
+  | { kind: "session_ended" }
+  | { kind: "unavailable" }
+  | TimedOut;
+
+/**
+ * Sends a request that changes something. A timeout is told apart, because
+ * after a sign-in's 150 seconds the screen says so. A 204's body is null.
+ */
+async function send(
+  fetch: Fetch,
+  method: "POST" | "PATCH" | "DELETE",
+  path: string,
+  { body, signsIn = false }: { body?: object; signsIn?: boolean } = {},
+): Promise<Reply> {
+  let response: Response;
+  try {
+    response = await fetch(path, {
+      method,
+      ...(body === undefined
+        ? {}
+        : {
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          }),
+      signal: AbortSignal.timeout(signsIn ? SIGN_IN_TIMEOUT_MS : TIMEOUT_MS),
+    });
+  } catch (error) {
+    return isTimeout(error) ? { kind: "timed_out" } : { kind: "unavailable" };
+  }
+  if (
+    !isMarked(response) ||
+    response.status === 401 ||
+    response.status === 204
+  ) {
+    await discard(response);
+    if (!isMarked(response)) return { kind: "unavailable" };
+    if (response.status === 401) return { kind: "session_ended" };
+    return { kind: "answer", status: 204, body: null };
+  }
+  try {
+    return {
+      kind: "answer",
+      status: response.status,
+      body: await response.json(),
+    };
+  } catch (error) {
+    // The timeout while the body arrived, or a body that isn't JSON.
+    return isTimeout(error) ? { kind: "timed_out" } : { kind: "unavailable" };
+  }
+}
+
+/**
+ * Reads a reply as the expected status with a value, or as one of the
+ * refusals the call can meet. Anything else is unavailable.
+ */
+function read<T, K extends Refusal["kind"]>(
+  reply: Reply,
+  status: number,
+  parse: (body: unknown) => T | null,
+  refusals: readonly K[],
+): ApiResult<T> | RefusalOf<K> | TimedOut {
+  if (reply.kind !== "answer") return reply;
+  if (reply.status === status) {
+    const value = parse(reply.body);
+    return value === null ? { kind: "unavailable" } : { kind: "ok", value };
+  }
+  const refusal = parseRefusal(reply.status, reply.body);
+  if (refusal === null || !isOneOf(refusal.kind, refusals)) {
+    return { kind: "unavailable" };
+  }
+  return refusal as RefusalOf<K>;
+}
+
+/** Only a call that signs in waits long enough to say it timed out. */
+function withoutTimedOut<T>(result: T | TimedOut): T | { kind: "unavailable" } {
+  return isTimedOut(result) ? { kind: "unavailable" } : result;
+}
+
+function isTimedOut(result: unknown): result is TimedOut {
+  return field(result, "kind") === "timed_out";
+}
+
+function isTimeout(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "TimeoutError";
+}
+
+function parseRefusal(status: number, body: unknown): Refusal | null {
+  const error = field(body, "error");
+  if (status === 422 && error === "check_failed") {
+    const category = field(body, "category");
+    const reply = field(body, "reply") ?? null;
+    if (!isOneOf(category, CHECK_CATEGORIES)) return null;
+    if (reply !== null && typeof reply !== "string") return null;
+    return { kind: "check_failed", category, reply };
+  }
+  if (status === 400 && error === "invalid_fields") {
+    const fields = field(body, "fields");
+    if (
+      !Array.isArray(fields) ||
+      !fields.every((name) => isOneOf(name, SOURCE_FIELDS))
+    ) {
+      return null;
+    }
+    return { kind: "invalid_fields", fields };
+  }
+  if (status === 409 && error === "source_exists") {
+    const sourceId = field(body, "source_id");
+    return isCount(sourceId) ? { kind: "source_exists", sourceId } : null;
+  }
+  if (status === 409) {
+    switch (error) {
+      case "no_key":
+      case "already_syncing":
+      case "paused":
+        return { kind: error };
+    }
+  }
+  return null;
+}
+
+function sourcePath(id: string): string {
+  return `/api/sources/${encodeURIComponent(id)}`;
+}
+
+function connectionJSON(connection: Connection) {
+  return {
+    host: connection.host,
+    port: connection.port,
+    security: connection.security,
+    user_name: connection.userName,
+    password: connection.password,
+  };
+}
+
+/** Only the fields given, so the server keeps the rest. */
+function changeJSON(change: SourceChange) {
+  const { name, port, security, password, folders } = change;
+  return Object.fromEntries(
+    Object.entries({ name, port, security, password, folders }).filter(
+      ([, value]) => value !== undefined,
+    ),
+  );
 }
 
 function parseMessagePage(body: unknown): MessagePage | null {
@@ -605,14 +968,27 @@ const SOURCE_PROBLEM_CATEGORIES: readonly SourceProblemCategory[] = [
 
 function parseSourceList(body: unknown): SourceList | null {
   const collection = field(body, "collection");
-  const sources = parseAll(field(body, "sources"), (value) => {
-    const fields = parseSourceFields(value);
-    const folders = field(value, "folders");
-    if (fields === null || !isStringArray(folders)) return null;
-    return { ...fields, folders };
-  });
+  const sources = parseAll(field(body, "sources"), parseListedSource);
   if (collection !== "available" && collection !== "no_key") return null;
   return sources === null ? null : { collection, sources };
+}
+
+/** A source as the list has it, with its folders as names. */
+function parseListedSource(value: unknown): Source | null {
+  const fields = parseSourceFields(value);
+  const folders = field(value, "folders");
+  if (fields === null || !isStringArray(folders)) return null;
+  return { ...fields, folders };
+}
+
+function parseServerFolders(body: unknown): ServerFolder[] | null {
+  return parseAll(field(body, "folders"), (value) => {
+    const name = field(value, "name");
+    const messages = field(value, "messages");
+    if (typeof name !== "string") return null;
+    if (messages !== null && !isCount(messages)) return null;
+    return { name, messages };
+  });
 }
 
 function parseSourceDetail(body: unknown): SourceDetail | null {
