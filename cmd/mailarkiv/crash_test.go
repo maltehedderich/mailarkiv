@@ -65,7 +65,7 @@ func assertImported(t *testing.T, server *serverProcess, token string, content [
 	if answer.Message == nil {
 		t.Fatalf("the answer holds no message: %s", attempt.body)
 	}
-	if answer.Message.ContentHash != contentHash(content) || answer.Message.ImportCount != importCount {
+	if answer.Message.ContentHash != contentHash(content) || answer.Message.ObservationCount != importCount {
 		t.Errorf("message = %+v, want hash %s and %d imports", answer.Message, contentHash(content), importCount)
 	}
 }

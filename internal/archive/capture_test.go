@@ -162,12 +162,11 @@ func TestImportNewBytes(t *testing.T) {
 		t.Fatalf("result = %#v, want Stored with Archived", result)
 	}
 	want := Message{
-		ID:          stored.Message.ID,
-		ContentHash: hash,
-		Size:        int64(len(body)),
-		FileName:    name("invoice.eml"),
-		ImportedAt:  testNow,
-		ImportCount: 1,
+		ID:               stored.Message.ID,
+		ContentHash:      hash,
+		Size:             int64(len(body)),
+		Latest:           ImportEntry{ObservedAt: testNow, AccountEmail: account, FileName: name("invoice.eml")},
+		ObservationCount: 1,
 	}
 	if stored.Message.ID <= 0 || !equalMessages(stored.Message, want) {
 		t.Errorf("message = %+v, want %+v", stored.Message, want)
@@ -211,9 +210,19 @@ func TestImportNewBytes(t *testing.T) {
 }
 
 func equalMessages(a, b Message) bool {
-	sameName := (a.FileName == nil) == (b.FileName == nil) && (a.FileName == nil || *a.FileName == *b.FileName)
-	return a.ID == b.ID && a.ContentHash == b.ContentHash && a.Size == b.Size && sameName &&
-		a.ImportedAt.Equal(b.ImportedAt) && a.ImportCount == b.ImportCount
+	return a.ID == b.ID && a.ContentHash == b.ContentHash && a.Size == b.Size &&
+		sameEntry(a.Latest, b.Latest) && a.ObservationCount == b.ObservationCount
+}
+
+// latestImport is a message's latest entry, which the test expects to be an
+// import.
+func latestImport(t *testing.T, m Message) ImportEntry {
+	t.Helper()
+	entry, ok := m.Latest.(ImportEntry)
+	if !ok {
+		t.Fatalf("latest entry = %#v, want an import", m.Latest)
+	}
+	return entry
 }
 
 func TestImportWithNoFileName(t *testing.T) {
@@ -221,7 +230,7 @@ func TestImportWithNoFileName(t *testing.T) {
 	result := f.importBytes(t, []byte("Subject: x\n"), nil)
 
 	stored, ok := result.(Stored)
-	if !ok || stored.Message.FileName != nil {
+	if !ok || latestImport(t, stored.Message).FileName != nil {
 		t.Fatalf("result = %#v, want Stored with no file name", result)
 	}
 	if n := f.count(t, "SELECT COUNT(*) FROM source_observation WHERE file_name IS NULL"); n != 1 {
@@ -240,7 +249,8 @@ func TestImportSameBytesAgain(t *testing.T) {
 	if !ok || stored.Outcome != AlreadyArchived {
 		t.Fatalf("result = %#v, want Stored with AlreadyArchived", result)
 	}
-	if stored.Message.ID != first.Message.ID || stored.Message.ImportCount != 2 || *stored.Message.FileName != "second.eml" {
+	if stored.Message.ID != first.Message.ID || stored.Message.ObservationCount != 2 ||
+		!equalNames(latestImport(t, stored.Message).FileName, name("second.eml")) {
 		t.Errorf("message = %+v, want the first ID, a count of 2, and the latest name", stored.Message)
 	}
 	if blobs := files(t, filepath.Join(f.dataDir, "blobs")); len(blobs) != 1 {

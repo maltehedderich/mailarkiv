@@ -6,7 +6,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 import { startServer, type TestServer } from "./support/server";
 
-// A message's import history opens from its row, by pointer or keyboard, from
+// A message's history opens from its row, by pointer or keyboard, from
 // an address that survives Back and sign-in.
 
 const PASSWORD = "correct horse battery";
@@ -61,7 +61,7 @@ function rowLink(page: Page) {
 }
 
 function drawer(page: Page) {
-  return page.getByRole("dialog", { name: "Import history" });
+  return page.getByRole("dialog", { name: "History" });
 }
 
 /** Waits for the drawer's slide-in to end, so measurements see where it settles. */
@@ -94,13 +94,13 @@ test("a repeat import adds history and no copy", async ({ page }) => {
   await rowLink(page).click();
   await expect(drawer(page)).toBeVisible();
 
-  // It names the message as its row does, by the newest import's name, and
-  // counts the imports as the row's 3× does.
+  // It names the message as its row does, by the newest entry's name, and
+  // counts the entries as the row's 3× does.
   await expect(
-    page.getByRole("dialog", { name: "Import history of second.eml" }),
+    page.getByRole("dialog", { name: "History of second.eml" }),
   ).toBeVisible();
   await expect(
-    drawer(page).getByRole("heading", { name: "Imports 3" }),
+    drawer(page).getByRole("heading", { name: "Entries 3" }),
   ).toBeVisible();
 
   // The download is named after the hash, and the footer says so.

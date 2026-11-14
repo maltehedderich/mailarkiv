@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/maltehedderich/mailarkiv/internal/archive"
+	"github.com/maltehedderich/mailarkiv/internal/collect"
 	"github.com/maltehedderich/mailarkiv/internal/identity"
 	"github.com/maltehedderich/mailarkiv/internal/opstatus"
 )
@@ -59,6 +60,16 @@ func Routes() []Route {
 		{Method: http.MethodGet, Path: "/api/messages/{id}", Access: SignedIn, Handler: readHistory},
 		{Method: http.MethodGet, Path: "/api/messages/{id}/original", Access: SignedIn, Handler: downloadOriginal, NoSession: redirectToSignIn},
 		{Method: http.MethodGet, Path: "/api/status", Access: SignedIn, Handler: readStatus},
+		{Method: http.MethodPost, Path: "/api/sources/check", Access: SignedIn, Handler: checkMailbox},
+		{Method: http.MethodPost, Path: "/api/sources", Access: SignedIn, Handler: addSource},
+		{Method: http.MethodGet, Path: "/api/sources", Access: SignedIn, Handler: listSources},
+		{Method: http.MethodGet, Path: "/api/sources/{id}", Access: SignedIn, Handler: readSource},
+		{Method: http.MethodPatch, Path: "/api/sources/{id}", Access: SignedIn, Handler: editSource},
+		{Method: http.MethodPost, Path: "/api/sources/{id}/check", Access: SignedIn, Handler: checkStoredSource},
+		{Method: http.MethodPost, Path: "/api/sources/{id}/pause", Access: SignedIn, Handler: pauseSource},
+		{Method: http.MethodPost, Path: "/api/sources/{id}/resume", Access: SignedIn, Handler: resumeSource},
+		{Method: http.MethodPost, Path: "/api/sources/{id}/sync", Access: SignedIn, Handler: syncSource},
+		{Method: http.MethodDelete, Path: "/api/sources/{id}", Access: SignedIn, Handler: removeSource},
 		{Path: "/", Access: Public, Handler: serveStatic},
 	}
 }
@@ -71,6 +82,10 @@ type Deps struct {
 	Identity *identity.Identity
 	Archive  *archive.Archive
 	Status   *opstatus.Status
+	// Labels names the folders of collection entries.
+	Labels *collect.Labeler
+	// Collect is required, including when no password key is configured.
+	Collect *collect.Collector
 }
 
 type server struct {
@@ -79,6 +94,8 @@ type server struct {
 	identity *identity.Identity
 	archive  *archive.Archive
 	status   *opstatus.Status
+	labels   *collect.Labeler
+	collect  *collect.Collector
 }
 
 // New returns the server's handler.
@@ -93,6 +110,8 @@ func newHandler(deps Deps, routes []Route) http.Handler {
 		identity: deps.Identity,
 		archive:  deps.Archive,
 		status:   deps.Status,
+		labels:   deps.Labels,
+		collect:  deps.Collect,
 	}
 
 	mux := http.NewServeMux()
@@ -117,11 +136,11 @@ func (s *server) guard(route Route) http.Handler {
 			if noSession == nil {
 				noSession = answerNoSession
 			}
-			account, ok := s.checkSession(w, r, noSession)
+			session, ok := s.checkSession(w, r, noSession)
 			if !ok {
 				return
 			}
-			r = r.WithContext(context.WithValue(r.Context(), accountKey{}, account))
+			r = r.WithContext(context.WithValue(r.Context(), sessionKey{}, session))
 		default:
 			writeError(w, http.StatusForbidden, "no_access_rule")
 			return
@@ -139,37 +158,37 @@ func answerNoSession(w http.ResponseWriter, _ *http.Request) {
 	writeError(w, http.StatusUnauthorized, "no_session")
 }
 
-// checkSession finds the request's account. When it returns false, it has
+// checkSession finds the request's session. When it returns false, it has
 // already answered: through noSession for no valid session, or 500 when the
 // lookup failed, because the session may still be valid.
-func (s *server) checkSession(w http.ResponseWriter, r *http.Request, noSession func(http.ResponseWriter, *http.Request)) (identity.Account, bool) {
+func (s *server) checkSession(w http.ResponseWriter, r *http.Request, noSession func(http.ResponseWriter, *http.Request)) (identity.Session, bool) {
 	cookie, err := r.Cookie(sessionCookieName)
 	if err != nil {
 		noSession(w, r)
-		return identity.Account{}, false
+		return identity.Session{}, false
 	}
-	account, err := s.identity.LookupSession(r.Context(), cookie.Value)
+	session, err := s.identity.LookupSession(r.Context(), cookie.Value)
 	if errors.Is(err, identity.ErrNoSession) {
 		noSession(w, r)
-		return identity.Account{}, false
+		return identity.Session{}, false
 	}
 	if err != nil {
 		s.writeInternalError(w, r, err)
-		return identity.Account{}, false
+		return identity.Session{}, false
 	}
-	return account, true
+	return session, true
 }
 
-type accountKey struct{}
+type sessionKey struct{}
 
-// signedInAccount returns the account the guard found. Only a SignedIn route's
+// signedInSession returns the session the guard found. Only a SignedIn route's
 // handler may call it.
-func signedInAccount(r *http.Request) identity.Account {
-	account, ok := r.Context().Value(accountKey{}).(identity.Account)
+func signedInSession(r *http.Request) identity.Session {
+	session, ok := r.Context().Value(sessionKey{}).(identity.Session)
 	if !ok {
-		panic("signedInAccount called outside a SignedIn route")
+		panic("signedInSession called outside a SignedIn route")
 	}
-	return account
+	return session
 }
 
 // unknownAPI answers 404 only to a caller with a session, so a caller without

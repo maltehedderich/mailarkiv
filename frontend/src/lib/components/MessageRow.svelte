@@ -5,8 +5,9 @@
   import { navigating, page } from "$app/state";
 
   import type { Message } from "#lib/api.js";
-  import FileName from "#lib/components/FileName.svelte";
+  import EntryName from "#lib/components/EntryName.svelte";
   import { startDownload } from "#lib/download/start.js";
+  import { entryName } from "#lib/format/entry.js";
   import { displayName } from "#lib/format/file-name.js";
   import { formatSize } from "#lib/format/size.js";
   import { formatTime } from "#lib/format/time.js";
@@ -16,8 +17,10 @@
 
   const numbers = new Intl.NumberFormat("en-US");
 
-  // The name with its codes in place, so a label can't be reordered either.
-  const name = $derived(displayName(message.fileName).text);
+  // The row names the message by its latest entry. The name has its codes in
+  // place, so a label can't be reordered either.
+  const shownName = $derived(entryName(message.latest));
+  const name = $derived(displayName(shownName).text);
 
   // The drawer opens once its history has arrived, so the row stays marked
   // from the click until then, and while the drawer is open. Beside the drawer,
@@ -39,7 +42,7 @@
   }
 </script>
 
-<!-- One row of the import list. The parent <ul> sets the columns. -->
+<!-- One row of the message list. The parent <ul> sets the columns. -->
 <li class:open>
   <!-- Its ::after stretches over the row, so the whole row opens the history.
        Keeping focus and scroll lets the dialog give focus back to this link. -->
@@ -51,14 +54,16 @@
     data-sveltekit-reset="false"
     onkeydown={openOnEnter}
   >
-    <FileName name={message.fileName} />
+    <EntryName entry={message.latest} />
   </a>
   <!-- The column heads are hidden from screen readers, so values that don't
        name themselves carry their head. -->
-  <time class="time" datetime={message.importedAt}
-    ><span class="visually-hidden">Imported </span>{formatTime(
-      message.importedAt,
-    )}</time
+  <time class="time" datetime={message.observedAt}
+    ><span class="visually-hidden"
+      >{message.latest.sourceType === "manual_import"
+        ? "Imported"
+        : "Collected"}
+    </span>{formatTime(message.observedAt)}</time
   >
   <span class="size">{formatSize(message.size)}</span>
   <span class="hash"
@@ -68,10 +73,10 @@
     )}</span
   >
   <span class="count">
-    {#if message.importCount > 1}
-      {@const count = numbers.format(message.importCount)}
+    {#if message.observationCount > 1}
+      {@const count = numbers.format(message.observationCount)}
       <span aria-hidden="true">{count}×</span>
-      <span class="visually-hidden">{count} imports</span>
+      <span class="visually-hidden">{count} entries</span>
     {/if}
   </span>
   <!-- The page fetches the file, so a failure shows as a toast here. -->
@@ -79,7 +84,12 @@
     class="button ghost icon-only download"
     type="button"
     aria-label="Download {name}"
-    onclick={() => startDownload(message)}
+    onclick={() =>
+      startDownload({
+        id: message.id,
+        contentHash: message.contentHash,
+        fileName: shownName,
+      })}
   >
     <DownloadIcon />
   </button>

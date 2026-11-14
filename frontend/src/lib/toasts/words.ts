@@ -1,4 +1,5 @@
 import type { DownloadFailure } from "#lib/download/original.js";
+import { entryName } from "#lib/format/entry.js";
 import type {
   FailedReason,
   ImportResult,
@@ -138,7 +139,7 @@ function importWords(fileName: string, result: ImportResult): ToastWords {
       return {
         tone,
         word,
-        name: result.message.fileName,
+        name: entryName(result.message.latest),
         size: result.message.size,
         historyId: result.message.id,
       };
@@ -146,7 +147,7 @@ function importWords(fileName: string, result: ImportResult): ToastWords {
       return {
         tone,
         word,
-        name: result.message.fileName,
+        name: entryName(result.message.latest),
         what: "This import was added to the history, and no second copy was stored.",
         historyId: result.message.id,
       };
@@ -154,7 +155,7 @@ function importWords(fileName: string, result: ImportResult): ToastWords {
       return {
         tone,
         word,
-        name: result.message.fileName,
+        name: entryName(result.message.latest),
         what: "The stored copy was restored from this file.",
         historyId: result.message.id,
       };

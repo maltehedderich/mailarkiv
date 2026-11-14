@@ -11,6 +11,14 @@ const BINARY = fileURLToPath(
 const START_TIMEOUT_MS = 10_000;
 const POLL_INTERVAL_MS = 50;
 
+export interface ServerOptions {
+  /**
+   * Creates a key outside the data directory, starts the server with it,
+   * and makes the server trust only the CA in this file.
+   */
+  collection?: { caFile: string };
+}
+
 export interface TestServer {
   /** Uses localhost, the host research tested with the Secure session cookie. */
   origin: string;
@@ -29,16 +37,34 @@ export interface TestServer {
 }
 
 /** Starts the built binary on a free port with a new data directory. */
-export async function startServer(): Promise<TestServer> {
+export async function startServer(
+  options: ServerOptions = {},
+): Promise<TestServer> {
   const dataDir = await mkdtemp(join(tmpdir(), "mailarkiv-e2e-"));
+  const keyDir =
+    options.collection === undefined
+      ? null
+      : await mkdtemp(join(tmpdir(), "mailarkiv-e2e-key-"));
   const port = await freePort();
   const origin = `http://localhost:${port}`;
+  const removeDirs = () =>
+    Promise.all(
+      [dataDir, keyDir]
+        .filter((dir) => dir !== null)
+        .map((dir) => rm(dir, { recursive: true, force: true })),
+    );
 
+  let collection: Collection | null = null;
   let child: ChildProcess;
   try {
-    child = await launch(dataDir, port, origin);
+    if (options.collection !== undefined && keyDir !== null) {
+      const keyFile = join(keyDir, "key");
+      await runCommand(["key", "create", "--data-dir", dataDir, keyFile]);
+      collection = { keyFile, caFile: options.collection.caFile };
+    }
+    child = await launch(dataDir, port, origin, collection);
   } catch (error) {
-    await rm(dataDir, { recursive: true, force: true });
+    await removeDirs();
     throw error;
   }
 
@@ -51,13 +77,19 @@ export async function startServer(): Promise<TestServer> {
       runAccountCommand("set-password", dataDir, email, password),
     restart: async () => {
       await stopProcess(child);
-      child = await launch(dataDir, port, origin);
+      child = await launch(dataDir, port, origin, collection);
     },
     stop: async () => {
       await stopProcess(child);
-      await rm(dataDir, { recursive: true, force: true });
+      await removeDirs();
     },
   };
+}
+
+/** What the server needs to collect mail. */
+interface Collection {
+  keyFile: string;
+  caFile: string;
 }
 
 /** Runs the server and returns once it answers. */
@@ -65,12 +97,26 @@ async function launch(
   dataDir: string,
   port: number,
   origin: string,
+  collection: Collection | null,
 ): Promise<ChildProcess> {
-  const child = spawn(
-    BINARY,
-    ["serve", "--data-dir", dataDir, "--listen", `127.0.0.1:${port}`],
-    { stdio: ["ignore", "ignore", "pipe"] },
-  );
+  const args = [
+    "serve",
+    "--data-dir",
+    dataDir,
+    "--listen",
+    `127.0.0.1:${port}`,
+  ];
+  // The server reads SSL_CERT_FILE in place of the host's trusted
+  // certificates, so it trusts the test mail server and nothing else.
+  let env = process.env;
+  if (collection !== null) {
+    args.push("--key-file", collection.keyFile);
+    env = { ...process.env, SSL_CERT_FILE: collection.caFile };
+  }
+  const child = spawn(BINARY, args, {
+    env,
+    stdio: ["ignore", "ignore", "pipe"],
+  });
 
   let stderr = "";
   child.stderr?.on("data", (chunk) => (stderr += chunk));
@@ -94,12 +140,16 @@ function runAccountCommand(
   email: string,
   password: string,
 ): Promise<void> {
+  return runCommand(
+    ["account", command, "--data-dir", dataDir, email],
+    `${password}\n`,
+  );
+}
+
+/** Runs the binary with args, writing input to its stdin, and expects exit 0. */
+function runCommand(args: string[], input = ""): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(
-      BINARY,
-      ["account", command, "--data-dir", dataDir, email],
-      { stdio: ["pipe", "ignore", "pipe"] },
-    );
+    const child = spawn(BINARY, args, { stdio: ["pipe", "ignore", "pipe"] });
     let stderr = "";
     child.stderr?.on("data", (chunk) => (stderr += chunk));
     child.on("error", reject);
@@ -107,10 +157,14 @@ function runAccountCommand(
       if (code === 0) {
         resolve();
       } else {
-        reject(new Error(`account ${command} exited with ${code}: ${stderr}`));
+        reject(
+          new Error(
+            `${args.slice(0, 2).join(" ")} exited with ${code}: ${stderr}`,
+          ),
+        );
       }
     });
-    child.stdin?.end(`${password}\n`);
+    child.stdin?.end(input);
   });
 }
 

@@ -68,6 +68,13 @@ type Account struct {
 	Email string
 }
 
+// Session is an unexpired session.
+type Session struct {
+	Account Account
+	// ExpiresIn is the time left at lookup. It is always positive.
+	ExpiresIn time.Duration
+}
+
 // Identity is safe for concurrent use.
 type Identity struct {
 	db        *sqlitedb.DB
@@ -240,22 +247,25 @@ func (id *Identity) startSession(ctx context.Context, accountID int64, checkedHa
 	return token, nil
 }
 
-// LookupSession returns the account a token belongs to. A missing, unknown, or
+// LookupSession returns the session a token names. A missing, unknown, or
 // expired token gives ErrNoSession. Any other error means the catalog failed,
 // and the session may still be valid.
-func (id *Identity) LookupSession(ctx context.Context, token string) (Account, error) {
+func (id *Identity) LookupSession(ctx context.Context, token string) (Session, error) {
 	tokenHash := sha256.Sum256([]byte(token))
-	var account Account
+	now := id.now()
+	var session Session
+	var expiresAt int64
 	err := id.db.Reader.QueryRowContext(ctx,
-		`SELECT account.id, account.email
+		`SELECT account.id, account.email, session.expires_at
 		 FROM session JOIN account ON account.id = session.account_id
 		 WHERE session.token_hash = ? AND session.expires_at > ?`,
-		tokenHash[:], id.now().UnixMilli()).Scan(&account.ID, &account.Email)
+		tokenHash[:], now.UnixMilli()).Scan(&session.Account.ID, &session.Account.Email, &expiresAt)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Account{}, ErrNoSession
+		return Session{}, ErrNoSession
 	}
 	if err != nil {
-		return Account{}, fmt.Errorf("read the session: %w", err)
+		return Session{}, fmt.Errorf("read the session: %w", err)
 	}
-	return account, nil
+	session.ExpiresIn = time.UnixMilli(expiresAt).Sub(now)
+	return session, nil
 }

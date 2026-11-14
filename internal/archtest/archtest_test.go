@@ -25,28 +25,46 @@ var allowedImports = map[string][]string{
 	"cmd/mailarkiv": {
 		"frontend",
 		"internal/archive",
+		"internal/collect",
 		"internal/fault",
 		"internal/identity",
 		"internal/opstatus",
+		"internal/passwordkey",
 		"internal/sqlitedb",
 		"internal/web",
 	},
-	"internal/web":      {"internal/archive", "internal/identity", "internal/opstatus", "internal/fault"},
-	"internal/archive":  {"internal/opstatus", "internal/sqlitedb", "internal/fault"},
-	"internal/identity": {"internal/sqlitedb"},
-	"internal/opstatus": {},
-	"internal/sqlitedb": {},
-	"internal/fault":    {},
+	"internal/web":     {"internal/archive", "internal/collect", "internal/identity", "internal/opstatus", "internal/fault"},
+	"internal/archive": {"internal/opstatus", "internal/sqlitedb", "internal/fault"},
+	"internal/collect": {
+		"internal/archive",
+		"internal/opstatus",
+		"internal/sqlitedb",
+		"internal/fault",
+		"internal/passwordkey",
+	},
+	"internal/identity":    {"internal/sqlitedb"},
+	"internal/opstatus":    {},
+	"internal/sqlitedb":    {},
+	"internal/fault":       {},
+	"internal/passwordkey": {},
+	// The IMAP test double. Only tests and the test server under
+	// internal/imaptest/cmd/ may import it.
+	"internal/imaptest":                    {},
+	"internal/imaptest/cmd/imaptestserver": {"internal/imaptest"},
 }
 
 // Each table has one owning module; only that module may write to it.
 var tableOwners = map[string]string{
-	"account":            "internal/identity",
-	"session":            "internal/identity",
-	"sign_in_failure":    "internal/identity",
-	"sign_in_block":      "internal/identity",
-	"message":            "internal/archive",
-	"source_observation": "internal/archive",
+	"account":                 "internal/identity",
+	"session":                 "internal/identity",
+	"sign_in_failure":         "internal/identity",
+	"sign_in_block":           "internal/identity",
+	"message":                 "internal/archive",
+	"source_observation":      "internal/archive",
+	"collected_message_count": "internal/archive",
+	"imap_source":             "internal/collect",
+	"imap_folder":             "internal/collect",
+	"imap_message_problem":    "internal/collect",
 }
 
 // tableWrite finds the table a SQL write names. It ignores case, so a stray
@@ -135,7 +153,11 @@ func TestModuleRules(t *testing.T) {
 	}
 
 	// A walk from the wrong directory would find nothing and pass.
-	for _, module := range []string{"cmd/mailarkiv", "internal/web", "internal/sqlitedb", "internal/opstatus"} {
+	for _, module := range []string{
+		"cmd/mailarkiv", "internal/web", "internal/sqlitedb", "internal/opstatus",
+		"internal/collect", "internal/passwordkey", "internal/imaptest",
+		"internal/imaptest/cmd/imaptestserver",
+	} {
 		if !visited[module] {
 			t.Errorf("the walk didn't reach %s, only %v", module, visited)
 		}
@@ -181,6 +203,24 @@ func TestCheckerCatchesEachImportRule(t *testing.T) {
 		{"internal/sqlitedb", "internal/fault"},
 		{"internal/fault", "internal/opstatus"},
 		{"internal/fault", "internal/sqlitedb"},
+		{"internal/collect", "internal/web"},
+		{"internal/collect", "internal/identity"},
+		{"internal/collect", "internal/imaptest"},
+		{"internal/collect", "frontend"},
+		{"internal/archive", "internal/collect"},
+		{"internal/archive", "internal/passwordkey"},
+		{"internal/opstatus", "internal/collect"},
+		{"internal/identity", "internal/collect"},
+		{"internal/web", "internal/passwordkey"},
+		{"internal/web", "internal/sqlitedb"},
+		{"internal/web", "internal/imaptest"},
+		{"cmd/mailarkiv", "internal/imaptest"},
+		{"internal/passwordkey", "internal/sqlitedb"},
+		{"internal/passwordkey", "internal/opstatus"},
+		{"internal/passwordkey", "internal/fault"},
+		{"internal/imaptest", "internal/collect"},
+		{"internal/imaptest", "internal/archive"},
+		{"internal/imaptest", "internal/passwordkey"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.module+" imports "+tt.target, func(t *testing.T) {
@@ -220,6 +260,15 @@ func TestCheckerAllowsTheDeclaredImports(t *testing.T) {
 		{"cmd/mailarkiv", "internal/archive"},
 		{"cmd/mailarkiv", "internal/sqlitedb"},
 		{"cmd/mailarkiv", "internal/opstatus"},
+		{"cmd/mailarkiv", "internal/collect"},
+		{"cmd/mailarkiv", "internal/passwordkey"},
+		{"internal/web", "internal/collect"},
+		{"internal/collect", "internal/archive"},
+		{"internal/collect", "internal/opstatus"},
+		{"internal/collect", "internal/sqlitedb"},
+		{"internal/collect", "internal/fault"},
+		{"internal/collect", "internal/passwordkey"},
+		{"internal/imaptest/cmd/imaptestserver", "internal/imaptest"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.module+" imports "+tt.target, func(t *testing.T) {
@@ -246,7 +295,7 @@ func TestCheckerCatchesAWriteToEachTable(t *testing.T) {
 	for table, owner := range tableOwners {
 		for _, statement := range statements {
 			sql := fmt.Sprintf(statement, table)
-			for _, module := range []string{"internal/web", "cmd/mailarkiv", "internal/sqlitedb", otherOwner(owner)} {
+			for _, module := range append([]string{"internal/web", "cmd/mailarkiv", "internal/sqlitedb"}, otherOwners(owner)...) {
 				t.Run(module+" "+sql, func(t *testing.T) {
 					problems := checkFile(module, parseSource(t, usingSQL(sql)))
 					if len(problems) != 1 {
@@ -263,11 +312,26 @@ func TestCheckerCatchesAWriteToEachTable(t *testing.T) {
 	}
 }
 
-func otherOwner(owner string) string {
-	if owner == "internal/identity" {
-		return "internal/archive"
+// otherOwners returns every module that owns a table, except owner. A write
+// from a module that owns other tables is the likeliest mistake.
+func otherOwners(owner string) []string {
+	var others []string
+	for _, module := range tableOwners {
+		if module != owner && !slices.Contains(others, module) {
+			others = append(others, module)
+		}
 	}
-	return "internal/identity"
+	slices.Sort(others)
+	return others
+}
+
+// The rule table itself must keep the test double out of what ships.
+func TestOnlyTheTestServerMayImportTheDouble(t *testing.T) {
+	for module, allowed := range allowedImports {
+		if slices.Contains(allowed, "internal/imaptest") && !strings.HasPrefix(module, "internal/imaptest/cmd/") {
+			t.Errorf("%s may import internal/imaptest", module)
+		}
+	}
 }
 
 func TestCheckerFindsWritesInOtherForms(t *testing.T) {

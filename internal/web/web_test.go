@@ -2,6 +2,8 @@ package web
 
 import (
 	"bytes"
+	"context"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"io"
@@ -17,8 +19,10 @@ import (
 	"time"
 
 	"github.com/maltehedderich/mailarkiv/internal/archive"
+	"github.com/maltehedderich/mailarkiv/internal/collect"
 	"github.com/maltehedderich/mailarkiv/internal/identity"
 	"github.com/maltehedderich/mailarkiv/internal/opstatus"
+	"github.com/maltehedderich/mailarkiv/internal/passwordkey"
 	"github.com/maltehedderich/mailarkiv/internal/sqlitedb"
 )
 
@@ -66,23 +70,90 @@ func (c *fakeClock) Advance(d time.Duration) {
 // harness is the handler over a real listener, with real modules, SQLite, and
 // files behind it.
 type harness struct {
-	server   *httptest.Server
-	log      *lockedBuffer
-	dataDir  string
-	db       *sqlitedb.DB
-	identity *identity.Identity
-	archive  *archive.Archive
-	status   *opstatus.Status
-	clock    *fakeClock
+	server    *httptest.Server
+	log       *lockedBuffer
+	dataDir   string
+	db        *sqlitedb.DB
+	identity  *identity.Identity
+	archive   *archive.Archive
+	status    *opstatus.Status
+	clock     *fakeClock
+	collector *collect.Collector
+}
+
+// harnessOptions choose how the harness collects mail. The zero value has a
+// collector with no key that never starts, so the source routes exist and
+// nothing syncs.
+type harnessOptions struct {
+	// key gives the collector a key in a file outside the data directory.
+	key bool
+	// roots are the CAs the collector trusts, for a double's certificate.
+	roots *x509.CertPool
+	// start starts the collector. It stops when the test ends.
+	start bool
+	// checkLimit, if set, gives each request a deadline that far ahead. A
+	// request that signs in then ends as collect's check limit would end it.
+	checkLimit time.Duration
 }
 
 func newHarness(t *testing.T, routes []Route) *harness {
 	t.Helper()
+	return newHarnessWith(t, routes, harnessOptions{})
+}
+
+func newHarnessWith(t *testing.T, routes []Route, options harnessOptions) *harness {
+	t.Helper()
 	h := &harness{log: &lockedBuffer{}}
 	deps := h.deps(t)
-	h.server = httptest.NewServer(newHandler(deps, routes))
+	deps.Collect = h.openCollector(t, options)
+	handler := newHandler(deps, routes)
+	if options.checkLimit > 0 {
+		handler = withDeadline(handler, options.checkLimit)
+	}
+	h.server = httptest.NewServer(handler)
 	t.Cleanup(h.server.Close)
 	return h
+}
+
+func withDeadline(next http.Handler, limit time.Duration) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), limit)
+		defer cancel()
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func (h *harness) openCollector(t *testing.T, options harnessOptions) *collect.Collector {
+	t.Helper()
+	var key *passwordkey.Key
+	if options.key {
+		path := filepath.Join(t.TempDir(), "key")
+		if err := passwordkey.Create(path); err != nil {
+			t.Fatal(err)
+		}
+		var err error
+		if key, err = passwordkey.Load(path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	collector, err := collect.Open(context.Background(), collect.Deps{
+		DB:      h.db,
+		Archive: h.archive,
+		Status:  h.status,
+		Key:     key,
+		Logger:  slog.New(slog.NewJSONHandler(h.log, nil)),
+		Now:     h.clock.Now,
+		Roots:   options.roots,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if options.start {
+		collector.Start()
+		t.Cleanup(collector.Stop)
+	}
+	h.collector = collector
+	return collector
 }
 
 // deps opens a catalog in a new data directory and builds the modules on it.
@@ -121,6 +192,7 @@ func (h *harness) deps(t *testing.T) Deps {
 		Identity: h.identity,
 		Archive:  files,
 		Status:   status,
+		Labels:   collect.NewLabeler(db),
 	}
 }
 
@@ -445,7 +517,7 @@ const crossOrigin = `{"error":"cross_origin"}`
 // A state-changing request from another site is refused before any route
 // runs, with or without a session, and stores nothing.
 func TestCrossOriginRequestsAreRefused(t *testing.T) {
-	h := newHarness(t, Routes())
+	h, double, sourceID := withSource(t)
 	h.createAccount(t, "admin@example.test")
 	session := h.signIn(t, "admin@example.test")
 	response, body := h.send(t, http.MethodPost, "/api/imports", bytes.NewReader(mail("stored before")), session)
@@ -454,6 +526,7 @@ func TestCrossOriginRequestsAreRefused(t *testing.T) {
 	}
 	id := messageID(t, body)
 	before := h.counts(t)
+	sourcesBefore := h.sourceState(t)
 
 	forgeries := []struct {
 		name   string
@@ -461,13 +534,14 @@ func TestCrossOriginRequestsAreRefused(t *testing.T) {
 	}{
 		{"Sec-Fetch-Site cross-site", withHeader("Sec-Fetch-Site", "cross-site")},
 		{"Origin of another site and no Sec-Fetch-Site", withHeader("Origin", "http://elsewhere.test")},
+		{"Origin https://evil.example", withHeader("Origin", "https://evil.example")},
 	}
 	var checked int
 	for _, route := range Routes() {
 		if route.Method == http.MethodGet {
 			continue
 		}
-		method, path := route.Method, concretePath(route.Path, id)
+		method, path := route.Method, routePath(route, id, sourceID)
 		if method == "" {
 			// The static files' route takes every method, and only GET and HEAD
 			// are served.
@@ -483,11 +557,11 @@ func TestCrossOriginRequestsAreRefused(t *testing.T) {
 					change = both(session, forgery.change)
 				}
 				t.Run(name, func(t *testing.T) {
-					var requestBody io.Reader = bytes.NewReader(mail("forged"))
+					forged := requestBody(t, route, double.Addr())
 					if path == "/api/session" && method == http.MethodPost {
-						requestBody = strings.NewReader(`{"email":"admin@example.test","password":"correct horse battery"}`)
+						forged = strings.NewReader(`{"email":"admin@example.test","password":"correct horse battery"}`)
 					}
-					response, body := h.send(t, method, path, requestBody, change)
+					response, body := h.send(t, method, path, forged, change)
 
 					assertJSONResponse(t, response, body, http.StatusForbidden, crossOrigin)
 					if cookie := response.Header.Get("Set-Cookie"); cookie != "" {
@@ -503,6 +577,12 @@ func TestCrossOriginRequestsAreRefused(t *testing.T) {
 
 	if after := h.counts(t); after != before {
 		t.Fatalf("the archive changed: %+v, then %+v", before, after)
+	}
+	if after := h.sourceState(t); after != sourcesBefore {
+		t.Fatalf("the sources changed:\n%s\nthen\n%s", sourcesBefore, after)
+	}
+	if n := double.Logins(); n != 1 {
+		t.Errorf("the double saw %d LOGIN commands, want 1: the source's own", n)
 	}
 	// The forged sign-out didn't end the session.
 	response, body = h.do(t, http.MethodGet, "/api/session", session)

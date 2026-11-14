@@ -6,6 +6,8 @@ MailArkiv is for individuals, small businesses, and IT teams who want a searchab
 
 > **Status:** Slice 1 of 7 works: sign in, import one `.eml` file at a time, list what's stored, and download the exact original. There are no release packages yet, so you build from source. The features below describe the intended first release.
 
+IMAP collection is available during Slice 2 development. Start the server with its [password key](docs/OPERATIONS.md#the-key), then choose **Sources → Add a source**. Real-server validation of Slice 2 is still pending.
+
 ## Start here
 
 - To run MailArkiv, follow the [operator guide](docs/OPERATIONS.md). It covers the build, accounts, HTTPS, and what this version doesn't promise.

@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"testing/fstest"
 )
 
 // migrationCount reads the directory directly, so the expected version
@@ -309,7 +311,134 @@ func TestPathWithURICharacters(t *testing.T) {
 	}
 }
 
-func TestSchemaHasTheSixTables(t *testing.T) {
+// withSecond returns a migration set holding the real first migration and,
+// unless second is empty, a second file with that SQL.
+func withSecond(t *testing.T, second string) fstest.MapFS {
+	t.Helper()
+	first, err := os.ReadFile("migrations/0001_initial.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	set := fstest.MapFS{"migrations/0001_initial.sql": {Data: first}}
+	if second != "" {
+		set["migrations/0002_under_test.sql"] = &fstest.MapFile{Data: []byte(second)}
+	}
+	return set
+}
+
+// readDirectly opens the catalog without the runner, so a failed Open can
+// still be inspected.
+func readDirectly(t *testing.T, path, query string) int {
+	t.Helper()
+	direct, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer direct.Close()
+	var n int
+	if err := direct.QueryRow(query).Scan(&n); err != nil {
+		t.Fatalf("%s: %v", query, err)
+	}
+	return n
+}
+
+// Foreign keys are off while a migration runs, so a broken reference can only
+// be caught by the check before the commit.
+func TestMigrationWithABrokenReferenceRollsBack(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "catalog.db")
+	set := withSecond(t, `INSERT INTO source_observation
+	(message_id, source_type, observed_at, account_email, file_name)
+	VALUES (999, 'manual_import', 1, 'a@example.test', NULL);`)
+
+	db, err := open(path, set)
+	if err == nil {
+		db.Close()
+		t.Fatal("Open accepted a migration that left a reference to message 999")
+	}
+	if !strings.Contains(err.Error(), "source_observation") {
+		t.Errorf("error = %v, want it to name the table with the broken reference", err)
+	}
+
+	if version := readDirectly(t, path, "PRAGMA user_version"); version != 1 {
+		t.Errorf("user_version = %d, want 1", version)
+	}
+	if rows := readDirectly(t, path, "SELECT COUNT(*) FROM source_observation"); rows != 0 {
+		t.Errorf("source_observation has %d rows, want the insert rolled back", rows)
+	}
+}
+
+// SQLite can't change a CHECK or NOT NULL in place, so widening a table means
+// create, copy, drop, and rename. Dropping a table that another one references
+// fails while foreign keys are on.
+func TestMigrationCanRebuildAReferencedTable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "catalog.db")
+	db, err := open(path, withSecond(t, ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	messageID := insertMessage(t, db, "hash")
+	result, err := db.Writer.Exec(insertObservation, messageID, "manual_import")
+	if err != nil {
+		t.Fatal(err)
+	}
+	observationID, err := result.LastInsertId()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Writer.Exec("UPDATE message SET latest_observation_id = ? WHERE id = ?", observationID, messageID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err = open(path, withSecond(t, `
+CREATE TABLE source_observation_new (
+    id            INTEGER PRIMARY KEY,
+    message_id    INTEGER NOT NULL REFERENCES message (id),
+    source_type   TEXT NOT NULL CHECK (source_type IN ('manual_import')),
+    observed_at   INTEGER NOT NULL,
+    account_email TEXT NOT NULL,
+    file_name     TEXT,
+    note          TEXT
+) STRICT;
+INSERT INTO source_observation_new (id, message_id, source_type, observed_at, account_email, file_name)
+    SELECT id, message_id, source_type, observed_at, account_email, file_name FROM source_observation;
+DROP TABLE source_observation;
+ALTER TABLE source_observation_new RENAME TO source_observation;
+CREATE INDEX source_observation_by_message ON source_observation (message_id, id);`))
+	if err != nil {
+		t.Fatalf("Open with the rebuild: %v", err)
+	}
+	defer db.Close()
+
+	var foreignKeys int
+	if err := db.Writer.QueryRow("PRAGMA foreign_keys").Scan(&foreignKeys); err != nil {
+		t.Fatal(err)
+	}
+	if foreignKeys != 1 {
+		t.Errorf("foreign_keys on the writer = %d after the migration, want 1", foreignKeys)
+	}
+	var version int
+	if err := db.Writer.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if version != 2 {
+		t.Errorf("user_version = %d, want 2", version)
+	}
+
+	var latest int64
+	err = db.Reader.QueryRow(`SELECT o.id FROM message m JOIN source_observation o ON o.id = m.latest_observation_id
+		WHERE m.id = ?`, messageID).Scan(&latest)
+	if err != nil || latest != observationID {
+		t.Errorf("latest observation = %d, %v, want %d", latest, err, observationID)
+	}
+	if _, err := db.Writer.Exec(insertObservation, 999, "manual_import"); err == nil {
+		t.Error("after the rebuild, the table accepted an observation of a message that doesn't exist")
+	}
+}
+
+func TestSchemaHasTheTenTables(t *testing.T) {
 	db, _ := openCatalog(t)
 
 	rows, err := db.Reader.Query(`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name`)
@@ -329,7 +458,8 @@ func TestSchemaHasTheSixTables(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := "account message session sign_in_block sign_in_failure source_observation"
+	want := "account collected_message_count imap_folder imap_message_problem imap_source " +
+		"message session sign_in_block sign_in_failure source_observation"
 	if strings.Join(got, " ") != want {
 		t.Fatalf("tables = %v, want %s", got, want)
 	}
@@ -352,25 +482,237 @@ const insertObservation = `INSERT INTO source_observation
 	(message_id, source_type, observed_at, account_email, file_name)
 	VALUES (?, ?, 1, 'a@example.test', NULL)`
 
-func TestSourceTypeAcceptsOnlyManualImport(t *testing.T) {
-	db, _ := openCatalog(t)
-	id := insertMessage(t, db, "hash")
+// row is one row to insert, by column name.
+type row map[string]any
 
-	for _, sourceType := range []string{"imap", "mbox", "MANUAL_IMPORT", ""} {
+// with returns a copy of r with the given columns changed. A nil value
+// leaves the column out, so it takes its default or NULL.
+func (r row) with(changes row) row {
+	changed := row{}
+	for column, value := range r {
+		changed[column] = value
+	}
+	for column, value := range changes {
+		if value == nil {
+			delete(changed, column)
+		} else {
+			changed[column] = value
+		}
+	}
+	return changed
+}
+
+func insert(db *DB, table string, r row) (int64, error) {
+	columns := make([]string, 0, len(r))
+	for column := range r {
+		columns = append(columns, column)
+	}
+	slices.Sort(columns)
+	values := make([]any, len(columns))
+	for i, column := range columns {
+		values[i] = r[column]
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?, ", len(columns)), ", ")
+	result, err := db.Writer.Exec(
+		fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", table, strings.Join(columns, ", "), placeholders),
+		values...)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
+func mustInsert(t *testing.T, db *DB, table string, r row) int64 {
+	t.Helper()
+	id, err := insert(db, table, r)
+	if err != nil {
+		t.Fatalf("insert into %s: %v", table, err)
+	}
+	return id
+}
+
+// refused asserts that inserting r fails on a constraint whose message holds
+// reason, such as "CHECK constraint" or "UNIQUE constraint".
+func refused(t *testing.T, db *DB, table string, r row, reason string) {
+	t.Helper()
+	_, err := insert(db, table, r)
+	if err == nil {
+		t.Fatalf("%s accepted %v", table, r)
+	}
+	if !strings.Contains(err.Error(), reason) {
+		t.Fatalf("%s refused %v for another reason: %v", table, r, err)
+	}
+}
+
+func activeSource(host, userName string) row {
+	return row{
+		"name":            "Mailbox",
+		"host":            host,
+		"port":            993,
+		"security":        "tls",
+		"user_name":       userName,
+		"user_key":        strings.ToLower(userName),
+		"sealed_password": []byte("sealed"),
+		"created_at":      1,
+	}
+}
+
+func chosenFolder(sourceID int64, name string) row {
+	return row{"source_id": sourceID, "name": name, "chosen": 1}
+}
+
+func importEntry(messageID int64) row {
+	return row{
+		"message_id":    messageID,
+		"source_type":   "manual_import",
+		"observed_at":   1,
+		"account_email": "a@example.test",
+	}
+}
+
+func collectionEntry(messageID, sourceID, folderID int64) row {
+	return row{
+		"message_id":     messageID,
+		"source_type":    "imap_collection",
+		"observed_at":    1,
+		"imap_source_id": sourceID,
+		"imap_folder_id": folderID,
+	}
+}
+
+func TestSourceTypeAcceptsImportAndCollection(t *testing.T) {
+	db, _ := openCatalog(t)
+	messageID := insertMessage(t, db, "hash")
+	sourceID := mustInsert(t, db, "imap_source", activeSource("imap.example.test", "anna@example.test"))
+	folderID := mustInsert(t, db, "imap_folder", chosenFolder(sourceID, "INBOX"))
+
+	for _, sourceType := range []string{"imap", "mbox", "MANUAL_IMPORT", "IMAP_COLLECTION", ""} {
 		t.Run(sourceType, func(t *testing.T) {
-			_, err := db.Writer.Exec(insertObservation, id, sourceType)
-			if err == nil {
-				t.Fatal("the table accepted the value")
-			}
-			if !strings.Contains(err.Error(), "CHECK constraint") {
-				t.Fatalf("refused for another reason: %v", err)
-			}
+			change := row{"source_type": sourceType}
+			refused(t, db, "source_observation", importEntry(messageID).with(change), "CHECK constraint")
+			refused(t, db, "source_observation", collectionEntry(messageID, sourceID, folderID).with(change), "CHECK constraint")
 		})
 	}
 
-	if _, err := db.Writer.Exec(insertObservation, id, "manual_import"); err != nil {
-		t.Fatalf("manual_import: %v", err)
+	mustInsert(t, db, "source_observation", importEntry(messageID))
+	mustInsert(t, db, "source_observation", collectionEntry(messageID, sourceID, folderID))
+}
+
+func TestObservationColumnsMatchTheirType(t *testing.T) {
+	db, _ := openCatalog(t)
+	messageID := insertMessage(t, db, "hash")
+	sourceID := mustInsert(t, db, "imap_source", activeSource("imap.example.test", "anna@example.test"))
+	folderID := mustInsert(t, db, "imap_folder", chosenFolder(sourceID, "INBOX"))
+	imported := importEntry(messageID)
+	collected := collectionEntry(messageID, sourceID, folderID)
+
+	refusedRows := []struct {
+		name string
+		row  row
+	}{
+		{"an import without an address", imported.with(row{"account_email": nil})},
+		{"an import naming a source", imported.with(row{"imap_source_id": sourceID})},
+		{"an import naming a folder", imported.with(row{"imap_folder_id": folderID})},
+		{"an import with a received time", imported.with(row{"received_at": 5})},
+		{"a collection without a source", collected.with(row{"imap_source_id": nil})},
+		{"a collection without a folder", collected.with(row{"imap_folder_id": nil})},
+		{"a collection with a file name", collected.with(row{"file_name": "invoice.eml"})},
+		{"a collection with an address", collected.with(row{"account_email": "a@example.test"})},
 	}
+	for _, tt := range refusedRows {
+		t.Run(tt.name, func(t *testing.T) {
+			refused(t, db, "source_observation", tt.row, "CHECK constraint")
+		})
+	}
+
+	t.Run("one collection entry per folder and message", func(t *testing.T) {
+		mustInsert(t, db, "source_observation", collected.with(row{"received_at": 5}))
+		refused(t, db, "source_observation", collected, "UNIQUE constraint")
+
+		other := mustInsert(t, db, "imap_folder", chosenFolder(sourceID, "Archiv"))
+		mustInsert(t, db, "source_observation", collected.with(row{"imap_folder_id": other}))
+	})
+
+	t.Run("repeated imports of one message", func(t *testing.T) {
+		mustInsert(t, db, "source_observation", imported.with(row{"file_name": "invoice.eml"}))
+		mustInsert(t, db, "source_observation", imported)
+	})
+}
+
+func TestSourceRowRules(t *testing.T) {
+	db, _ := openCatalog(t)
+	source := activeSource("imap.example.test", "anna@example.test")
+	failing := row{
+		"failed_attempts":       1,
+		"failing_since":         10,
+		"last_failure_category": "timed_out",
+		"last_failure_at":       10,
+	}
+
+	refusedRows := []struct {
+		name string
+		row  row
+	}{
+		{"port 0", source.with(row{"port": 0})},
+		{"port 65536", source.with(row{"port": 65536})},
+		{"security ssl", source.with(row{"security": "ssl"})},
+		{"no password on an active source", source.with(row{"sealed_password": nil})},
+		{"a password on a removed source", source.with(row{"removed_at": 20})},
+		{"failing since, with no failed attempt", source.with(row{"failing_since": 10})},
+		{"a failure category, with no failed attempt", source.with(row{"last_failure_category": "timed_out"})},
+		{"a failure time, with no failed attempt", source.with(row{"last_failure_at": 10})},
+		{"a failed attempt without its start", source.with(failing).with(row{"failing_since": nil})},
+		{"a failed attempt without its category", source.with(failing).with(row{"last_failure_category": nil})},
+		{"a failed attempt without its time", source.with(failing).with(row{"last_failure_at": nil})},
+		{"a folder category on the source", source.with(failing).with(row{"last_failure_category": "folder_unavailable"})},
+		{"a state category on the source", source.with(failing).with(row{"last_failure_category": "password_unreadable"})},
+	}
+	for _, tt := range refusedRows {
+		t.Run(tt.name, func(t *testing.T) {
+			refused(t, db, "imap_source", tt.row, "CHECK constraint")
+		})
+	}
+
+	t.Run("each sync category", func(t *testing.T) {
+		for i, category := range []string{
+			"server_not_reachable", "secure_connection_failed", "sign_in_rejected", "timed_out",
+			"server_error", "storage_full", "storage_write_failed", "catalog_write_failed",
+		} {
+			user := fmt.Sprintf("user%d@example.test", i)
+			mustInsert(t, db, "imap_source", activeSource("imap.example.test", user).
+				with(failing).with(row{"last_failure_category": category}))
+		}
+	})
+
+	t.Run("one active source per host and user name", func(t *testing.T) {
+		first := mustInsert(t, db, "imap_source", activeSource("mail.example.test", "Anna@Example.test"))
+		refused(t, db, "imap_source", activeSource("mail.example.test", "anna@example.test"), "UNIQUE constraint")
+
+		if _, err := db.Writer.Exec("UPDATE imap_source SET removed_at = 20, sealed_password = NULL WHERE id = ?", first); err != nil {
+			t.Fatal(err)
+		}
+		mustInsert(t, db, "imap_source", activeSource("mail.example.test", "anna@example.test"))
+	})
+}
+
+func TestFolderAndProblemRowRules(t *testing.T) {
+	db, _ := openCatalog(t)
+	sourceID := mustInsert(t, db, "imap_source", activeSource("imap.example.test", "anna@example.test"))
+	folder := chosenFolder(sourceID, "INBOX")
+
+	refused(t, db, "imap_folder", folder.with(row{"last_uid": 5}), "CHECK constraint")
+	refused(t, db, "imap_folder", folder.with(row{"chosen": 2}), "CHECK constraint")
+
+	folderID := mustInsert(t, db, "imap_folder", folder.with(row{"uid_validity": 7, "last_uid": 5}))
+	refused(t, db, "imap_folder", folder, "UNIQUE constraint")
+	mustInsert(t, db, "imap_folder", chosenFolder(sourceID, "Archiv").with(row{"chosen": 0}))
+
+	problem := row{"folder_id": folderID, "uid_validity": 7, "uid": 3, "recorded_at": 10}
+	refused(t, db, "imap_message_problem", problem.with(row{"kind": "other"}), "CHECK constraint")
+	for uid, kind := range []string{"waiting_for_retry", "too_large", "removed"} {
+		mustInsert(t, db, "imap_message_problem", problem.with(row{"kind": kind, "uid": uid + 1}))
+	}
+	refused(t, db, "imap_message_problem", problem.with(row{"kind": "removed", "uid": 1}), "UNIQUE constraint")
 }
 
 func TestObservationNeedsAnExistingMessage(t *testing.T) {

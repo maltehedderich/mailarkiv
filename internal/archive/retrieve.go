@@ -10,7 +10,6 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"time"
 
 	"github.com/maltehedderich/mailarkiv/internal/opstatus"
 	"github.com/maltehedderich/mailarkiv/internal/sqlitedb"
@@ -105,27 +104,19 @@ func openMatching(path, contentHash string) (*os.File, int64, error) {
 	return file, size, nil
 }
 
-// Observation is one recorded import of a message's bytes.
-type Observation struct {
-	SourceType   string // One of the values source_observation's CHECK allows.
-	ObservedAt   time.Time
-	AccountEmail string
-	FileName     *string // Nil when none was supplied.
-}
-
-// History is a message with every import of its bytes, newest first.
+// History is a message with every entry for its bytes, newest first.
 type History struct {
-	ID           int64
-	ContentHash  string
-	Size         int64
-	Observations []Observation
+	ID          int64
+	ContentHash string
+	Size        int64
+	Entries     []Entry
 }
 
 // History returns a message's history with no cap, or ErrNotFound.
 func (a *Archive) History(ctx context.Context, id int64) (History, error) {
-	history := History{ID: id, Observations: []Observation{}}
+	history := History{ID: id, Entries: []Entry{}}
 
-	// One read transaction, so the message and its observations agree.
+	// One read transaction, so the message and its entries agree.
 	err := sqlitedb.InTx(ctx, a.db.Reader, func(tx *sql.Tx) error {
 		err := tx.QueryRowContext(ctx, "SELECT content_hash, size FROM message WHERE id = ?", id).
 			Scan(&history.ContentHash, &history.Size)
@@ -137,26 +128,24 @@ func (a *Archive) History(ctx context.Context, id int64) (History, error) {
 		}
 
 		rows, err := tx.QueryContext(ctx, `
-SELECT source_type, observed_at, account_email, file_name
-FROM source_observation
-WHERE message_id = ?
-ORDER BY id DESC`, id)
+SELECT `+entryColumns+`
+FROM source_observation o
+WHERE o.message_id = ?
+ORDER BY o.id DESC`, id)
 		if err != nil {
 			return err
 		}
 		defer rows.Close()
 		for rows.Next() {
-			var observation Observation
-			var observedAt int64
-			var fileName sql.NullString
-			if err := rows.Scan(&observation.SourceType, &observedAt, &observation.AccountEmail, &fileName); err != nil {
+			var row entryRow
+			if err := rows.Scan(row.targets()...); err != nil {
 				return err
 			}
-			observation.ObservedAt = time.UnixMilli(observedAt).UTC()
-			if fileName.Valid {
-				observation.FileName = &fileName.String
+			entry, err := row.entry()
+			if err != nil {
+				return err
 			}
-			history.Observations = append(history.Observations, observation)
+			history.Entries = append(history.Entries, entry)
 		}
 		return rows.Err()
 	})
