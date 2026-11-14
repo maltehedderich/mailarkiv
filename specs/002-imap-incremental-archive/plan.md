@@ -194,6 +194,12 @@ Keep the last session watcher after a failed navigation read. Guard leaving the 
 
 Browser regressions cover the credible failures: losing the expiry timer or visibility listeners, leaving a save unseen, discarding edits by accident, and losing keyboard focus. Extend the existing accessibility checks to the confirmation in both themes at 1280 px and 360 px. Run `mise run lint`, `mise run typecheck`, and `mise run audit` (static); `mise run frontend:test` (unit); `mise run server:test` (unit, integration, process); and `mise run test:e2e` (browser). The Go checks already run during review remain applicable because these fixes change only the frontend. The Go suite remains incomplete on this host because `strace` is missing and its certificate-trust test expects a different error type.
 
+## Pasted source fields
+
+Trim only the edges of source names, hosts, user names, and port text when submitted. Keep passwords, folder names, and internal characters exact. Normalize new credentials at the collection module's input boundary before login, duplicate checks, and encryption; do not rewrite stored credentials. This uses existing validation paths and adds no dependency or exception.
+
+The regression first reproduced rejection of padded connection details. Go integration tests verify login, storage, duplicate detection, and reuse of a password whose edge characters matter. Frontend unit tests cover Unicode padding and preserved internal characters; the existing keyboard add/edit journeys verify submitted values and rejection of an altered password. Run the static, unit, process, and browser commands listed above. The missing `strace` and macOS certificate-error mismatch remain limits of the full Go check on this host.
+
 ## Remaining risks
 
 - Only the in-memory double and one Dovecot version are run. The double shares the library's parser, so it can't reveal a disagreement between the library and a server. Hosted providers aren't tested, and the operator guide says so.

@@ -186,13 +186,29 @@ bin/mailarkiv key create --data-dir .data/demo .data/mailarkiv.key
 SSL_CERT_FILE=.data/ca.pem bin/mailarkiv serve --data-dir .data/demo --key-file .data/mailarkiv.key
 ```
 
-Open `http://localhost:8080`, sign in, and choose **Sources → Add a source**.
+Open `http://localhost:8080`, sign in as `admin@example.test` with the password you chose for that account, and choose **Sources → Add a source**.
+
+In **Connect to the mailbox**, enter:
+
+| Field | Value |
+| ----- | ----- |
+| Server | `localhost` |
+| Connection security | TLS |
+| Port | `993` |
+| User name | `test@example.test` |
+| Password | The generated mailbox password from `.data/dovecot-password` |
+
+Run `cat .data/dovecot-password` from the repository root to read the mailbox password. It is separate from the administrator's MailArkiv password.
+
+Press **Connect**. In **Choose folders**, set **Name** to `Local Dovecot` (or another label), select both **INBOX** and **Entwürfe**, and press **Save**.
+
+To test STARTTLS instead, choose **STARTTLS** and port **143**, keeping the same server and mailbox credentials. The startup command above supplies `SSL_CERT_FILE=.data/ca.pem` to trust the test certificate and `--key-file .data/mailarkiv.key` to encrypt the stored mailbox password.
 
 ## Scenario 1: connect a mailbox
 
 Covers User Story 1 and SC-001. Follow only `docs/OPERATIONS.md`, starting from an empty data directory. Start timing at `key create` and stop when the first collected message is listed. It should take under 10 minutes. Docker setup isn't timed.
 
-Add a source for the Dovecot user with TLS on port 993, press Connect, choose both folders, and save.
+Use the source settings in setup step 4 with TLS on port 993, press Connect, choose both folders, and save.
 
 Expected:
 

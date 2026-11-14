@@ -208,6 +208,7 @@ Administrators can pause, resume, and sync a source on demand, rename it, change
 **Sources**
 
 - **FR-001**: Administrators MUST be able to add a source with a name of 1 to 100 characters, a server host name or IP address, a port, connection security (TLS from the start, or STARTTLS), a user name, and a password. The port MUST default to 993 for TLS and 143 for STARTTLS.
+- Source names, hosts, and user names MUST lose surrounding Unicode whitespace, U+200B, and U+FEFF before validation, sign-in, storage, and duplicate checks. The frontend MUST apply this rule on submission, including to port text. Internal characters, passwords, and folder names MUST remain unchanged. A name or user name that becomes empty MUST be refused.
 - **FR-002**: Adding a source MUST take two steps. First, Connect signs in and lists the server's folders with the message count the server reports for each. Second, the administrator chooses folders and saves. A source MUST be saved only after a successful sign-in.
 - **FR-003**: Each source MUST collect the folders the administrator chose from the server's list, at least one. The inbox MUST be preselected. Administrators MUST be able to add and remove folders after saving. A folder created on the server later MUST NOT be collected until an administrator adds it.
 - **FR-004**: The system MUST refuse a second source with the same server and user name, ignoring capital letters in both.

@@ -115,7 +115,7 @@ func parseInput(in SourceInput) (newSource, error) {
 	if err := r.err(); err != nil {
 		return newSource{}, err
 	}
-	return newSource{name: name, box: box, userKey: strings.ToLower(in.UserName), folders: in.Folders}, nil
+	return newSource{name: name, box: box, userKey: strings.ToLower(box.userName), folders: in.Folders}, nil
 }
 
 // parseCheck checks a mailbox's details.
@@ -131,6 +131,8 @@ func parseCheck(in CheckInput) (mailbox, error) {
 // parseMailbox checks the sign-in details, in the order the API lists them.
 // The host comes back lowercase.
 func parseMailbox(r *rules, in CheckInput) mailbox {
+	in.Host = trimSourceField(in.Host)
+	in.UserName = trimSourceField(in.UserName)
 	r.check(validHost(in.Host), "host")
 	r.check(validPort(in.Port), "port")
 	security, err := parseSecurity(in.Security)
@@ -204,9 +206,16 @@ func changedPassword(r *rules, password *string) *string {
 	return password
 }
 
-// parseName trims spaces from name and checks what is left.
+// trimSourceField removes pasted padding, never password or folder characters.
+func trimSourceField(value string) string {
+	return strings.TrimFunc(value, func(r rune) bool {
+		return unicode.IsSpace(r) || r == '\u200b' || r == '\ufeff'
+	})
+}
+
+// parseName trims pasted padding from name and checks what is left.
 func parseName(name string) (string, bool) {
-	trimmed := strings.TrimSpace(name)
+	trimmed := trimSourceField(name)
 	return trimmed, utf8.ValidString(name) && between(utf8.RuneCountInString(trimmed), 1, 100)
 }
 

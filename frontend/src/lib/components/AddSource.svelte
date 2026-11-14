@@ -22,6 +22,7 @@
     isValidName,
     NO_PASSWORD_MANAGER,
     parsePort,
+    trimSourceField,
     type FolderOption,
     type FormOutcome as Outcome,
   } from "#lib/sources/form.js";
@@ -231,8 +232,11 @@
     outcome = null;
     refused = [];
 
+    host = trimSourceField(host);
+    port = trimSourceField(port);
+    userName = trimSourceField(userName);
     const details: Connection = {
-      host: host.trim(),
+      host,
       port: parsePort(port),
       security,
       userName,
@@ -272,6 +276,7 @@
     if (busy !== null || connected === null) return;
     outcome = null;
     refused = [];
+    name = trimSourceField(name);
     const nameRefused = !isValidName(name);
     const chosen = chosenNames(folders);
     if (nameRefused || chosen.length === 0) {

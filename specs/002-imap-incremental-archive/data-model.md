@@ -50,7 +50,7 @@ The runner changes for every migration:
 | `host` | TEXT NOT NULL | Lowercase. Fixed after saving (FR-005) |
 | `port` | INTEGER NOT NULL | 1 to 65535 |
 | `security` | TEXT NOT NULL | `tls` or `starttls` |
-| `user_name` | TEXT NOT NULL | As entered, because servers may compare it exactly. Fixed after saving |
+| `user_name` | TEXT NOT NULL | Surrounding pasted whitespace removed; case and internal characters preserved. Fixed after saving |
 | `user_key` | TEXT NOT NULL | `strings.ToLower(user_name)`, for the duplicate rule |
 | `sealed_password` | BLOB | NULL exactly when `removed_at` is set |
 | `created_at` | INTEGER NOT NULL | |
@@ -248,6 +248,8 @@ Per active source: whether a sync is running, its found and archived counts, the
 The problem count adds one for each source that `collect` reports as a problem: Retrying, Needs attention, or with an unavailable folder or a message waiting for retry (FR-038). `opstatus` doesn't know about sources. The web adapter adds the two numbers.
 
 ## Input rules
+
+Before validation, new source names, hosts, and user names lose surrounding Unicode whitespace (`White_Space`), zero-width spaces (U+200B), and byte-order marks (U+FEFF). The frontend applies the same rule to these fields and the port text on submission, updating the displayed values. Internal characters, passwords, and folder names are preserved exactly. Whitespace-only names and user names become empty and are refused. Duplicate checks and password encryption use the normalized host and user name. Editing trims the source name too; existing stored credentials are not rewritten.
 
 | Field | Rule |
 | ----- | ---- |

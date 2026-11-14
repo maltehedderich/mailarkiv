@@ -12,6 +12,14 @@ export const DEFAULT_PORTS: Record<Security, number> = {
   starttls: 143,
 };
 
+/** Trim pasted padding from source text fields, never passwords or folder names. */
+export function trimSourceField(value: string): string {
+  return value.replace(
+    /^[\p{White_Space}\u200B\uFEFF]+|[\p{White_Space}\u200B\uFEFF]+$/gu,
+    "",
+  );
+}
+
 /**
  * Keeps password managers out of a source form field that isn't a sign-in,
  * such as the server, or the edit form's password, which has no user name
@@ -37,7 +45,7 @@ export function portAfterSwitch(
   from: Security,
   to: Security,
 ): string {
-  const typed = port.trim();
+  const typed = trimSourceField(port);
   if (typed === "" || typed === String(DEFAULT_PORTS[from])) {
     return String(DEFAULT_PORTS[to]);
   }
@@ -49,7 +57,7 @@ export function portAfterSwitch(
  * server refuses with the port named, as it does a number out of range.
  */
 export function parsePort(text: string): number | null {
-  const typed = text.trim();
+  const typed = trimSourceField(text);
   if (!/^\d+$/.test(typed)) return null;
   const port = Number(typed);
   return Number.isSafeInteger(port) ? port : null;
@@ -116,10 +124,10 @@ export const FIELD_PROBLEMS: Record<SourceField, string> = {
 
 /**
  * Whether a name keeps the server's rule: 1 to 100 code points after
- * trimming. Checked before Connect, because the check doesn't send the name.
+ * trimming. Checked before saving.
  */
 export function isValidName(name: string): boolean {
-  const length = [...name.trim()].length;
+  const length = [...trimSourceField(name)].length;
   return length >= 1 && length <= 100;
 }
 

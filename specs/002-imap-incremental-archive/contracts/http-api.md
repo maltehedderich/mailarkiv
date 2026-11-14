@@ -50,6 +50,8 @@ A failed sign-in answers:
 
 Request bodies are at most 1 MiB. A body that isn't JSON, has unknown fields, or breaks [an input rule](../data-model.md#input-rules) answers 400 `{ "error": "invalid_fields", "fields": ["port", "password"] }`, naming each field that broke a rule.
 
+The server trims surrounding Unicode whitespace, U+200B, and U+FEFF from `name`, `host`, and `user_name` before validation, sign-in, and duplicate checks. Passwords and folder names are never trimmed. Responses contain the normalized fields; editing a name uses the same rule.
+
 When `serve` has no key, any request that would sign in or store a password answers 409 `no_key` (FR-026).
 
 ## `POST /api/sources/check`

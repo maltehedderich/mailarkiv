@@ -56,7 +56,7 @@ async function typeInto(page: Page, target: Locator, text: string) {
 
 /** Fills the first step by keyboard, in the order Tab reaches the fields. */
 async function typeDetails(page: Page, password: string) {
-  await typeInto(page, field(page, "Server"), imap.host);
+  await typeInto(page, field(page, "Server"), ` \u200B${imap.host}\uFEFF `);
   await typeInto(page, field(page, "Port"), String(imap.port));
   await typeInto(page, field(page, "User name"), MAILBOX.user);
   await typeInto(page, field(page, "Password"), password);
@@ -99,7 +99,7 @@ test("an administrator adds a source and follows its first sync", async ({
   await expect(field(page, "Server")).toBeFocused();
 
   // The fields in the order Tab reaches them.
-  await typeInto(page, field(page, "Server"), imap.host);
+  await typeInto(page, field(page, "Server"), ` \u200B${imap.host}\uFEFF `);
 
   // The port follows the connection security until one is typed.
   const port = field(page, "Port");
@@ -115,12 +115,23 @@ test("an administrator adds a source and follows its first sync", async ({
   await expect(tls).toBeChecked();
   await expect(port).toHaveValue("993");
 
-  await typeInto(page, port, String(imap.port));
-  await typeInto(page, field(page, "User name"), MAILBOX.user);
+  await typeInto(page, port, ` \u200B${imap.port}\uFEFF `);
+  await typeInto(
+    page,
+    field(page, "User name"),
+    ` \u00A0\u200B${MAILBOX.user}\uFEFF `,
+  );
   await typeInto(page, field(page, "Password"), MAILBOX.password);
   const connect = page.getByRole("button", { name: "Connect" });
   await tabTo(page, connect);
+  const checking = page.waitForRequest("**/api/sources/check");
   await page.keyboard.press("Enter");
+  expect((await checking).postDataJSON()).toMatchObject({
+    host: imap.host,
+    user_name: MAILBOX.user,
+    port: imap.port,
+    password: MAILBOX.password,
+  });
 
   // Each folder with its count, and the inbox checked.
   const folders = folderChoice(page);
@@ -143,7 +154,7 @@ test("an administrator adds a source and follows its first sync", async ({
   // The name comes after the sign-in, and starts as the user name.
   const name = field(page, "Name");
   await expect(name).toHaveValue(MAILBOX.user);
-  await typeInto(page, name, "Anna");
+  await typeInto(page, name, " \u200BAnna\uFEFF ");
 
   await tabTo(page, folder("Gesendete Objekte"));
   await page.keyboard.press("Space");
@@ -223,7 +234,8 @@ test("a wrong password names the step that failed and saves nothing", async ({
 }) => {
   await signIn(page, server);
   await page.goto(`${server.origin}/sources?add`);
-  await typeDetails(page, "not the mailbox password");
+  // Spaces are part of a password, so this must not become the valid one.
+  await typeDetails(page, ` ${MAILBOX.password} `);
   const connect = page.getByRole("button", { name: "Connect" });
   await tabTo(page, connect);
   await page.keyboard.press("Enter");

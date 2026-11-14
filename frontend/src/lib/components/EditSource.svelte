@@ -21,6 +21,7 @@
     isValidName,
     NO_PASSWORD_MANAGER,
     parsePort,
+    trimSourceField,
     widenChoice,
     type FolderOption,
     type FormOutcome as Outcome,
@@ -96,6 +97,7 @@
 
   /** The connection fields that differ, which a sign-in checks. */
   function connectionChange(): ConnectionChange {
+    port = trimSourceField(port);
     const change: ConnectionChange = {};
     const portNumber = parsePort(port);
     if (portNumber !== before.port) change.port = portNumber;
@@ -148,6 +150,7 @@
     event.preventDefault();
     if (busy !== null) return;
     reset();
+    name = trimSourceField(name);
     if (!isValidName(name)) {
       await refuse(["name"]);
       return;

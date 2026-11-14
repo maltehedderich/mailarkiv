@@ -223,7 +223,9 @@ test("an edit with the password left empty keeps collecting, and adding a folder
 
   const password = page.getByLabel("Password", { exact: true });
   await expect(password).toHaveValue("");
-  await page.getByLabel("Name", { exact: true }).fill("Anna Büro");
+  await page
+    .getByLabel("Name", { exact: true })
+    .fill(" \u200BAnna Büro\uFEFF ");
 
   // Only the source's folders until the server lists the rest.
   const folders = page.getByRole("group", { name: "Folders" });

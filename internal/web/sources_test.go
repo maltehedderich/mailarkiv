@@ -294,6 +294,7 @@ func TestAddSourceInputRules(t *testing.T) {
 		{"user name with a control character", "user_name", "anna\u0001@example.test", []string{"user_name"}},
 		{"user name of 1,025 bytes", "user_name", strings.Repeat("u", 1025), []string{"user_name"}},
 		{"empty user name", "user_name", "", []string{"user_name"}},
+		{"user name of pasted whitespace", "user_name", " \t\u00a0\u200b\ufeff", []string{"user_name"}},
 		{"user name of 1,024 bytes", "user_name", strings.Repeat("u", 1024), nil},
 		{"empty password", "password", "", []string{"password"}},
 		{"password of 1,025 bytes", "password", strings.Repeat("p", 1025), []string{"password"}},

@@ -8,6 +8,7 @@ import {
   isValidName,
   parsePort,
   portAfterSwitch,
+  trimSourceField,
   widenChoice,
 } from "./form";
 
@@ -48,6 +49,7 @@ describe("parsePort", () => {
   test.each([
     ["993", 993],
     [" 143 ", 143],
+    ["\u200B\u0085 993\uFEFF", 993],
     ["65535", 65535],
     ["0", 0],
   ])("reads %j as %d", (text, want) => {
@@ -61,6 +63,20 @@ describe("parsePort", () => {
       expect(parsePort(text)).toBeNull();
     },
   );
+});
+
+describe("trimSourceField", () => {
+  test.each([
+    [
+      " \t\u0085\u00a0\u200B\uFEFFanna@example.test\uFEFF\u200B\n ",
+      "anna@example.test",
+    ],
+    [" \u200B\uFEFF ", ""],
+    [" Anna Office ", "Anna Office"],
+    ["a\u200Bb\u200Dc", "a\u200Bb\u200Dc"],
+  ])("normalizes %j to %j", (input, expected) => {
+    expect(trimSourceField(input)).toBe(expected);
+  });
 });
 
 describe("firstChoice", () => {
