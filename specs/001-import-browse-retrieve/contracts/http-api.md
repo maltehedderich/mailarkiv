@@ -62,11 +62,13 @@ Cookie: `__Host-mailarkiv_session=<token>; Path=/; Max-Age=43200; HttpOnly; Secu
 
 ### `GET /api/session`
 
-The signed-in layout reads this at each page load (FR-039), and the import screen reads it just before an upload starts.
+The signed-in layout reads this at each page load (FR-039) and each time the page is shown again (FR-040). The import screen reads it just before an upload starts.
 
 ```json
-{ "problem_count": 2 }
+{ "problem_count": 2, "expires_in": 39599 }
 ```
+
+`expires_in` is the whole seconds the session has left, rounded down. A session is never extended, so the page sets a timer for that time and opens sign-in when it fires, with no request. It counts from when the answer arrived, so a wrong clock on the client doesn't matter.
 
 Before an upload, only a marked 401 changes anything: it opens the sign-in page. After any other result, the upload goes ahead and its own answer decides the outcome.
 

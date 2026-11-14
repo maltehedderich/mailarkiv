@@ -7,10 +7,10 @@
   import { goto } from "$app/navigation";
   import { page } from "$app/state";
 
-  import { signOut } from "#lib/api.js";
+  import { getSession, signOut } from "#lib/api.js";
   import Logo from "#lib/components/Logo.svelte";
   import Toasts from "#lib/components/Toasts.svelte";
-  import { clearSignedIn } from "#lib/session.js";
+  import { clearSignedIn, signInPath, watchSession } from "#lib/session.js";
 
   import type { LayoutProps } from "./$types";
 
@@ -22,6 +22,25 @@
   const problemCount = $derived(
     data.session.kind === "ok" ? data.session.value.problemCount : 0,
   );
+
+  // A session that ends while the page is open takes the screen down at once,
+  // before sign-in opens. A failed load keeps the last known deadline and
+  // the listeners that check the session when the tab is shown again.
+  let ended = $state(false);
+  let stopWatching: (() => void) | undefined;
+  $effect(() => {
+    if (data.session.kind !== "ok") return;
+    stopWatching?.();
+    stopWatching = watchSession(
+      data.session.value.expiresIn,
+      () => getSession(),
+      () => {
+        ended = true;
+        void goto(signInPath(page.url), { replace: true });
+      },
+    );
+  });
+  $effect(() => () => stopWatching?.());
 
   // Separators, as the pager shows totals.
   const numbers = new Intl.NumberFormat("en-US");
@@ -62,76 +81,78 @@
   }
 </script>
 
-<div class="shell">
-  <nav aria-label="Main">
-    <p class="brand"><Logo /></p>
-    <a
-      class="item"
-      href="/"
-      aria-current={page.url.pathname === "/" ? "page" : undefined}
-    >
-      <ArchiveIcon />
-      Messages
-    </a>
-    <a
-      class="item"
-      href="/sources"
-      aria-current={page.url.pathname === "/sources" ||
-      page.url.pathname.startsWith("/sources/")
-        ? "page"
-        : undefined}
-    >
-      <MailIcon />
-      Sources
-    </a>
-    <a
-      class="item"
-      href="/status"
-      aria-current={page.url.pathname === "/status" ? "page" : undefined}
-    >
-      <ActivityIcon />
-      Status
-      {#if problemCount > 0}
-        <span class="count"
-          >{numbers.format(problemCount)}<span class="visually-hidden"
-            >{problemCount === 1 ? " problem" : " problems"}</span
-          ></span
-        >
-      {/if}
-    </a>
-
-    <div class="sign-out">
-      <!-- Above the button, so the line grows upward and the button stays
-           under the pointer for the second try. -->
-      <p class="problem" role="status" bind:offsetHeight={lineHeight}>
-        {signOutFailed
-          ? "Sign-out didn't finish, so you're still signed in. Try again."
-          : ""}
-      </p>
-      <!-- The label hides at 720 px and below, where this is an icon tab. -->
-      <button
+{#if !ended}
+  <div class="shell">
+    <nav aria-label="Main">
+      <p class="brand"><Logo /></p>
+      <a
         class="item"
-        type="button"
-        aria-label="Sign out"
-        onclick={signOutNow}
+        href="/"
+        aria-current={page.url.pathname === "/" ? "page" : undefined}
       >
-        <LogOutIcon />
-        <span class="label">Sign out</span>
-      </button>
-    </div>
-  </nav>
+        <ArchiveIcon />
+        Messages
+      </a>
+      <a
+        class="item"
+        href="/sources"
+        aria-current={page.url.pathname === "/sources" ||
+        page.url.pathname.startsWith("/sources/")
+          ? "page"
+          : undefined}
+      >
+        <MailIcon />
+        Sources
+      </a>
+      <a
+        class="item"
+        href="/status"
+        aria-current={page.url.pathname === "/status" ? "page" : undefined}
+      >
+        <ActivityIcon />
+        Status
+        {#if problemCount > 0}
+          <span class="count"
+            >{numbers.format(problemCount)}<span class="visually-hidden"
+              >{problemCount === 1 ? " problem" : " problems"}</span
+            ></span
+          >
+        {/if}
+      </a>
 
-  <div class="panel">
-    <!-- Always the page, even when the session read failed. Swapping it out
+      <div class="sign-out">
+        <!-- Above the button, so the line grows upward and the button stays
+           under the pointer for the second try. -->
+        <p class="problem" role="status" bind:offsetHeight={lineHeight}>
+          {signOutFailed
+            ? "Sign-out didn't finish, so you're still signed in. Try again."
+            : ""}
+        </p>
+        <!-- The label hides at 720 px and below, where this is an icon tab. -->
+        <button
+          class="item"
+          type="button"
+          aria-label="Sign out"
+          onclick={signOutNow}
+        >
+          <LogOutIcon />
+          <span class="label">Sign out</span>
+        </button>
+      </div>
+    </nav>
+
+    <div class="panel">
+      <!-- Always the page, even when the session read failed. Swapping it out
          would take an import's result with it, so each page shows
          the failed-load state itself. -->
-    {@render children()}
+      {@render children()}
+    </div>
   </div>
-</div>
 
-<!-- After the panel, so the toasts come last in the tab order. They stay
+  <!-- After the panel, so the toasts come last in the tab order. They stay
      across pages, so a result isn't lost on the way to Status. -->
-<Toasts place="page" />
+  <Toasts place="page" />
+{/if}
 
 <style>
   .shell {

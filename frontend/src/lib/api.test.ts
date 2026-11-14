@@ -62,17 +62,20 @@ const networkError = new TypeError("Failed to fetch");
 const timeout = new DOMException("The operation timed out.", "TimeoutError");
 
 describe("getSession", () => {
-  test("reads the problem count", async () => {
-    const { fetch, calls } = answer(200, { problem_count: 2 });
+  test("reads the problem count and the time left", async () => {
+    const { fetch, calls } = answer(200, {
+      problem_count: 2,
+      expires_in: 39599,
+    });
     expect(await getSession(fetch)).toEqual({
       kind: "ok",
-      value: { problemCount: 2 },
+      value: { problemCount: 2, expiresIn: 39599 },
     });
     expect(calls[0].url).toBe("/api/session");
   });
 
   test("gives every call a timeout signal", async () => {
-    const { fetch, calls } = answer(200, { problem_count: 0 });
+    const { fetch, calls } = answer(200, { problem_count: 0, expires_in: 60 });
     await getSession(fetch);
     expect(calls[0].init?.signal).toBeInstanceOf(AbortSignal);
   });
@@ -90,15 +93,28 @@ describe("getSession", () => {
     ["a marked 500", answer(500, { error: "internal_error" }).fetch],
     [
       "an unmarked 200",
-      answer(200, { problem_count: 0 }, { marked: false }).fetch,
+      answer(200, { problem_count: 0, expires_in: 60 }, { marked: false })
+        .fetch,
     ],
     [
       "an unmarked 502",
       answer(502, "<html>Bad Gateway</html>", { marked: false }).fetch,
     ],
     ["a body that doesn't parse", answer(200, "{").fetch],
-    ["a count as text", answer(200, { problem_count: "0" }).fetch],
-    ["no count", answer(200, {}).fetch],
+    [
+      "a count as text",
+      answer(200, { problem_count: "0", expires_in: 60 }).fetch,
+    ],
+    ["no count", answer(200, { expires_in: 60 }).fetch],
+    ["no time left", answer(200, { problem_count: 0 }).fetch],
+    [
+      "a negative time left",
+      answer(200, { problem_count: 0, expires_in: -1 }).fetch,
+    ],
+    [
+      "a fractional time left",
+      answer(200, { problem_count: 0, expires_in: 1.5 }).fetch,
+    ],
     ["a network error", failing(networkError)],
     ["a timeout", failing(timeout)],
   ])("%s is unavailable", async (_name, fetch) => {

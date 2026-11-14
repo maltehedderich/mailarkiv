@@ -171,10 +171,8 @@ func TestNoMarkersInLogOrStatus(t *testing.T) {
 			}
 
 			// The count is failure events plus unreferenced originals.
-			response, sessionBody := server.request(http.MethodGet, "/api/session", "", token)
-			wantCount := fmt.Sprintf(`{"problem_count":%d}`, len(run.want)+len(status.Unreferenced))
-			if response.StatusCode != http.StatusOK || sessionBody != wantCount {
-				t.Errorf("GET /api/session = %d %s, want %s", response.StatusCode, sessionBody, wantCount)
+			if got, want := server.problemCount(token), len(run.want)+len(status.Unreferenced); got != want {
+				t.Errorf("problem count = %d, want %d", got, want)
 			}
 
 			if code := server.stop(syscall.SIGTERM); code != 0 {
@@ -575,9 +573,8 @@ func testCollectionMarkers(t *testing.T) {
 				}
 			}
 
-			response, sessionBody := server.request(http.MethodGet, "/api/session", "", token)
-			if response.StatusCode != http.StatusOK || sessionBody != `{"problem_count":1}` {
-				t.Errorf("GET /api/session = %d %s, want a problem count of 1", response.StatusCode, sessionBody)
+			if got := server.problemCount(token); got != 1 {
+				t.Errorf("problem count = %d, want 1", got)
 			}
 
 			if code := server.stop(syscall.SIGTERM); code != 0 {

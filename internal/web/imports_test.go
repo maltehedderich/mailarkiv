@@ -389,7 +389,7 @@ func TestImportStorageWriteFailure(t *testing.T) {
 	assertJSONResponse(t, response, body, http.StatusInternalServerError, `{"outcome":"failed","reason":"storage_write_failed"}`)
 
 	response, body = h.do(t, http.MethodGet, "/api/session", session)
-	assertJSONResponse(t, response, body, http.StatusOK, `{"problem_count":1}`)
+	assertJSONResponse(t, response, body, http.StatusOK, `{"problem_count":1,"expires_in":43200}`)
 	response, body = h.do(t, http.MethodGet, "/api/messages", session)
 	assertJSONResponse(t, response, body, http.StatusOK, `{"items":[],"page":1,"page_size":50,"total":0}`)
 }
@@ -530,7 +530,7 @@ func TestDroppedUpload(t *testing.T) {
 		response, body := h.do(t, http.MethodGet, "/api/messages", session)
 		assertJSONResponse(t, response, body, http.StatusOK, `{"items":[],"page":1,"page_size":50,"total":0}`)
 		response, body = h.do(t, http.MethodGet, "/api/session", session)
-		assertJSONResponse(t, response, body, http.StatusOK, `{"problem_count":0}`)
+		assertJSONResponse(t, response, body, http.StatusOK, `{"problem_count":0,"expires_in":43200}`)
 	}
 
 	t.Run("the connection closes mid-body", func(t *testing.T) {

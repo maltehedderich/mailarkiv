@@ -136,11 +136,11 @@ func (s *server) guard(route Route) http.Handler {
 			if noSession == nil {
 				noSession = answerNoSession
 			}
-			account, ok := s.checkSession(w, r, noSession)
+			session, ok := s.checkSession(w, r, noSession)
 			if !ok {
 				return
 			}
-			r = r.WithContext(context.WithValue(r.Context(), accountKey{}, account))
+			r = r.WithContext(context.WithValue(r.Context(), sessionKey{}, session))
 		default:
 			writeError(w, http.StatusForbidden, "no_access_rule")
 			return
@@ -158,37 +158,37 @@ func answerNoSession(w http.ResponseWriter, _ *http.Request) {
 	writeError(w, http.StatusUnauthorized, "no_session")
 }
 
-// checkSession finds the request's account. When it returns false, it has
+// checkSession finds the request's session. When it returns false, it has
 // already answered: through noSession for no valid session, or 500 when the
 // lookup failed, because the session may still be valid.
-func (s *server) checkSession(w http.ResponseWriter, r *http.Request, noSession func(http.ResponseWriter, *http.Request)) (identity.Account, bool) {
+func (s *server) checkSession(w http.ResponseWriter, r *http.Request, noSession func(http.ResponseWriter, *http.Request)) (identity.Session, bool) {
 	cookie, err := r.Cookie(sessionCookieName)
 	if err != nil {
 		noSession(w, r)
-		return identity.Account{}, false
+		return identity.Session{}, false
 	}
-	account, err := s.identity.LookupSession(r.Context(), cookie.Value)
+	session, err := s.identity.LookupSession(r.Context(), cookie.Value)
 	if errors.Is(err, identity.ErrNoSession) {
 		noSession(w, r)
-		return identity.Account{}, false
+		return identity.Session{}, false
 	}
 	if err != nil {
 		s.writeInternalError(w, r, err)
-		return identity.Account{}, false
+		return identity.Session{}, false
 	}
-	return account, true
+	return session, true
 }
 
-type accountKey struct{}
+type sessionKey struct{}
 
-// signedInAccount returns the account the guard found. Only a SignedIn route's
+// signedInSession returns the session the guard found. Only a SignedIn route's
 // handler may call it.
-func signedInAccount(r *http.Request) identity.Account {
-	account, ok := r.Context().Value(accountKey{}).(identity.Account)
+func signedInSession(r *http.Request) identity.Session {
+	session, ok := r.Context().Value(sessionKey{}).(identity.Session)
 	if !ok {
-		panic("signedInAccount called outside a SignedIn route")
+		panic("signedInSession called outside a SignedIn route")
 	}
-	return account
+	return session
 }
 
 // unknownAPI answers 404 only to a caller with a session, so a caller without

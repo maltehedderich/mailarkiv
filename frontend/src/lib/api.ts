@@ -77,6 +77,8 @@ export interface MessageHistory {
 
 export interface SessionInfo {
   problemCount: number;
+  /** Whole seconds the session had left when the server answered. */
+  expiresIn: number;
 }
 
 /** Failure categories use the server's names. */
@@ -410,7 +412,10 @@ export async function getSession(
 ): Promise<ApiResult<SessionInfo>> {
   return getJSON(fetch, "/api/session", (body) => {
     const count = field(body, "problem_count");
-    return isCount(count) ? { problemCount: count } : null;
+    const expiresIn = field(body, "expires_in");
+    return isCount(count) && isCount(expiresIn)
+      ? { problemCount: count, expiresIn }
+      : null;
   });
 }
 

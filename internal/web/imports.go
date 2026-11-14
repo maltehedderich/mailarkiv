@@ -47,7 +47,7 @@ func importFile(s *server, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body := &stallReader{body: r.Body, controller: controller}
-	meta := archive.ImportMeta{AccountEmail: signedInAccount(r).Email, FileName: fileName}
+	meta := archive.ImportMeta{AccountEmail: signedInSession(r).Account.Email, FileName: fileName}
 	result, importErr := s.archive.Import(r.Context(), body, meta)
 	if _, dropped := result.(archive.Dropped); dropped {
 		// The body ended early, so no one is waiting for an answer. This ends the

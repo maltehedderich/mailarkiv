@@ -204,7 +204,7 @@ func TestStatus(t *testing.T) {
 			"failures": []
 		}`, testTime, recovery, hash, len(content)))
 		response, body = h.do(t, http.MethodGet, "/api/session", session)
-		assertJSONResponse(t, response, body, http.StatusOK, `{"problem_count":1}`)
+		assertJSONResponse(t, response, body, http.StatusOK, `{"problem_count":1,"expires_in":43200}`)
 
 		response, body = h.send(t, http.MethodPost, "/api/imports", bytes.NewReader(content), session)
 		if response.StatusCode != http.StatusCreated {
@@ -220,7 +220,7 @@ func TestStatus(t *testing.T) {
 			"failures": []
 		}`, testTime, recovery))
 		response, body = h.do(t, http.MethodGet, "/api/session", session)
-		assertJSONResponse(t, response, body, http.StatusOK, `{"problem_count":0}`)
+		assertJSONResponse(t, response, body, http.StatusOK, `{"problem_count":0,"expires_in":43200}`)
 	})
 
 	// No endpoint here changes the archive.
@@ -262,20 +262,20 @@ func TestProblemCountAddsFailuresAndUnreferenced(t *testing.T) {
 		assertJSONResponse(t, response, body, http.StatusOK, want)
 	}
 
-	assertCount(t, `{"problem_count":0}`)
+	assertCount(t, `{"problem_count":0,"expires_in":43200}`)
 
 	h.status.RecordFailure(opstatus.FailureEvent{Category: opstatus.StorageFull})
 	h.status.RecordFailure(opstatus.FailureEvent{Category: opstatus.TempFileNotRemoved})
-	assertCount(t, `{"problem_count":2}`)
+	assertCount(t, `{"problem_count":2,"expires_in":43200}`)
 
 	first := hashOf([]byte("first"))
 	for _, hash := range []string{first, hashOf([]byte("second")), hashOf([]byte("third"))} {
 		h.status.AddUnreferenced(opstatus.UnreferencedOriginal{ContentHash: hash, Size: 1})
 	}
-	assertCount(t, `{"problem_count":5}`)
+	assertCount(t, `{"problem_count":5,"expires_in":43200}`)
 
 	h.status.RemoveUnreferenced(first)
-	assertCount(t, `{"problem_count":4}`)
+	assertCount(t, `{"problem_count":4,"expires_in":43200}`)
 }
 
 // Contract: the problem count adds one for each problem source on the status
@@ -307,5 +307,5 @@ func TestProblemCountAddsProblemSources(t *testing.T) {
 	}
 
 	response, body := h.do(t, http.MethodGet, "/api/session", session)
-	assertJSONResponse(t, response, body, http.StatusOK, `{"problem_count":3}`)
+	assertJSONResponse(t, response, body, http.StatusOK, `{"problem_count":3,"expires_in":43200}`)
 }
