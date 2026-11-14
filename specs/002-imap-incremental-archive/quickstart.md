@@ -34,9 +34,149 @@ go test ./internal/web -run 'TestEveryRouteDeniesWithoutSession|TestSourceRespon
 
 ## Setup for the manual scenarios
 
-1. Make a throwaway CA with `openssl` and a certificate for `localhost` signed by it. Keep the CA as `.data/ca.pem`.
-2. Run Dovecot in Docker with that certificate, IMAP with TLS on port 993 and STARTTLS on port 143, and one user. Record the image tag: the operator guide lists it as a tested server.
-3. Fill the user's `INBOX` with 50 synthetic messages saved with CRLF line endings, and a second folder with a non-ASCII name, such as `Entwürfe`, with 10.
+1. From the repository root, create a throwaway CA at `.data/ca.pem` and a certificate for `localhost` signed by it. These certificates expire after 30 days. The private keys are unencrypted and for local testing only; `.data/` is ignored by Git.
+
+   ```sh
+   (
+     set -eu
+     umask 077
+     mkdir -p .data
+
+     openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 30 \
+       -keyout .data/ca.key -out .data/ca.pem \
+       -subj '/CN=MailArkiv test CA' \
+       -addext 'basicConstraints=critical,CA:TRUE,pathlen:0' \
+       -addext 'keyUsage=critical,keyCertSign,cRLSign'
+
+     openssl req -new -newkey rsa:2048 -nodes \
+       -keyout .data/localhost.key -out .data/localhost.csr \
+       -subj '/CN=localhost'
+
+     cat > .data/localhost.ext <<'EOF'
+   basicConstraints=critical,CA:FALSE
+   keyUsage=critical,digitalSignature,keyEncipherment
+   extendedKeyUsage=serverAuth
+   subjectAltName=DNS:localhost,IP:127.0.0.1,IP:::1
+   EOF
+
+     openssl x509 -req -in .data/localhost.csr \
+       -CA .data/ca.pem -CAkey .data/ca.key -CAcreateserial \
+       -out .data/localhost.pem -days 30 -sha256 \
+       -extfile .data/localhost.ext
+
+     openssl verify -CAfile .data/ca.pem -purpose sslserver \
+       -verify_hostname localhost .data/localhost.pem
+   )
+   ```
+
+   Expected: `.data/localhost.pem: OK`.
+
+2. From the repository root, start [Dovecot 2.4.2](https://github.com/dovecot/documentation/blob/2.4.2/docs/installation/docker.md) with one test user, `test@example.test`. Keep ports 143 and 993 free. The container publishes them only on loopback; its internal ports are 31143 and 31993.
+
+   ```sh
+   (
+     set -eu
+     umask 077
+     mkdir -p .data/dovecot
+     openssl rand -hex 16 > .data/dovecot-password
+     printf 'test@example.test:{PLAIN}%s:1000:1000::/srv/vmail/test@example.test::\n' \
+       "$(cat .data/dovecot-password)" > .data/dovecot/users
+
+     cat > .data/dovecot/local.conf <<'EOF'
+   protocols = imap
+   ssl = required
+   ssl_server {
+     cert_file = /etc/dovecot/ssl/tls.crt
+     key_file = /etc/dovecot/ssl/tls.key
+   }
+   auth_mechanisms = plain login
+   passdb passwd-file {
+     passwd_file_path = /etc/dovecot/conf.d/users
+   }
+   userdb passwd-file {
+     passwd_file_path = /etc/dovecot/conf.d/users
+   }
+   namespace inbox {
+     inbox = yes
+     separator = /
+   }
+   EOF
+
+     # Dovecot's worker processes run as UID 1000 inside the container.
+     chmod 755 .data/dovecot
+     chmod 644 .data/dovecot/local.conf .data/dovecot/users
+
+     docker pull dovecot/dovecot:2.4.2
+     docker run -d --name mailarkiv-dovecot --user 0:0 \
+       -p 127.0.0.1:143:31143 -p 127.0.0.1:993:31993 \
+       --mount "type=bind,src=$PWD/.data/dovecot,dst=/etc/dovecot/conf.d,readonly" \
+       --mount "type=bind,src=$PWD/.data/localhost.pem,dst=/etc/dovecot/ssl/tls.crt,readonly" \
+       --mount "type=bind,src=$PWD/.data/localhost.key,dst=/etc/dovecot/ssl/tls.key,readonly" \
+       --mount type=volume,src=mailarkiv-dovecot-mail,dst=/srv/vmail \
+       dovecot/dovecot:2.4.2
+
+     docker image inspect dovecot/dovecot:2.4.2 \
+       --format '{{index .RepoDigests 0}}' > .data/dovecot-image.txt
+   )
+   ```
+
+   The master process runs as root inside the container so it can read the private key with its existing permissions. Mail processes use UID 1000. The mounted configuration replaces the image's default authentication, which accepts arbitrary user names. The generated password stays under the Git-ignored `.data/` directory; use `cat .data/dovecot-password` when entering it in MailArkiv.
+
+   Check startup and both TLS modes before seeding mail:
+
+   ```sh
+   docker logs mailarkiv-dovecot
+   openssl s_client -connect 127.0.0.1:993 -servername localhost \
+     -CAfile .data/ca.pem -verify_hostname localhost -verify_return_error </dev/null
+   openssl s_client -starttls imap -connect 127.0.0.1:143 -servername localhost \
+     -CAfile .data/ca.pem -verify_hostname localhost -verify_return_error </dev/null
+   ```
+
+   Expected: Dovecot starts without a fatal error, and both TLS checks report `Verify return code: 0 (ok)`. If a connection is refused while the container starts, check its logs and repeat the check. In MailArkiv, use host `localhost`, user `test@example.test`, and either TLS on port 993 or STARTTLS on port 143. Record the image tag and the digest in `.data/dovecot-image.txt` with the scenario results; list it as tested in the operator guide only after running the scenarios.
+
+3. Create `INBOX` and `Entwürfe`, then save 50 and 10 synthetic messages respectively. Run this once against an empty test mailbox. If it stops partway through, use the reset commands below before retrying. Each message has a unique Message-ID, and the original CRLF files stay in `.data/fixtures/` for the download comparison in scenario 1.
+
+   ```sh
+   (
+     set -eu
+     umask 077
+     mkdir -p .data/fixtures
+     docker exec mailarkiv-dovecot doveadm mailbox create \
+       -u test@example.test -s INBOX 'Entwürfe'
+
+     for folder in INBOX 'Entwürfe'; do
+       case "$folder" in
+         INBOX) count=50; prefix=inbox ;;
+         *) count=10; prefix=drafts ;;
+       esac
+       i=1
+       while [ "$i" -le "$count" ]; do
+         file=$(printf '.data/fixtures/%s-%02d.eml' "$prefix" "$i")
+         printf '%s\r\n' \
+           'From: Sender <sender@example.test>' \
+           'To: Test User <test@example.test>' \
+           'Date: Fri, 13 Nov 2026 12:00:00 +0000' \
+           "Message-ID: <$prefix-$i@mailarkiv.example.test>" \
+           "Subject: Synthetic $prefix message $i" \
+           'MIME-Version: 1.0' \
+           'Content-Type: text/plain; charset=us-ascii' \
+           '' \
+           "Synthetic message $i for $prefix." > "$file"
+         docker exec -i mailarkiv-dovecot doveadm save \
+           -u test@example.test -m "$folder" < "$file"
+         i=$((i + 1))
+       done
+     done
+
+     docker exec mailarkiv-dovecot doveadm mailbox status \
+       -u test@example.test messages INBOX 'Entwürfe'
+   )
+   ```
+
+   Expected: `INBOX messages=50` and `Entwürfe messages=10`. Use `sha256sum .data/fixtures/inbox-01.eml` and compare it with the downloaded copy of “Synthetic inbox message 1” in scenario 1.
+
+   The named volume keeps mail across container restarts. Use `docker stop mailarkiv-dovecot` and `docker start mailarkiv-dovecot` to stop and resume it. To start over, remove only this throwaway server and its mail with `docker rm -f mailarkiv-dovecot` followed by `docker volume rm mailarkiv-dovecot-mail`, then repeat steps 2 and 3.
+
 4. Build MailArkiv, create an account and a key, and start it trusting the CA:
 
 ```sh
@@ -46,7 +186,7 @@ bin/mailarkiv key create --data-dir .data/demo .data/mailarkiv.key
 SSL_CERT_FILE=.data/ca.pem bin/mailarkiv serve --data-dir .data/demo --key-file .data/mailarkiv.key
 ```
 
-Until delivery step 8, add `--preview-collection` and open `http://localhost:8080/sources` directly, because the navigation item doesn't exist yet.
+Open `http://localhost:8080`, sign in, and choose **Sources → Add a source**.
 
 ## Scenario 1: connect a mailbox
 

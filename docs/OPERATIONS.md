@@ -2,7 +2,7 @@
 
 This guide is for the person who runs MailArkiv on a server. It covers building it, running it, managing accounts, putting it behind HTTPS, and what this version does and doesn't promise.
 
-MailArkiv is built in seven slices toward its first release, and this is Slice 1. It imports one `.eml` file at a time through the web interface, lists what it stores, and gives back the exact original bytes on download. Search, mail collection, deletion, and backup come in later slices. [What this version doesn't promise](#what-this-version-doesnt-promise) lists the limits.
+MailArkiv is built in seven slices toward its first release. It imports `.eml` files, lists stored messages, and downloads the exact original bytes. IMAP collection is available while Slice 2 is being developed; its real-server validation is still pending. Search, deletion, and backup come in later slices. [What this version doesn't promise](#what-this-version-doesnt-promise) lists the limits.
 
 ## What you need
 
@@ -123,6 +123,26 @@ sudo -u mailarkiv mailarkiv account set-password --data-dir /var/lib/mailarkiv E
 
 Every account sees the whole archive. There are no roles.
 
+## The key
+
+`mise run dev` uses `.data/dev` for the archive and `.data/mailarkiv.key` for its key. It creates the key if missing and reuses it on later starts.
+
+IMAP collection needs a key file outside the data directory. Create it as the user that runs MailArkiv, in a directory that user owns. For a local development archive:
+
+```sh
+mkdir -p .data
+bin/mailarkiv key create --data-dir .data/demo .data/mailarkiv.key
+bin/mailarkiv serve --data-dir .data/demo --key-file .data/mailarkiv.key
+```
+
+Use your existing data directory and key if you have already created them. The key command refuses to overwrite an existing file and creates new files with mode 0600. Keep the key readable only by the service user, and back it up separately from the archive. Anyone who can read both the key and the archive can read the saved IMAP passwords. Paths inside the data directory, including symbolic links into it, are refused; hard links into it are not detected.
+
+Open **Sources → Add a source**, enter the mailbox details, press **Connect**, select folders, and save. The account created with `account create` signs you into MailArkiv; the source holds your IMAP credentials.
+
+Without `--key-file`, Sources explains that collection needs the key. No mail is collected and no source can be added, but imports and downloads still work. Startup logs `collection unavailable` with reason `no key file given`.
+
+If the key is lost, every source's IMAP password must be saved again. To replace it, stop the server, create a key at a new path outside the data directory, and start with that path. Each source shows **Needs attention** until you save its password again. Archived messages remain available. There is no command to re-encrypt saved passwords under a new key.
+
 ## Imports and what a result means
 
 Administrators import one file at a time, up to 150 MB, which here means 150,000,000 bytes. MailArkiv refuses a file that is empty, over the limit, or doesn't start with a mail header line. It doesn't reject or change a file for any other defect. An mbox file passes the check and is stored as one message.
@@ -144,7 +164,7 @@ Before a download starts, the server checks the stored original against its cont
 
 ## Storage
 
-Everything lives in the data directory:
+The archive lives in the data directory. Keep the password key outside it:
 
 | Path                                             | Holds                                                                                                   |
 | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
@@ -237,7 +257,7 @@ Safari may refuse the session cookie over plain HTTP on `localhost`. If signing 
 ## What this version doesn't promise
 
 - **No tamper-proof storage.** Anyone who can write to the data directory can change or delete originals and the catalog. A changed original is caught when someone downloads it, not prevented.
-- **No encryption by MailArkiv.** Originals are plain files and the catalog is a plain SQLite database. Use disk encryption if you need it.
+- **No encryption of archived mail by MailArkiv.** Originals are plain files and the catalog is a plain SQLite database. Only saved IMAP passwords are encrypted with the separate key. Use disk encryption if you need it.
 - **No backup** until Slice 6.
 - **No deletion** until Slice 5. An imported message can't be removed through MailArkiv, and the import screen says so before each import.
 - **No splitting of mbox files.** An mbox file is stored as one message.
