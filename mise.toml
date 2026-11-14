@@ -41,7 +41,11 @@ run = [{ tasks = ["dev:server", "dev:frontend"] }]
 [tasks."dev:server"]
 description = "Run the server against the local development data"
 hide = true
-run = "go run ./cmd/mailarkiv serve --data-dir .data/dev"
+run = [
+  "mkdir -p .data",
+  "if [ ! -e .data/mailarkiv.key ]; then go run ./cmd/mailarkiv key create --data-dir .data/dev .data/mailarkiv.key; fi",
+  "go run ./cmd/mailarkiv serve --data-dir .data/dev --key-file .data/mailarkiv.key",
+]
 
 [tasks."dev:frontend"]
 description = "Run the frontend dev server"

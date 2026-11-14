@@ -160,23 +160,6 @@ func TestStatus(t *testing.T) {
 		}
 	})
 
-	// Without collection there are no sources to report.
-	t.Run("no collector", func(t *testing.T) {
-		h := newHarnessWith(t, Routes(), harnessOptions{noCollector: true})
-		h.createAccount(t, account)
-		session := h.signIn(t, account)
-
-		response, body := h.do(t, http.MethodGet, "/api/status", session)
-
-		assertJSONResponse(t, response, body, http.StatusOK, fmt.Sprintf(`{
-			"started_at": %q,
-			"recovery": null,
-			"sources": [],
-			"unreferenced": [],
-			"failures": []
-		}`, testTime))
-	})
-
 	t.Run("empty lists are empty arrays", func(t *testing.T) {
 		h := newHarness(t, Routes())
 		h.createAccount(t, account)

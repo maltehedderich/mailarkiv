@@ -301,10 +301,10 @@ func (m *markerMailbox) start(t *testing.T, keyPath, faults string) *serverProce
 	t.Helper()
 	var server *serverProcess
 	if faults == "" {
-		server = startCollecting(t, m.dataDir, keyPath, m.caFile, true)
+		server = startCollecting(t, m.dataDir, keyPath, m.caFile)
 	} else {
 		cmd := exec.Command(faultsBinary, "serve", "--data-dir", m.dataDir, "--listen", "127.0.0.1:0",
-			"--key-file", keyPath, "--preview-collection")
+			"--key-file", keyPath)
 		cmd.Env = append(os.Environ(), "SSL_CERT_FILE="+m.caFile, "MAILARKIV_FAULTS="+faults)
 		server = startProcess(t, cmd)
 	}

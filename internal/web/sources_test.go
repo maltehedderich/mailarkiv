@@ -394,28 +394,6 @@ func TestAddSourceWithoutKey(t *testing.T) {
 	assertJSONResponse(t, response, body, http.StatusOK, `{"collection":"no_key","sources":[]}`)
 }
 
-// Contract: without a collector, as serve runs without --preview-collection,
-// the source paths are unknown: 404 with a session, 401 without.
-func TestSourcesWithoutCollector(t *testing.T) {
-	h := newHarnessWith(t, Routes(), harnessOptions{noCollector: true})
-	h.createAccount(t, "admin@example.test")
-	session := h.signIn(t, "admin@example.test")
-
-	for _, route := range Routes() {
-		if !route.Collection {
-			continue
-		}
-		path := concretePath(route.Path, 1)
-		t.Run(route.pattern(), func(t *testing.T) {
-			response, body := h.send(t, route.Method, path, strings.NewReader(`{}`), session)
-			assertJSONResponse(t, response, body, http.StatusNotFound, `{"error":"not_found"}`)
-
-			response, body = h.send(t, route.Method, path, strings.NewReader(`{}`), nil)
-			assertJSONResponse(t, response, body, http.StatusUnauthorized, noSession)
-		})
-	}
-}
-
 // Contract: POST /api/sources whose sign-in fails answers 422 check_failed
 // with the category and the server's reply, which is absent when it sent
 // none, and saves nothing.

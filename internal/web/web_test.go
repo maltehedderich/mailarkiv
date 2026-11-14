@@ -85,9 +85,6 @@ type harness struct {
 // collector with no key that never starts, so the source routes exist and
 // nothing syncs.
 type harnessOptions struct {
-	// noCollector leaves Deps.Collect nil, as serve does without
-	// --preview-collection.
-	noCollector bool
 	// key gives the collector a key in a file outside the data directory.
 	key bool
 	// roots are the CAs the collector trusts, for a double's certificate.
@@ -108,9 +105,7 @@ func newHarnessWith(t *testing.T, routes []Route, options harnessOptions) *harne
 	t.Helper()
 	h := &harness{log: &lockedBuffer{}}
 	deps := h.deps(t)
-	if !options.noCollector {
-		deps.Collect = h.openCollector(t, options)
-	}
+	deps.Collect = h.openCollector(t, options)
 	handler := newHandler(deps, routes)
 	if options.checkLimit > 0 {
 		handler = withDeadline(handler, options.checkLimit)

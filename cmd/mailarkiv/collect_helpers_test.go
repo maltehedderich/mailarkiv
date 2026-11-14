@@ -77,16 +77,12 @@ func createKey(t *testing.T, dataDir string) string {
 }
 
 // startCollecting runs the binary with the key and with the doubles' CAs as
-// its only trusted roots. An empty keyPath gives no --key-file. preview adds
-// --preview-collection.
-func startCollecting(t *testing.T, dataDir, keyPath, caFile string, preview bool) *serverProcess {
+// its only trusted roots. An empty keyPath gives no --key-file.
+func startCollecting(t *testing.T, dataDir, keyPath, caFile string) *serverProcess {
 	t.Helper()
 	args := []string{"serve", "--data-dir", dataDir, "--listen", "127.0.0.1:0"}
 	if keyPath != "" {
 		args = append(args, "--key-file", keyPath)
-	}
-	if preview {
-		args = append(args, "--preview-collection")
 	}
 	cmd := exec.Command(serverBinary, args...)
 	cmd.Env = append(os.Environ(), "SSL_CERT_FILE="+caFile)

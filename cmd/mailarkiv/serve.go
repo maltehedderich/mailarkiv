@@ -51,8 +51,6 @@ type serveOptions struct {
 	listen string
 	// key is nil without --key-file.
 	key *passwordkey.Key
-	// collection is set by the hidden --preview-collection flag.
-	collection bool
 }
 
 func serve(args []string) int {
@@ -61,7 +59,6 @@ func serve(args []string) int {
 	dataDir := flags.String("data-dir", "", "")
 	listen := flags.String("listen", defaultListen, "")
 	keyFile := flags.String("key-file", "", "")
-	collection := flags.Bool("preview-collection", false, "")
 
 	if err := flags.Parse(args); err != nil {
 		return exitBadArgs
@@ -81,7 +78,7 @@ func serve(args []string) int {
 	}
 
 	// Before the lock, so a bad key fails fast and touches nothing else.
-	options := serveOptions{listen: *listen, collection: *collection}
+	options := serveOptions{listen: *listen}
 	if *keyFile != "" {
 		loaded, reason, err := loadKey(*dataDir, *keyFile)
 		if err != nil {
@@ -154,24 +151,21 @@ func serveCatalog(logger *slog.Logger, dataDir string, db *sqlitedb.DB, options 
 		return startupFailed(logger, causeStorage, err)
 	}
 
-	var collector *collect.Collector
-	if options.collection {
-		if options.key == nil {
-			logger.Info("collection unavailable", "reason", "no key file given")
-		}
-		// Nil roots trust the system's certificates, which SSL_CERT_FILE can
-		// replace.
-		collector, err = collect.Open(context.Background(), collect.Deps{
-			DB:      db,
-			Archive: originals,
-			Status:  status,
-			Key:     options.key,
-			Logger:  logger,
-			Now:     time.Now,
-		})
-		if err != nil {
-			return startupFailed(logger, causeCatalog, err)
-		}
+	if options.key == nil {
+		logger.Info("collection unavailable", "reason", "no key file given")
+	}
+	// Nil roots trust the system's certificates, which SSL_CERT_FILE can
+	// replace.
+	collector, err := collect.Open(context.Background(), collect.Deps{
+		DB:      db,
+		Archive: originals,
+		Status:  status,
+		Key:     options.key,
+		Logger:  logger,
+		Now:     time.Now,
+	})
+	if err != nil {
+		return startupFailed(logger, causeCatalog, err)
 	}
 	return listenAndServe(logger, options.listen, web.New(web.Deps{
 		Files:    files,
@@ -185,18 +179,14 @@ func serveCatalog(logger *slog.Logger, dataDir string, db *sqlitedb.DB, options 
 }
 
 // listenAndServe serves until SIGTERM or SIGINT, then gives requests in
-// progress the grace period. A collector, if any, starts once the port is
+// progress the grace period. The collector starts once the port is
 // bound and stops during the grace period.
 func listenAndServe(logger *slog.Logger, listen string, handler http.Handler, collector *collect.Collector) int {
 	listener, err := net.Listen("tcp", listen)
 	if err != nil {
 		return startupFailed(logger, causePort, err)
 	}
-	stopCollecting := func() {}
-	if collector != nil {
-		collector.Start()
-		stopCollecting = collector.Stop
-	}
+	collector.Start()
 
 	server := &http.Server{
 		Handler:           handler,
@@ -218,7 +208,7 @@ func listenAndServe(logger *slog.Logger, listen string, handler http.Handler, co
 	select {
 	case err := <-served:
 		logger.Error("the server stopped by itself", "error", err.Error())
-		stopCollecting()
+		collector.Stop()
 		return exitFailed
 	case <-signals.Done():
 	}
@@ -230,7 +220,7 @@ func listenAndServe(logger *slog.Logger, listen string, handler http.Handler, co
 	collecting := make(chan struct{})
 	go func() {
 		defer close(collecting)
-		stopCollecting()
+		collector.Stop()
 	}()
 
 	grace, cancel := context.WithTimeout(context.Background(), shutdownGrace)

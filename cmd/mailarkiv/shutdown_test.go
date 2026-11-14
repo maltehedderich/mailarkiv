@@ -69,7 +69,7 @@ func TestShutdownDuringSync(t *testing.T) {
 	dataDir := filepath.Join(t.TempDir(), "data")
 	keyPath := createKey(t, dataDir)
 	createAdmin(t, dataDir)
-	server := startCollecting(t, dataDir, keyPath, caFile, true)
+	server := startCollecting(t, dataDir, keyPath, caFile)
 	token := signInOverHTTP(t, server.baseURL, adminAddress)
 	response, body := server.request(http.MethodPost, "/api/sources", sourceRequest(t, double, "INBOX"), token)
 	if response.StatusCode != http.StatusCreated {
@@ -92,7 +92,7 @@ func TestShutdownDuringSync(t *testing.T) {
 	if err := double.SetFault("INBOX", uid, imaptest.Fault{}); err != nil {
 		t.Fatal(err)
 	}
-	next := startCollecting(t, dataDir, keyPath, caFile, true)
+	next := startCollecting(t, dataDir, keyPath, caFile)
 	next.waitForSuccessAfter(token, next.onlySource(token).ID, "")
 	if got := next.listedHashes(token); !slices.Equal(got, []string{contentHash(content)}) {
 		t.Errorf("after a restart the list holds %v, want the message once", got)

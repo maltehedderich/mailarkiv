@@ -71,7 +71,7 @@ func assertPasswordUnreadable(t *testing.T, source map[string]any, from, to time
 // waits for each to sync, and stops it. It returns the IDs in order.
 func collectOnce(t *testing.T, dataDir, keyPath, caFile string, bodies ...string) []int64 {
 	t.Helper()
-	server := startCollecting(t, dataDir, keyPath, caFile, true)
+	server := startCollecting(t, dataDir, keyPath, caFile)
 	_, token := attemptSignIn(server, adminAddress, accountPassword)
 	var ids []int64
 	for _, body := range bodies {
@@ -96,7 +96,7 @@ func TestNoKey(t *testing.T) {
 	logins := doubleLogins(double)
 
 	started := time.Now()
-	server := startCollecting(t, dataDir, "", caFile, true)
+	server := startCollecting(t, dataDir, "", caFile)
 	_, token := attemptSignIn(server, adminAddress, accountPassword)
 
 	var unavailable int
@@ -161,7 +161,7 @@ func TestWrongKey(t *testing.T) {
 	before := map[*imaptest.Server]int{anna: doubleLogins(anna), ben: doubleLogins(ben)}
 
 	started := time.Now()
-	server := startCollecting(t, dataDir, createKey(t, dataDir), caFile, true)
+	server := startCollecting(t, dataDir, createKey(t, dataDir), caFile)
 	_, token := attemptSignIn(server, adminAddress, accountPassword)
 
 	collection, sources := server.listedSources(token)

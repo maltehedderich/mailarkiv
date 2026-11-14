@@ -73,7 +73,7 @@ func TestNoPasswordInDataDir(t *testing.T) {
 	dataDir := filepath.Join(t.TempDir(), "data")
 	keyPath := createKey(t, dataDir)
 	createAdmin(t, dataDir)
-	server := startCollecting(t, dataDir, keyPath, caFile, true)
+	server := startCollecting(t, dataDir, keyPath, caFile)
 	_, token := attemptSignIn(server, adminAddress, accountPassword)
 	ids := []int64{
 		server.addSource(token, sourceRequest(t, anna, "INBOX")),
@@ -117,7 +117,7 @@ func TestNoPasswordInDataDir(t *testing.T) {
 			t.Fatalf("exit code = %d, want 0:\n%s", code, server.stderr())
 		}
 		started := time.Now()
-		restarted := startCollecting(t, dataDir, createKey(t, dataDir), caFile, true)
+		restarted := startCollecting(t, dataDir, createKey(t, dataDir), caFile)
 		_, token := attemptSignIn(restarted, adminAddress, accountPassword)
 
 		_, sources := restarted.listedSources(token)

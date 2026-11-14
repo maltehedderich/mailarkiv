@@ -239,11 +239,11 @@ The wrapper ignores the deadlines the library sets. The first read error is kept
 
 **Rationale:** The old names would be wrong for collected messages. The API isn't published, so nobody else depends on the old names.
 
-### Keeping collection unreleased
+### Collection during development
 
-**Decision:** Until the last delivery step, a hidden `serve` flag, `--preview-collection`, registers the source routes and starts collection. Without it those routes don't exist and nothing syncs. `key create` and `--key-file` work but stay out of the usage text. The Sources navigation item and the operator guide's sections arrive in the last step, when the flag goes.
+**Decision:** Collection runs on normal server startup. The source routes are always registered, `key create` and `--key-file` appear in usage text, and Sources is part of the main navigation.
 
-**Rationale:** Constitution VI requires unreleased behavior behind a flag or an unrouted entry point. Migration 0002 runs on `main` before the release. It changes only the schema, and its test covers a Slice 1 catalog.
+**Rationale:** MailArkiv is a greenfield application with no users yet. The owner chose direct access during development on 2026-11-13. The [plan's Complexity Tracking](plan.md#complexity-tracking) records the exception to constitution VI. Migration 0002 still has a test covering a Slice 1 catalog.
 
 ## Testing
 

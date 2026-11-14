@@ -13,8 +13,8 @@ const POLL_INTERVAL_MS = 50;
 
 export interface ServerOptions {
   /**
-   * Creates a key outside the data directory, starts the server with it and
-   * with collection on, and makes the server trust only the CA in this file.
+   * Creates a key outside the data directory, starts the server with it,
+   * and makes the server trust only the CA in this file.
    */
   collection?: { caFile: string };
 }
@@ -110,7 +110,7 @@ async function launch(
   // certificates, so it trusts the test mail server and nothing else.
   let env = process.env;
   if (collection !== null) {
-    args.push("--key-file", collection.keyFile, "--preview-collection");
+    args.push("--key-file", collection.keyFile);
     env = { ...process.env, SSL_CERT_FILE: collection.caFile };
   }
   const child = spawn(BINARY, args, {

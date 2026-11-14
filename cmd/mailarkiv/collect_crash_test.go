@@ -58,7 +58,7 @@ func newCollectCrash(t *testing.T, point string) *collectCrash {
 func (c *collectCrash) startFaults(t *testing.T, faults string) *serverProcess {
 	t.Helper()
 	cmd := exec.Command(faultsBinary, "serve", "--data-dir", c.dataDir, "--listen", "127.0.0.1:0",
-		"--key-file", c.keyPath, "--preview-collection")
+		"--key-file", c.keyPath)
 	cmd.Env = append(os.Environ(), "SSL_CERT_FILE="+c.caFile, "MAILARKIV_FAULTS="+faults)
 	return startProcess(t, cmd)
 }
@@ -216,7 +216,7 @@ func TestCollectCrashMatrix(t *testing.T) {
 				t.Fatalf("exit = %d, want 0:\n%s", code, recovered.stderr())
 			}
 
-			server := startCollecting(t, c.dataDir, c.keyPath, c.caFile, true)
+			server := startCollecting(t, c.dataDir, c.keyPath, c.caFile)
 			server.waitForSuccessAfter(token, sourceID, "")
 
 			if got, want := server.listedHashes(token), c.hashes(0, 1, 2); !slices.Equal(got, want) {

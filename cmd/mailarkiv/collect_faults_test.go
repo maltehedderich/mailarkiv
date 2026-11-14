@@ -84,7 +84,7 @@ func TestCollectStorageFailures(t *testing.T) {
 				t.Errorf("last_uid = %d, want 0", lastUID)
 			}
 
-			server := startCollecting(t, c.dataDir, c.keyPath, c.caFile, true)
+			server := startCollecting(t, c.dataDir, c.keyPath, c.caFile)
 			server.waitForSuccessAfter(token, sourceID, "")
 			if got, want := server.listedHashes(token), c.hashes(0, 1, 2); !slices.Equal(got, want) {
 				t.Errorf("after a restart the list holds %v, want all three", got)

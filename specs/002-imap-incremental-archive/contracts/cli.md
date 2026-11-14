@@ -2,8 +2,6 @@
 
 This adds to [the Slice 1 command line](../../001-import-browse-retrieve/contracts/cli.md). `--data-dir` stays required on every command, and the exit codes keep their meaning.
 
-Until the last delivery step, `key create`, `--key-file`, and `--preview-collection` work but don't appear in the usage text.
-
 ## `mailarkiv key create`
 
 ```text
@@ -82,7 +80,3 @@ All are JSON lines from `log/slog` on stderr, as in Slice 1. None contains a pas
 | WARN | `message not archived` | `source_id`, `folder_id`, `category`: `message_too_large` or `message_removed` | Once per message |
 
 A storage or catalog failure during collection also logs archive's own line, with the cause, as imports do. Successful syncs aren't logged.
-
-## Hidden flag
-
-`--preview-collection` registers the [source routes](http-api.md#access) and starts collection at step 9. Without it, steps 7 and 9 are skipped and no `collection unavailable` line is written. The flag is removed in the last delivery step, and collection then always runs.

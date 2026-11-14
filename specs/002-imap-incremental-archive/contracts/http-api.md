@@ -6,7 +6,7 @@ This adds to [the Slice 1 API](../../001-import-browse-retrieve/contracts/http-a
 
 Every new route is `SignedIn`. Non-GET requests pass through `http.CrossOriginProtection` before the session check, as in Slice 1, and `TestEveryRouteDeniesWithoutSession` covers the new routes because it reads the route table (FR-031).
 
-Until the last delivery step, these routes exist only when `serve` runs with `--preview-collection`. Without it, `/api/sources` paths are unknown: 401 without a session and 404 with one, like any other unknown `/api/` path.
+The source routes are always registered. They require a session, including when the server starts without a key. Without a key, sources remain visible and collection is unavailable.
 
 | Method | Path | Purpose |
 | ------ | ---- | ------- |

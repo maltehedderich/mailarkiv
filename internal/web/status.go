@@ -115,11 +115,7 @@ func readStatus(s *server, w http.ResponseWriter, r *http.Request) {
 	}{formatTime(snapshot.StartedAt), recovery, sources, unreferenced, failures})
 }
 
-// problemSources returns the sources the status screen lists. Without
-// collection there are none.
+// problemSources returns the sources the status screen lists.
 func (s *server) problemSources(r *http.Request) ([]collect.ProblemSource, error) {
-	if s.collect == nil {
-		return nil, nil
-	}
 	return s.collect.ProblemSources(r.Context())
 }

@@ -36,7 +36,7 @@ func TestCollectFirstSync(t *testing.T) {
 	dataDir := filepath.Join(t.TempDir(), "data")
 	keyPath := createKey(t, dataDir)
 	createAdmin(t, dataDir)
-	server := startCollecting(t, dataDir, keyPath, caFile, true)
+	server := startCollecting(t, dataDir, keyPath, caFile)
 	_, token := attemptSignIn(server, adminAddress, accountPassword)
 
 	response, body := server.request(http.MethodPost, "/api/sources", sourceRequest(t, double, "INBOX", "Gesendete Objekte"), token)
@@ -95,7 +95,7 @@ func TestCollectFirstSync(t *testing.T) {
 		}
 		before := doubleLogins(double)
 
-		restarted := startCollecting(t, dataDir, keyPath, caFile, true)
+		restarted := startCollecting(t, dataDir, keyPath, caFile)
 		_, token := attemptSignIn(restarted, adminAddress, accountPassword)
 		again := restarted.waitForSuccessAfter(token, added.ID, first.LastSuccess.At)
 
@@ -108,36 +108,14 @@ func TestCollectFirstSync(t *testing.T) {
 	})
 }
 
-// Without --preview-collection the source routes don't exist and nothing
-// connects to a mail server, even with a key.
-func TestCollectionNeedsThePreviewFlag(t *testing.T) {
-	double, caFile := newProcessDouble(t)
-	dataDir := filepath.Join(t.TempDir(), "data")
-	keyPath := createKey(t, dataDir)
-	createAdmin(t, dataDir)
-	server := startCollecting(t, dataDir, keyPath, caFile, false)
-	_, token := attemptSignIn(server, adminAddress, accountPassword)
-
-	response, body := server.request(http.MethodPost, "/api/sources", sourceRequest(t, double, "INBOX"), token)
-
-	if response.StatusCode != http.StatusNotFound || body != `{"error":"not_found"}` {
-		t.Errorf("POST /api/sources = %d %s, want 404 not_found", response.StatusCode, body)
-	}
-	if commands := double.Commands(); len(commands) != 0 {
-		t.Errorf("the double saw %+v", commands)
-	}
-}
-
-// The collection commands and flags work, but stay out of the usage text
-// until collection is released.
-func TestUsageHidesCollection(t *testing.T) {
+func TestUsageIncludesCollection(t *testing.T) {
 	_, stderr := runToExit(t)
 	if !strings.Contains(stderr, "Usage:") {
 		t.Fatalf("stderr holds no usage text: %q", stderr)
 	}
-	for _, hidden := range []string{"key", "--key-file", "--preview-collection"} {
-		if strings.Contains(stderr, hidden) {
-			t.Errorf("the usage text mentions %q:\n%s", hidden, stderr)
+	for _, command := range []string{"mailarkiv key create --data-dir DIR PATH", "--key-file PATH"} {
+		if !strings.Contains(stderr, command) {
+			t.Errorf("the usage text is missing %q:\n%s", command, stderr)
 		}
 	}
 }

@@ -8,7 +8,7 @@
 
 An administrator adds an IMAP mailbox and chooses folders. MailArkiv archives every message in them, then new ones every 5 minutes. The main risk is a checkpoint that moves past a message that isn't stored: once the user deletes that message, the archive never gets it.
 
-A new module, `collect`, runs one loop per source. It opens folders read-only, fetches each body with `BODY.PEEK[]`, stores it through the Slice 1 capture path, and only then commits the folder's checkpoint. A unique index keeps re-collection from adding history entries. The IMAP library's own deadlines miss a server that goes silent, so a wrapper below TLS enforces the 30 second connect limit and the 60 second idle limit, and bounds reply sizes. Passwords are sealed with AES-256-GCM under a key file kept outside the data directory. Tests drive the library's in-memory IMAP server with injected faults, and the crash matrix gains collection rows. Collection stays behind a hidden flag until the last delivery step. [research.md](research.md) has the tests behind each decision.
+A new module, `collect`, runs one loop per source. It opens folders read-only, fetches each body with `BODY.PEEK[]`, stores it through the Slice 1 capture path, and only then commits the folder's checkpoint. A unique index keeps re-collection from adding history entries. The IMAP library's own deadlines miss a server that goes silent, so a wrapper below TLS enforces the 30 second connect limit and the 60 second idle limit, and bounds reply sizes. Passwords are sealed with AES-256-GCM under a key file kept outside the data directory. Tests drive the library's in-memory IMAP server with injected faults, and the crash matrix gains collection rows. [research.md](research.md) has the tests behind each decision.
 
 ## Technical Context
 
@@ -36,7 +36,7 @@ A new module, `collect`, runs one loop per source. It opens folders read-only, f
 
 **Constraints**: Never change the mailbox. Connect and handshake within 30 seconds, then fail after 60 seconds without data. Each command may read at most 16 MiB, and a body fetch at most 150,000,000 bytes plus 1 MiB. One connection per source. Syncs stop inside the 5 second shutdown grace. Passwords never reach the log, the status screen, a browser response, or the data directory in a form readable without the key.
 
-**Scale/Scope**: Up to 50 sources. A 100,000 message first sync that resumes across restarts. One new module, one key package, and one test double package. Four new tables and three new columns. Ten routes, one command, one `serve` option, one hidden flag, and three screens.
+**Scale/Scope**: Up to 50 sources. A 100,000 message first sync that resumes across restarts. One new module, one key package, and one test double package. Four new tables and three new columns. Ten routes, one command, one `serve` option, and three screens.
 
 ## Constitution Check
 
@@ -49,7 +49,7 @@ A new module, `collect`, runs one loop per source. It opens folders read-only, f
 | III. Explicit contracts and failures | States, categories, and security modes are closed sets. Input is parsed once at the HTTP and CLI boundaries. Every network step has a limit: 30 seconds to connect, 60 seconds idle, 120 seconds for a check. Re-collection is idempotent through the content hash and a unique index. Every failure reaches the source's page, and every problem source reaches the status screen and the log |
 | IV. Security and privacy | Passwords are sealed, bound to their host and user name, and never returned or logged. TLS is required, with certificates the host trusts. Every route is denied by default. The key must sit outside the data directory. Logs carry IDs and categories only. The new dependency was adopted in ADR 0003, is pinned, and `govulncheck` finds nothing. ADR 0008 records the encryption |
 | V. Test according to risk | Failures are ranked below, each with a check at the lowest layer that catches it. Real SQLite, files, and modules. Doubles only for the mail server, the disk's errors, and the clock |
-| VI. Small batches | The [delivery order](#delivery-order) starts with a walking skeleton through every layer. `main` stays releasable: collection runs only with `--preview-collection` until the last step, which removes the flag |
+| VI. Small batches | The [delivery order](#delivery-order) starts with a walking skeleton through every layer. `main` stays buildable and checked. Collection runs on normal startup; the greenfield exception is recorded in [Complexity Tracking](#complexity-tracking) |
 | Governance | The spec defines scope and exclusions. This plan names each check and its layer. ADR 0008 records the key format and encryption, and ADR 0003 gains the connection wrapper |
 
 ## Credible failures
@@ -83,7 +83,7 @@ Ranked by harm first, then likelihood. Expected values come from the spec.
 
 ### Crash matrix
 
-`TestCollectCrashMatrix` serves three messages in one folder from the double. It starts the `faults` binary with `--preview-collection`, adds a source over HTTP, lets the first message hit the stop point, restarts with the default binary, and waits for the next sync. The capture points are Slice 1's, reached through `StoreCollected`. `after-checkpoint-commit` is new in `collect`, and `checkpoint-commit` takes an injected error.
+`TestCollectCrashMatrix` serves three messages in one folder from the double. It starts the `faults` binary, adds a source over HTTP, lets the first message hit the stop point, restarts with the default binary, and waits for the next sync. The capture points are Slice 1's, reached through `StoreCollected`. `after-checkpoint-commit` is new in `collect`, and `checkpoint-commit` takes an injected error.
 
 | Stop point | After restart, before the sync | After the next sync |
 | ---------- | ------------------------------ | ------------------- |
@@ -130,7 +130,7 @@ specs/002-imap-incremental-archive/
 ### Source Code (repository root)
 
 ```text
-cmd/mailarkiv/           # key create, serve --key-file, the hidden flag
+cmd/mailarkiv/           # key create, serve --key-file
                          # Process tests: collection crash matrix, storage faults, shutdown, keys, markers
 internal/
 ├── collect/             # New. Sources, folders, problems, schedule, sync, connection wrapper, categories
@@ -163,18 +163,18 @@ docs/OPERATIONS.md, docs/adr/0008-*.md
 
 ## Delivery order
 
-Each step ends in behavior that tests can check and merges to `main` with `mise run check` passing. Collection stays behind `--preview-collection` until step 8.
+Each step ends in behavior that tests can check and merges to `main` with `mise run check` passing. Collection runs on normal startup, and Sources joins the navigation when the interface is built.
 
 | Step | Delivers | Verified by |
 | ---- | -------- | ----------- |
-| 1. Walking skeleton | Migration 0002 and the runner change. `passwordkey` with hidden `key create` and `--key-file`. `collect` with `POST /api/sources`, a sealed password, and syncs of the chosen folders through `StoreCollected` with checkpoints, at save and at start. `GET /api/sources` and `GET /api/sources/{id}`, whose fields from later steps read null or zero until then. The connection wrapper's 30 and 60 second deadlines, from the first dial. The per-source counter, written in the collection commit. Renamed message fields, also in the `POST /api/imports` answer. Collection entries in the list row and history drawer, with their design guide entries and the display rule for any text. `imaptest` with plain messages. `archtest` rules. ADR 0008 and the ARCHITECTURE line | User Story 1's independent test without the 6 minute part, `TestMigrateSlice1Catalog`, `TestCollectionChangesNothing`, risks 4, 6 |
+| 1. Walking skeleton | Migration 0002 and the runner change. `passwordkey` with documented `key create` and `--key-file`. `collect` with `POST /api/sources`, a sealed password, and syncs of the chosen folders through `StoreCollected` with checkpoints, at save and at start. `GET /api/sources` and `GET /api/sources/{id}`, whose fields from later steps read null or zero until then. The connection wrapper's 30 and 60 second deadlines, from the first dial. The per-source counter, written in the collection commit. Renamed message fields, also in the `POST /api/imports` answer. Collection entries in the list row and history drawer, with their design guide entries and the display rule for any text. `imaptest` with plain messages. `archtest` rules. ADR 0008 and the ARCHITECTURE line | User Story 1's independent test without the 6 minute part, `TestMigrateSlice1Catalog`, `TestCollectionChangesNothing`, risks 4, 6 |
 | 2. Exactly once | Renumbering, retry and not-archived records with their log entries, size rules, collection fault points, and the crash matrix. The `message_too_large` and `message_removed` failure events, on the server and in the client together | User Story 2, SC-002, SC-003, risks 1, 8, 9, 22 |
 | 3. Failures and timeouts | The connection wrapper's reply bounds and full error classification, TLS and STARTTLS, sign-in results, the schedule and backoff loop, rejected sign-in kept across restarts, unavailable folders, storage faults, and shutdown, with their log entries | User Story 3, SC-005, risks 5, 7, 10, 14, 16, 17, 18 |
 | 4. Passwords and the key | Key refusals, running without a key, unreadable passwords, and the data directory search | User Story 4 scenarios 1, 4, 5, 6, 9, 10, SC-006, risks 2, 13 |
 | 5. Management | Check routes, edit with a sign-in check, pause, resume, Sync now, removal, duplicates, adding and removing folders | User Story 6, User Story 4 scenarios 2, 3, 7, 8, SC-007, risk 3 |
 | 6. Visibility | Sources list and source pages with refresh while syncing, the status screen's sources, the problem count, and the marker test across the log and the status screen | User Story 5, SC-004, SC-010, risks 11, 15 |
-| 7. Interface completion | Two-step add with the inbox preselected, the removal warning on adding a source and on adding a folder (FR-007), edit and remove flows, browser checks that hostile folder names show as plain text, keyboard, 360 px, axe, and the test IMAP server process for Playwright | SC-011, risks 12, 19 |
-| 8. Release | Remove `--preview-collection`. Add the Sources navigation item and the usage text. Operator guide, README, ADR 0003, and the design guide. Dovecot run and the timed walkthrough | SC-001, SC-008, SC-009, risk 20 |
+| 7. Interface completion | Sources navigation item. Two-step add with the inbox preselected, the removal warning on adding a source and on adding a folder (FR-007), edit and remove flows, browser checks that hostile folder names show as plain text, keyboard, 360 px, axe, and the test IMAP server process for Playwright | SC-011, risks 12, 19 |
+| 8. Release | Operator guide, README, and ADR 0003. Dovecot run and the timed walkthrough | SC-001, SC-008, SC-009, risk 20 |
 
 ## Changes to other documents
 
@@ -183,7 +183,7 @@ Each step ends in behavior that tests can check and merges to `main` with `mise 
 | `docs/adr/0008` (new) | IMAP password encryption: AES-256-GCM from the standard library, the key line format, binding to host and user name, refusal inside the data directory, and no rotation in this slice | Step 1 |
 | `docs/ARCHITECTURE.md` | `go.mod` line: `go-imap` brings `go-message` and `go-sasl` and needs neither `x/net` nor `x/text`, so those arrive with Slices 3 and 7 if at all | Step 1 |
 | `AGENTS.md` | The `test:e2e` row also builds the test IMAP server | Step 7 |
-| `frontend/DESIGN.md` | Collection entries in list rows and the history drawer, whose labels now say entries instead of imports, in step 1. Sources screens and state words with their dots in step 6. The two-step add form, folder checklist, edit form, and remove confirmation in step 7. The Sources navigation item in step 8 | Steps 1, 6, 7, and 8 |
+| `frontend/DESIGN.md` | Collection entries in list rows and the history drawer, whose labels now say entries instead of imports, in step 1. Sources screens and state words with their dots in step 6. The two-step add form, folder checklist, edit form, and remove confirmation in step 7. The Sources navigation item in step 7 | Steps 1, 6, and 7 |
 | `docs/adr/0003` | Consequences: the client's deadlines miss a silent server and its decoder has no size bound, so `collect` wraps the connection. `imapmemserver` is the test double | Step 8 |
 | `docs/OPERATIONS.md` | The key (FR-043). What collection guarantees and doesn't, the schedule, timeouts, retry waits, log categories, cause `key`, the no-key log entry, trusting a private issuer, and tested servers (FR-044) | Step 8 |
 | `README.md` | Status: Slice 2 of 7 works, with IMAP collection | Step 8 |
@@ -201,4 +201,8 @@ Each step ends in behavior that tests can check and merges to `main` with `mise 
 
 ## Complexity Tracking
 
-None. The plan follows every principle without an exception. `--preview-collection` is the pattern constitution VI prescribes, and step 8 removes it.
+| Rule | Present need | Alternative rejected |
+| ---- | ------------ | -------------------- |
+| VI: isolate unreleased behavior | The owner confirmed on 2026-11-13 that MailArkiv is a greenfield application with no users. Collection starts normally, and Sources is reachable while the feature is developed. | A temporary enable switch and hidden navigation add setup work without protecting any current users. Keep required checks and deliver in small batches. |
+
+The changed behavior is verified by the existing first-sync and restart process tests, missing-key tests, API access tests, and the keyboard setup flow through Sources. Remove tests for the superseded hidden-route behavior. Run `mise run check`: lint, typecheck, and audit are static checks; server tests cover unit, integration, and process behavior; frontend tests cover units; browser tests cover the complete flow. Inspect navigation at desktop and 360 px widths in both themes.

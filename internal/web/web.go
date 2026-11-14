@@ -39,9 +39,6 @@ type Route struct {
 	// NoSession replaces a SignedIn route's 401 answer for a caller without a
 	// valid session. Nil means the 401. It never runs when the lookup failed.
 	NoSession func(http.ResponseWriter, *http.Request)
-	// Collection routes exist only when Deps.Collect is set. Without it their
-	// paths are unknown, like any other.
-	Collection bool
 }
 
 func (r Route) pattern() string {
@@ -63,16 +60,16 @@ func Routes() []Route {
 		{Method: http.MethodGet, Path: "/api/messages/{id}", Access: SignedIn, Handler: readHistory},
 		{Method: http.MethodGet, Path: "/api/messages/{id}/original", Access: SignedIn, Handler: downloadOriginal, NoSession: redirectToSignIn},
 		{Method: http.MethodGet, Path: "/api/status", Access: SignedIn, Handler: readStatus},
-		{Method: http.MethodPost, Path: "/api/sources/check", Access: SignedIn, Handler: checkMailbox, Collection: true},
-		{Method: http.MethodPost, Path: "/api/sources", Access: SignedIn, Handler: addSource, Collection: true},
-		{Method: http.MethodGet, Path: "/api/sources", Access: SignedIn, Handler: listSources, Collection: true},
-		{Method: http.MethodGet, Path: "/api/sources/{id}", Access: SignedIn, Handler: readSource, Collection: true},
-		{Method: http.MethodPatch, Path: "/api/sources/{id}", Access: SignedIn, Handler: editSource, Collection: true},
-		{Method: http.MethodPost, Path: "/api/sources/{id}/check", Access: SignedIn, Handler: checkStoredSource, Collection: true},
-		{Method: http.MethodPost, Path: "/api/sources/{id}/pause", Access: SignedIn, Handler: pauseSource, Collection: true},
-		{Method: http.MethodPost, Path: "/api/sources/{id}/resume", Access: SignedIn, Handler: resumeSource, Collection: true},
-		{Method: http.MethodPost, Path: "/api/sources/{id}/sync", Access: SignedIn, Handler: syncSource, Collection: true},
-		{Method: http.MethodDelete, Path: "/api/sources/{id}", Access: SignedIn, Handler: removeSource, Collection: true},
+		{Method: http.MethodPost, Path: "/api/sources/check", Access: SignedIn, Handler: checkMailbox},
+		{Method: http.MethodPost, Path: "/api/sources", Access: SignedIn, Handler: addSource},
+		{Method: http.MethodGet, Path: "/api/sources", Access: SignedIn, Handler: listSources},
+		{Method: http.MethodGet, Path: "/api/sources/{id}", Access: SignedIn, Handler: readSource},
+		{Method: http.MethodPatch, Path: "/api/sources/{id}", Access: SignedIn, Handler: editSource},
+		{Method: http.MethodPost, Path: "/api/sources/{id}/check", Access: SignedIn, Handler: checkStoredSource},
+		{Method: http.MethodPost, Path: "/api/sources/{id}/pause", Access: SignedIn, Handler: pauseSource},
+		{Method: http.MethodPost, Path: "/api/sources/{id}/resume", Access: SignedIn, Handler: resumeSource},
+		{Method: http.MethodPost, Path: "/api/sources/{id}/sync", Access: SignedIn, Handler: syncSource},
+		{Method: http.MethodDelete, Path: "/api/sources/{id}", Access: SignedIn, Handler: removeSource},
 		{Path: "/", Access: Public, Handler: serveStatic},
 	}
 }
@@ -87,7 +84,7 @@ type Deps struct {
 	Status   *opstatus.Status
 	// Labels names the folders of collection entries.
 	Labels *collect.Labeler
-	// Collect is nil when serve doesn't collect mail.
+	// Collect is required, including when no password key is configured.
 	Collect *collect.Collector
 }
 
@@ -119,9 +116,6 @@ func newHandler(deps Deps, routes []Route) http.Handler {
 
 	mux := http.NewServeMux()
 	for _, route := range routes {
-		if route.Collection && deps.Collect == nil {
-			continue
-		}
 		mux.Handle(route.pattern(), s.guard(route))
 	}
 	// Any method on an /api/ path with no route lands here, including a known
