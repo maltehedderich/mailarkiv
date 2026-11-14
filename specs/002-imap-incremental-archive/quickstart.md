@@ -188,6 +188,12 @@ SSL_CERT_FILE=.data/ca.pem bin/mailarkiv serve --data-dir .data/demo --key-file 
 
 Open `http://localhost:8080`, sign in as `admin@example.test` with the password you chose for that account, and choose **Sources → Add a source**.
 
+For frontend development, use `mise run dev:account admin@example.test` to create
+an account in `.data/dev`, then run `mise run dev` and open
+`http://localhost:5173`. The dev task uses `.data/ca.pem` when it exists and
+`SSL_CERT_FILE` is unset or empty. Restart the task after creating or replacing
+the CA file. Keep the Dovecot container running.
+
 In **Connect to the mailbox**, enter:
 
 | Field | Value |

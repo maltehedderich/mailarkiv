@@ -44,7 +44,12 @@ hide = true
 run = [
   "mkdir -p .data",
   "if [ ! -e .data/mailarkiv.key ]; then go run ./cmd/mailarkiv key create --data-dir .data/dev .data/mailarkiv.key; fi",
-  "go run ./cmd/mailarkiv serve --data-dir .data/dev --key-file .data/mailarkiv.key",
+  '''
+  if [ -z "${SSL_CERT_FILE:-}" ] && [ -f .data/ca.pem ]; then
+    export SSL_CERT_FILE="$PWD/.data/ca.pem"
+  fi
+  exec go run ./cmd/mailarkiv serve --data-dir .data/dev --key-file .data/mailarkiv.key
+  ''',
 ]
 
 [tasks."dev:frontend"]

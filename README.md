@@ -16,6 +16,20 @@ IMAP collection is available during Slice 2 development. Start the server with i
 - Read the [architecture principles](docs/ARCHITECTURE.md) for the design, storage model, and reliability rules.
 - Read the [architecture decision records](docs/adr/) for adopted dependencies and their versions.
 
+## Local development
+
+Run `mise run dev:account admin@example.test` once to create a local account, then
+`mise run dev` and open `http://localhost:5173`.
+
+For a local IMAP source, follow the [Dovecot setup](specs/002-imap-incremental-archive/quickstart.md).
+When `.data/ca.pem` exists, `mise run dev` uses it to verify the mailbox server's
+certificate. An existing `SSL_CERT_FILE` setting takes precedence. Restart
+`mise run dev` after creating or replacing the CA file.
+
+With that Dovecot setup, add a source using server `localhost`, TLS on port `993`
+(or STARTTLS on port `143`), user `test@example.test`, and the generated password
+in `.data/dovecot-password`. The mail container must be running separately.
+
 ## Planned features
 
 - Import `.eml` files, collect email from IMAP mailboxes that allow password login, or receive archive copies from a mail server through SMTP journaling.
