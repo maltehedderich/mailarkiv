@@ -3,6 +3,7 @@ import type {
   Security,
   ServerFolder,
   SourceField,
+  SyncFailure,
 } from "#lib/api.js";
 
 // The add and edit forms' rules for the port and the folder choice.
@@ -105,6 +106,20 @@ export function widenChoice(
       .filter(({ name }) => !listed.has(name))
       .map(({ name, messages }) => ({ name, messages, chosen: false })),
   ];
+}
+
+/**
+ * Whether the edit form lists the server's folders as it opens, with the
+ * stored details. Not after a rejected sign-in, where another attempt can
+ * lock the account, so another attempt needs an administrator's action.
+ * An unreadable password is skipped because it would fail the same way.
+ */
+export function listsFoldersOnOpen(failure: SyncFailure | null): boolean {
+  return (
+    failure === null ||
+    (failure.category !== "sign_in_rejected" &&
+      failure.category !== "password_unreadable")
+  );
 }
 
 export function chosenNames(options: FolderOption[]): string[] {

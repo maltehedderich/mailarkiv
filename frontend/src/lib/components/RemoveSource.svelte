@@ -66,7 +66,8 @@
   onclose={closed}
   oncancel={cancelled}
 >
-  <h2>Remove <UntrustedText value={name} />?</h2>
+  <!-- In full, so the question names exactly what it removes. -->
+  <h2>Remove <UntrustedText value={name} full />?</h2>
   <p id="{dom}-text">
     Collection from this mailbox stops, and its stored password is deleted. The
     messages it collected stay in the archive, and their history still names
@@ -120,12 +121,10 @@
   }
 
   h2 {
-    display: flex;
     min-width: 0;
     font-size: var(--size-section);
     font-weight: var(--weight-strong);
     letter-spacing: var(--tracking-section);
-    white-space: pre;
   }
 
   p {
@@ -142,5 +141,11 @@
 
   .problem {
     color: var(--state-bad-text);
+  }
+
+  /* The status stays in the page so a failure is announced. Empty, it still
+     takes a gap, which the padding gives back so the dialog's edges are even. */
+  dialog:has(.problem:empty) {
+    padding-bottom: calc(var(--space-20) - var(--space-12));
   }
 </style>

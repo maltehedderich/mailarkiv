@@ -21,9 +21,14 @@
   <span class="text">
     <span class="word">{STATE_WORDS[source.state]}</span>
     {#if source.state === "syncing" && source.progress !== null}
+      <!-- Before the sync finds anything, a count of 0 of 0 says nothing. -->
       <span class="detail progress">
-        Archived {numbers.format(source.progress.archived)} of
-        {numbers.format(source.progress.found)} found
+        {#if source.progress.found === 0}
+          Checking for new messages
+        {:else}
+          Archived {numbers.format(source.progress.archived)} of
+          {numbers.format(source.progress.found)} found
+        {/if}
       </span>
     {:else if source.state === "waiting" && source.nextSyncAt !== null}
       <span class="detail">
@@ -61,7 +66,9 @@
     column-gap: var(--space-8);
   }
 
+  /* Gives the line its baseline, so a heading beside it can align. */
   .text {
+    align-self: baseline;
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;

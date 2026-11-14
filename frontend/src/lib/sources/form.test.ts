@@ -1,11 +1,18 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  SYNC_CATEGORIES,
+  type SyncCategory,
+  type SyncFailure,
+} from "#lib/api.js";
+
+import {
   chosenNames,
   currentChoice,
   DEFAULT_PORTS,
   firstChoice,
   isValidName,
+  listsFoldersOnOpen,
   parsePort,
   portAfterSwitch,
   trimSourceField,
@@ -98,6 +105,33 @@ describe("firstChoice", () => {
     expect(firstChoice([{ name: "Archiv", messages: 2 }])).toEqual([
       { name: "Archiv", messages: 2, chosen: false },
     ]);
+  });
+});
+
+describe("listsFoldersOnOpen", () => {
+  const failure = (category: SyncCategory): SyncFailure => ({
+    category,
+    since: "2026-11-14T08:02:10Z",
+    failedAttempts: 3,
+    lastAt: "2026-11-14T09:47:31Z",
+    reply: null,
+  });
+
+  test("lists for a source without a failure", () => {
+    expect(listsFoldersOnOpen(null)).toBe(true);
+  });
+
+  test("lists while a failure is retried, since the next sync signs in anyway", () => {
+    for (const category of SYNC_CATEGORIES) {
+      if (category === "sign_in_rejected" || category === "password_unreadable")
+        continue;
+      expect(listsFoldersOnOpen(failure(category))).toBe(true);
+    }
+  });
+
+  test("doesn't sign in after a rejected sign-in or with an unreadable password", () => {
+    expect(listsFoldersOnOpen(failure("sign_in_rejected"))).toBe(false);
+    expect(listsFoldersOnOpen(failure("password_unreadable"))).toBe(false);
   });
 });
 

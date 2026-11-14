@@ -43,6 +43,11 @@ function sourceSection(page: Page) {
   return page.getByRole("region", { name: "Source" });
 }
 
+// Edit and Remove sit in the page header, beside the source's name.
+function sourceAction(page: Page, name: "Edit" | "Remove") {
+  return page.getByRole("main").getByRole("button", { name, exact: true });
+}
+
 function foldersSection(page: Page) {
   return page.getByRole("region", { name: "Folders" });
 }
@@ -215,11 +220,20 @@ test("Sync now, Pause, and Resume change the state, and a second sync is refused
   await expect(state.getByText("A sync is already running.")).toHaveCount(0);
 });
 
-test("an edit with the password left empty keeps collecting, and adding a folder warns first", async ({
+test("an edit lists the server's folders as it opens, keeps the empty password, and warns first", async ({
   page,
 }) => {
   await addAnna(page);
-  await sourceSection(page).getByRole("button", { name: "Edit" }).click();
+  await sourceAction(page, "Edit").click();
+  // Listing doesn't take focus from the heading.
+  await expect(
+    page
+      .getByRole("status")
+      .filter({ hasText: "1 more folder listed, unchecked." }),
+  ).toHaveCount(1);
+  await expect(
+    page.getByRole("heading", { name: "Edit source" }),
+  ).toBeFocused();
 
   const password = page.getByLabel("Password", { exact: true });
   await expect(password).toHaveValue("");
@@ -227,11 +241,11 @@ test("an edit with the password left empty keeps collecting, and adding a folder
     .getByLabel("Name", { exact: true })
     .fill(" \u200BAnna Büro\uFEFF ");
 
-  // Only the source's folders until the server lists the rest.
+  // The stored details sign in as the form opens, so no button is needed.
   const folders = page.getByRole("group", { name: "Folders" });
-  await expect(folders.getByRole("checkbox")).toHaveCount(1);
-  await expect(page.getByText(REMOVAL_WARNING)).toHaveCount(0);
-  await page.getByRole("button", { name: "Add folders" }).click();
+  await expect(page.getByRole("button", { name: "Add folders" })).toHaveCount(
+    0,
+  );
   const projekte = folders.getByRole("checkbox", {
     name: "Projekte",
     exact: true,
@@ -248,19 +262,71 @@ test("an edit with the password left empty keeps collecting, and adding a folder
   await expect(
     page.getByRole("heading", { name: "Anna Büro", level: 1 }),
   ).toBeVisible();
-  await expect(
-    sourceSection(page).getByRole("button", { name: "Edit" }),
-  ).toBeFocused();
+  await expect(sourceAction(page, "Edit")).toBeFocused();
   await expect(foldersSection(page)).toContainText("Projekte");
   await expectState(page, "Waiting", 20_000);
   await expect(sourceSection(page)).toContainText(/Collected\s*5/);
+});
+
+test("after a rejected sign-in, opening the edit form doesn't sign in", async ({
+  page,
+}) => {
+  await addAnna(page);
+  // The test server can't reject a stored password, so the page is told
+  // that the last sync's sign-in was rejected.
+  await page.route(/\/api\/sources\/\d+$/, async (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    const response = await route.fetch();
+    const source = await response.json();
+    await route.fulfill({
+      response,
+      json: {
+        ...source,
+        state: "needs_attention",
+        next_sync_at: null,
+        failure: {
+          category: "sign_in_rejected",
+          since: new Date().toISOString(),
+          failed_attempts: 1,
+          last_at: new Date().toISOString(),
+          reply: null,
+        },
+      },
+    });
+  });
+  const checks: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().endsWith("/check")) checks.push(request.url());
+  });
+  await page.reload();
+  await expectState(page, "Needs attention");
+
+  await sourceAction(page, "Edit").click();
+  const addFolders = page.getByRole("button", { name: "Add folders" });
+  await expect(addFolders).toBeVisible();
+  await expect(
+    page.getByText("Enter the mailbox's current password first."),
+  ).toBeVisible();
+  const folders = page.getByRole("group", { name: "Folders" });
+  await expect(folders.getByRole("checkbox")).toHaveCount(1);
+  expect(checks).toEqual([]);
+
+  // Pressed, it signs in with the form's details and stays for focus.
+  await page.getByLabel("Password", { exact: true }).fill(MAILBOX.password);
+  await addFolders.click();
+  await expect(
+    folders.getByRole("checkbox", { name: "Projekte", exact: true }),
+  ).not.toBeChecked();
+  await expect(addFolders).toBeFocused();
+  await expect(page.getByText(REMOVAL_WARNING)).toBeVisible();
+  expect(checks).toHaveLength(1);
 });
 
 test("a wrong password while editing shows why and changes nothing", async ({
   page,
 }) => {
   await addAnna(page);
-  await sourceSection(page).getByRole("button", { name: "Edit" }).click();
+  await sourceAction(page, "Edit").click();
   await page.getByLabel("Name", { exact: true }).fill("Anna Büro");
   await page
     .getByLabel("Password", { exact: true })
@@ -313,7 +379,7 @@ test("password managers fill only the mailbox sign-in", async ({ page }) => {
   // fill another login and replace the stored password with it.
 
   await addAnna(page);
-  await sourceSection(page).getByRole("button", { name: "Edit" }).click();
+  await sourceAction(page, "Edit").click();
   for (const label of ["Name", "Port", "Password"]) {
     await expectIgnored(label);
   }
@@ -323,7 +389,7 @@ test("removing asks first, naming the source, and its history stays", async ({
   page,
 }) => {
   await addAnna(page);
-  const remove = sourceSection(page).getByRole("button", { name: "Remove" });
+  const remove = sourceAction(page, "Remove");
 
   await remove.click();
   const dialog = page.getByRole("dialog", { name: "Remove Anna?" });

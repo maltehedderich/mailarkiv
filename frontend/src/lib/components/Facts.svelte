@@ -2,7 +2,9 @@
   import type { Snippet } from "svelte";
 
   // Facts in the 136 px label column Status uses, at label size. Labels move
-  // above their values at 720 px and below.
+  // above their values at 720 px and below. A form's 440 px column sets
+  // --facts-label to 96 px, as the history drawer's facts use, so values
+  // keep their width.
 
   let {
     children,
@@ -26,7 +28,7 @@
 
   .facts > :global(div) {
     display: grid;
-    grid-template-columns: 136px minmax(0, 1fr);
+    grid-template-columns: var(--facts-label, 136px) minmax(0, 1fr);
     column-gap: var(--space-16);
   }
 

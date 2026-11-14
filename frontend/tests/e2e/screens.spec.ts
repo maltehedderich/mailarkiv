@@ -389,7 +389,6 @@ test.describe("the sources screens", () => {
     await check("a source");
 
     await page.getByRole("button", { name: "Edit" }).click();
-    await page.getByRole("button", { name: "Add folders" }).click();
     await expect(page.getByText(REMOVAL_WARNING)).toBeVisible();
     await check("the edit form");
     await page.getByRole("button", { name: "Cancel" }).click();

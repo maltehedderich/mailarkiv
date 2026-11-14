@@ -269,7 +269,11 @@
     border-bottom: 1px solid var(--line);
   }
 
+  /* Fills the header, so a collection's source name gets half of the header
+     and not half of the pair, which cut "Local Server" beside a short
+     folder. */
   h2 {
+    flex: auto;
     min-width: 0;
     font-size: var(--size-section);
     font-weight: var(--weight-strong);

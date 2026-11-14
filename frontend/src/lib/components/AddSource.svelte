@@ -159,8 +159,11 @@
   });
 
   // The drawer is still on screen as it slides out, so it leaves screen
-  // readers and the pointer now.
+  // readers and the pointer now. The close event arrives as a separate task,
+  // so Forward can reopen the drawer first; then the event is stale and
+  // must not hide the new drawer or move focus to Add a source.
   function closed() {
+    if (dialog.open) return;
     opening += 1;
     dialog.inert = true;
     dialog.setAttribute("aria-hidden", "true");

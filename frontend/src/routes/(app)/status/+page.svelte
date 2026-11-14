@@ -318,8 +318,11 @@
     gap: var(--space-24);
   }
 
+  /* One track that may shrink, so a long source name is cut, not widening
+     the page. */
   .group {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: var(--space-4);
   }
 
@@ -335,11 +338,12 @@
     font-weight: var(--weight-medium);
   }
 
-  /* A source name, cut in its middle when the line is too narrow. */
+  /* A source name, cut in its middle when the line is too narrow. It leaves
+     room for the dot, so it stays on the dot's line. */
   a.name {
     display: inline-flex;
     min-width: 0;
-    max-width: 100%;
+    max-width: calc(100% - var(--dot-size) - var(--space-8));
   }
 
   .count {

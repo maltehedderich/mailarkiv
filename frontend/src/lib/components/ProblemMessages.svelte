@@ -34,7 +34,9 @@
 <section aria-labelledby={id}>
   <h2 {id}>
     {title}
-    <span class="count">{numbers.format(list.total)}</span>
+    {#if list.total > 0}
+      <span class="count">{numbers.format(list.total)}</span>
+    {/if}
   </h2>
   <div class="content">
     {#if list.total === 0}
@@ -75,7 +77,7 @@
         {/each}
       </ol>
       {#if list.total > list.items.length}
-        <p class="note">
+        <p class="more">
           Showing the newest {numbers.format(list.items.length)} of
           {numbers.format(list.total)}.
         </p>
@@ -100,6 +102,11 @@
 
   .none {
     color: var(--text-1);
+  }
+
+  /* Sized by the column, so the list knows when its facts fit on a line. */
+  .content {
+    container-type: inline-size;
   }
 
   /* One track that may shrink, so a long folder name is cut, not widening
@@ -133,14 +140,57 @@
     color: var(--text-2);
   }
 
-  .note {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0 var(--space-12);
+  .note,
+  .more {
     color: var(--text-3);
     font-size: var(--size-label);
     font-variant-numeric: tabular-nums;
     line-height: var(--leading-label);
+  }
+
+  /* Each fact on its own line, so every message reads the same. Wrapping
+     put a short size beside its time and a long one above it. */
+  .note {
+    display: grid;
+  }
+
+  /* With room, the size takes a column the whole list shares and the two
+     times sit one above the other, so they can be compared. 112 px holds a
+     size up to the 150,000,000-byte limit, so both lists on the page share
+     the column. */
+  @container (min-width: 380px) {
+    .messages {
+      grid-template-columns: minmax(112px, max-content) minmax(0, 1fr);
+      column-gap: var(--space-16);
+    }
+
+    .messages > li,
+    .note {
+      display: grid;
+      grid-template-columns: subgrid;
+      grid-column: 1 / -1;
+    }
+
+    .line {
+      grid-column: 1 / -1;
+    }
+
+    .note > :last-child {
+      grid-column: 2;
+    }
+  }
+
+  /* With room for all three on a line, each has its own column. */
+  @container (min-width: 620px) {
+    .messages {
+      grid-template-columns:
+        minmax(112px, max-content)
+        max-content minmax(0, 1fr);
+    }
+
+    .note > :last-child {
+      grid-column: auto;
+    }
   }
 
   .words {

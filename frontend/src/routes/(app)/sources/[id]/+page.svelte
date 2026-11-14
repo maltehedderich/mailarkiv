@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ChevronLeftIcon from "~icons/lucide/chevron-left";
   import ChevronRightIcon from "~icons/lucide/chevron-right";
 
   import { tick } from "svelte";
@@ -145,15 +146,40 @@
 
 <main>
   <header>
-    <a class="up" href="/sources">Sources</a>
-    <ChevronRightIcon class="icon" />
-    <h1 bind:this={heading} tabindex="-1">
-      {#if data.source.kind === "ok"}
-        <UntrustedText value={data.source.value.name} />
-      {:else}
-        Source
-      {/if}
-    </h1>
+    <div class="trail">
+      <a class="up" href="/sources"
+        ><ChevronLeftIcon class="icon back" /><span class="up-label"
+          >Sources</span
+        ></a
+      >
+      <ChevronRightIcon class="icon separator" />
+      <h1 bind:this={heading} tabindex="-1">
+        {#if data.source.kind === "ok"}
+          <UntrustedText value={data.source.value.name} />
+        {:else}
+          Source
+        {/if}
+      </h1>
+    </div>
+    <!-- Edit and Remove act on the whole source, so they sit with its name,
+         where the Sources list keeps its own action. -->
+    {#if data.session.kind === "ok" && data.source.kind === "ok" && !editing}
+      {@const source = data.source.value}
+      <div class="actions">
+        <button
+          bind:this={editButton}
+          class="button"
+          type="button"
+          onclick={() => (editing = true)}
+        >
+          Edit
+        </button>
+        <button class="button" type="button" onclick={() => removal?.open()}>
+          Remove
+        </button>
+      </div>
+      <RemoveSource bind:this={removal} id={source.id} name={source.name} />
+    {/if}
   </header>
 
   <div class="body">
@@ -171,10 +197,12 @@
             <SourceState {source} />
             {#if source.failure !== null}
               {@const failure = source.failure}
+              <!-- What the failure means, then the evidence of it. -->
               <div class="failure">
-                <h3>{CATEGORY_WORDS[failure.category].label}</h3>
                 <Facts>
                   <CategoryFacts category={failure.category} />
+                </Facts>
+                <Facts>
                   <div>
                     <dt>Failing since</dt>
                     <dd>
@@ -244,28 +272,6 @@
           <h2 id="source">Source</h2>
           <div class="content">
             <SourceFacts {source} />
-            <div class="actions">
-              <button
-                bind:this={editButton}
-                class="button"
-                type="button"
-                onclick={() => (editing = true)}
-              >
-                Edit
-              </button>
-              <button
-                class="button"
-                type="button"
-                onclick={() => removal?.open()}
-              >
-                Remove
-              </button>
-            </div>
-            <RemoveSource
-              bind:this={removal}
-              id={source.id}
-              name={source.name}
-            />
           </div>
         </section>
 
@@ -331,21 +337,46 @@
 <style>
   header {
     display: flex;
-    gap: var(--space-4);
+    gap: var(--space-12);
     align-items: center;
+    justify-content: space-between;
     height: var(--header-height);
     padding: 0 var(--header-inset);
     border-bottom: 1px solid var(--line);
   }
 
+  .trail {
+    display: flex;
+    gap: var(--space-4);
+    align-items: center;
+    min-width: 0;
+  }
+
+  /* The chevron already marks it as the way up, so it needs no underline
+     until it's pointed at. */
   .up {
     flex: none;
     color: var(--text-2);
+    text-decoration: none;
   }
 
-  header :global(.icon) {
+  .up:hover {
+    color: var(--text-1);
+    text-decoration: underline;
+  }
+
+  .up :global(.back) {
+    display: none;
+  }
+
+  header :global(.separator) {
     flex: none;
     color: var(--text-3);
+  }
+
+  header .actions {
+    flex: none;
+    margin-top: 0;
   }
 
   h1 {
@@ -364,9 +395,12 @@
 
   /* A 136 px label column, then the content, with a line between sections,
      as on Status. The message lists are sections too. */
+  /* Each heading shares a baseline with its first line, which may be a
+     smaller fact label. */
   .body > :global(section) {
     display: grid;
     grid-template-columns: 136px minmax(0, 1fr);
+    align-items: baseline;
     gap: var(--space-8) var(--space-16);
     padding: var(--space-16) 0;
   }
@@ -394,7 +428,12 @@
 
   .failure {
     display: grid;
-    gap: var(--space-4);
+    gap: var(--space-12);
+  }
+
+  /* The failure's facts belong to the state line above them. */
+  .content > .failure:nth-child(2) {
+    margin-top: var(--space-4);
   }
 
   .actions {
@@ -413,9 +452,19 @@
     font-weight: var(--weight-medium);
   }
 
-  /* Evidence an administrator reads in full, so it keeps the body colour. */
+  /* A category's facts after a list sit apart from the last item, under
+     their heading, as after a message list. */
+  .folders + .failure {
+    gap: var(--space-4);
+    margin-top: var(--space-8);
+  }
+
+  /* Evidence an administrator reads in full, so it keeps the body colour.
+     Mono marks it as the mail server's words, not MailArkiv's. */
   .reply {
     color: var(--text-1);
+    font-family: var(--font-mono);
+    font-variant-ligatures: none;
   }
 
   /* One track that may shrink, so a long folder name is cut, not widening
@@ -423,16 +472,15 @@
   .folders {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-    gap: var(--space-4);
+    gap: var(--space-8);
     margin: 0;
     padding: 0;
     list-style: none;
   }
 
   .folder {
+    position: relative;
     display: flex;
-    align-items: center;
-    gap: var(--space-8);
     min-width: 0;
   }
 
@@ -444,8 +492,11 @@
     font-weight: var(--weight-medium);
   }
 
+  /* The dot hangs in the gutter, so every folder name starts on one edge. */
   .dot {
-    flex: none;
+    position: absolute;
+    top: calc((var(--leading-body) - var(--dot-size)) / 2);
+    left: calc(-1 * (var(--dot-size) + var(--space-8)));
     width: var(--dot-size);
     height: var(--dot-size);
     border-radius: 50%;
@@ -468,12 +519,63 @@
       padding: 0 var(--space-16);
     }
 
+    /* The Sources tab already says where this page is, so the trail becomes
+       a back arrow and leaves the width to the name and the buttons. The
+       icon sits on the gutter's edge inside a touch-sized target. */
+    .trail {
+      gap: 0;
+    }
+
+    .up {
+      display: grid;
+      place-items: center;
+      width: var(--control-height-touch);
+      height: var(--control-height-touch);
+      margin-left: calc(
+        -1 * (var(--control-height-touch) - var(--icon-size)) / 2
+      );
+      border-radius: var(--radius-medium);
+      color: var(--text-2);
+    }
+
+    .up:hover {
+      background: var(--fill-2);
+    }
+
+    .up :global(.back) {
+      display: block;
+    }
+
+    .up-label {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+
+    header :global(.separator) {
+      display: none;
+    }
+
     .body {
       padding: var(--space-16);
     }
 
     .body > :global(section) {
       grid-template-columns: minmax(0, 1fr);
+    }
+
+    /* A 16 px gutter is too narrow to hang the dot in. */
+    .folder {
+      align-items: center;
+      gap: var(--space-8);
+    }
+
+    .dot {
+      position: static;
+      flex: none;
     }
   }
 </style>

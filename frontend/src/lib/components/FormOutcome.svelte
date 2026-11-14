@@ -17,7 +17,10 @@
     outcome: FormOutcome | null;
     /** The button's name, such as Connect. */
     action: string;
-    /** What the attempt left as it was, such as "Nothing was saved." */
+    /**
+     * What the attempt left as it was, such as "Nothing was saved." Empty
+     * when the administrator didn't start it, so there was nothing to keep.
+     */
     ending: string;
   } = $props();
 </script>
@@ -42,7 +45,9 @@
         </div>
       {/if}
     </Facts>
-    <p class="ending">{ending}</p>
+    {#if ending !== ""}
+      <p class="ending">{ending}</p>
+    {/if}
   {:else if outcome?.kind === "source_exists"}
     <p class="what">A source for this server and user name already exists.</p>
     <p><a href="/sources/{outcome.sourceId}">Open the existing source</a></p>
@@ -69,7 +74,9 @@
 </div>
 
 <style>
+  /* Shown in a form's column, so the facts take the narrow label column. */
   .outcome {
+    --facts-label: 96px;
     display: grid;
     gap: var(--space-4);
   }
@@ -90,9 +97,12 @@
     background: var(--state-bad);
   }
 
-  /* Evidence an administrator reads in full, so it keeps the body colour. */
+  /* Evidence an administrator reads in full, so it keeps the body colour.
+     Mono marks it as the mail server's words, not MailArkiv's. */
   .reply {
     color: var(--text-1);
+    font-family: var(--font-mono);
+    font-variant-ligatures: none;
   }
 
   .what,

@@ -68,7 +68,10 @@
   </div>
   <div>
     <dt>Collected</dt>
-    <dd>{numbers.format(source.collected)}</dd>
+    <dd>
+      {numbers.format(source.collected)}
+      {source.collected === 1 ? "message" : "messages"}
+    </dd>
   </div>
   {#if summary !== null}
     <div>
@@ -87,14 +90,14 @@
 
   .problems {
     display: flex;
-    align-items: baseline;
     gap: var(--space-8);
   }
 
-  /* Centred on the lowercase letters, as in the state line. */
+  /* Centred on the first line, as in the state line, so a summary that
+     wraps starts under its first word. */
   .dot {
     flex: none;
-    align-self: center;
+    margin-top: calc((var(--leading-label) - var(--dot-size)) / 2);
     width: var(--dot-size);
     height: var(--dot-size);
     border-radius: 50%;
