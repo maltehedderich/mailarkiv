@@ -75,8 +75,8 @@ test("hostile and long folder names show as text on every screen", async ({
   page,
 }) => {
   await signIn(page, server);
-  await page.goto(`${server.origin}/sources/new`);
-  await connect(page, imap, { name: "Anna" });
+  await page.goto(`${server.origin}/sources?add`);
+  await connect(page, imap);
 
   const choice = folderChoice(page);
   await expect(choice.getByRole("checkbox")).toHaveCount(4);
@@ -89,6 +89,7 @@ test("hostile and long folder names show as text on every screen", async ({
   await choice
     .getByRole("checkbox", { name: "RechnungenU+202Efdp.exe", exact: true })
     .check();
+  await page.getByLabel("Name", { exact: true }).fill("Anna");
   await page.getByRole("button", { name: "Save" }).click();
 
   // The source's page.

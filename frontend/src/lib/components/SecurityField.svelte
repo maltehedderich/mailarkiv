@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Security } from "#lib/api.js";
   import { SECURITY_WORDS } from "#lib/sources/describe.js";
-  import { portAfterSwitch } from "#lib/sources/form.js";
+  import { NO_PASSWORD_MANAGER, portAfterSwitch } from "#lib/sources/form.js";
 
   import FormField from "./FormField.svelte";
 
@@ -30,38 +30,68 @@
   }
 </script>
 
-<fieldset
-  aria-describedby={securityProblem === null ? undefined : `${id}-problem`}
->
-  <legend>Connection security</legend>
-  <div class="choices">
-    {#each MODES as mode (mode)}
-      <label class="choice">
-        <input
-          type="radio"
-          name="{id}-security"
-          value={mode}
-          checked={security === mode}
-          onchange={() => choose(mode)}
-        />
-        {SECURITY_WORDS[mode]}
-      </label>
-    {/each}
-  </div>
-  {#if securityProblem !== null}
-    <p id="{id}-problem" class="problem">{securityProblem}</p>
-  {/if}
-</fieldset>
-<FormField
-  label="Port"
-  bind:value={port}
-  problem={portProblem}
-  inputmode="numeric"
-  autocomplete="off"
-  spellcheck="false"
-/>
+<div class="row">
+  <fieldset
+    aria-describedby={securityProblem === null ? undefined : `${id}-problem`}
+  >
+    <legend>Connection security</legend>
+    <div class="choices">
+      {#each MODES as mode (mode)}
+        <label class="choice">
+          <input
+            type="radio"
+            name="{id}-security"
+            value={mode}
+            checked={security === mode}
+            onchange={() => choose(mode)}
+          />
+          {SECURITY_WORDS[mode]}
+        </label>
+      {/each}
+    </div>
+    {#if securityProblem !== null}
+      <p id="{id}-problem" class="problem">{securityProblem}</p>
+    {/if}
+  </fieldset>
+  <FormField
+    label="Port"
+    bind:value={port}
+    problem={portProblem}
+    inputmode="numeric"
+    {...NO_PASSWORD_MANAGER}
+    spellcheck="false"
+  />
+</div>
 
 <style>
+  /* The port beside the security it follows, sized for five digits. */
+  .row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 88px;
+    align-items: start;
+    gap: var(--space-4) var(--space-16);
+  }
+
+  /* The port's own lines would wrap word by word in its column, so they take
+     the row's width below both. */
+  .row > :global(div.block) {
+    display: contents;
+  }
+
+  .row > :global(div.block > :not(.field)) {
+    grid-column: 1 / -1;
+  }
+
+  /* An input's intrinsic width would push past the column. */
+  .row :global(.field),
+  .row :global(.field > input) {
+    min-width: 0;
+  }
+
+  .row :global(.field > input) {
+    width: 100%;
+  }
+
   fieldset {
     display: grid;
     gap: var(--space-6);

@@ -13,6 +13,21 @@ export const DEFAULT_PORTS: Record<Security, number> = {
 };
 
 /**
+ * Keeps password managers out of a source form field that isn't a sign-in,
+ * such as the server, or the edit form's password, which has no user name
+ * beside it. Some managers ignore autocomplete="off" and take any field
+ * before a password for the user name. There is no standard opt-out, so each
+ * manager gets its own attribute.
+ */
+export const NO_PASSWORD_MANAGER = {
+  autocomplete: "off",
+  "data-1p-ignore": "",
+  "data-bwignore": "",
+  "data-lpignore": "true",
+  "data-protonpass-ignore": "true",
+} as const;
+
+/**
  * The port field's text after the connection security switches. An empty
  * field or the old mode's default follows the switch. A port the
  * administrator typed stays.

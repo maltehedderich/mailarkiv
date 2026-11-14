@@ -19,6 +19,7 @@
     currentChoice,
     FIELD_PROBLEMS,
     isValidName,
+    NO_PASSWORD_MANAGER,
     parsePort,
     widenChoice,
     type FolderOption,
@@ -195,7 +196,7 @@
     label="Name"
     bind:value={name}
     problem={problem("name")}
-    autocomplete="off"
+    {...NO_PASSWORD_MANAGER}
   />
   <div class="fixed">
     <Facts>
@@ -224,7 +225,7 @@
     bind:value={password}
     hint="Leave empty to keep the stored password."
     problem={problem("password")}
-    autocomplete="off"
+    {...NO_PASSWORD_MANAGER}
   />
   <div class="folders">
     <FolderChoice bind:options={folders} problem={problem("folders")} />

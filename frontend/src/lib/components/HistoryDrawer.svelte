@@ -98,6 +98,7 @@
 
 <dialog
   bind:this={dialog}
+  class="drawer"
   aria-labelledby="history-title"
   onclose={closed}
   onpointerdown={pressed}
@@ -251,71 +252,11 @@
 </dialog>
 
 <style>
-  /* Fixed to the right edge, with its rows, in every state, so it keeps its
-     place and its layout while it slides out after closing. Its rows were on
-     [open] alone, and the body sank to the middle as it left. */
+  /* The shell, its motion, and its scrim are global.css's dialog.drawer. Its
+     rows hold in every state, or the body would sink to the middle as it
+     slides out. */
   dialog {
-    position: fixed;
-    inset: 0 0 0 auto;
     grid-template-rows: auto minmax(0, 1fr) auto;
-    width: min(var(--drawer-width), 100%);
-    max-width: none;
-    height: 100dvh;
-    max-height: none;
-    margin: 0;
-    padding: 0;
-    border: 0;
-    border-radius: var(--radius-large) 0 0 var(--radius-large);
-    background: var(--raised);
-    box-shadow: var(--shadow-pop);
-    color: var(--text-1);
-    translate: 100% 0;
-    transition:
-      translate var(--motion-exit) var(--ease-exit),
-      display var(--motion-exit) allow-discrete,
-      overlay var(--motion-exit) allow-discrete;
-  }
-
-  /* DESIGN.md: it slides in from the right, and out a little faster.
-     display and overlay hold it on screen until it has left. Reduced motion
-     turns this off in global.css. */
-  dialog[open] {
-    display: grid;
-    translate: 0 0;
-    transition:
-      translate var(--motion-slide) var(--ease-enter),
-      display var(--motion-slide) allow-discrete,
-      overlay var(--motion-slide) allow-discrete;
-  }
-
-  @starting-style {
-    dialog[open] {
-      translate: 100% 0;
-    }
-  }
-
-  /* The scrim fades with the drawer, rather than dimming the page at once. */
-  dialog::backdrop {
-    background: var(--scrim);
-    opacity: 0;
-    transition:
-      opacity var(--motion-exit) var(--ease-exit),
-      display var(--motion-exit) allow-discrete,
-      overlay var(--motion-exit) allow-discrete;
-  }
-
-  dialog[open]::backdrop {
-    opacity: 1;
-    transition:
-      opacity var(--motion-slide) var(--ease-enter),
-      display var(--motion-slide) allow-discrete,
-      overlay var(--motion-slide) allow-discrete;
-  }
-
-  @starting-style {
-    dialog[open]::backdrop {
-      opacity: 0;
-    }
   }
 
   header {
@@ -542,14 +483,8 @@
     flex: none;
   }
 
-  /* DESIGN.md: drawers fill the width, and each label moves above its
-     value. */
+  /* DESIGN.md: each label moves above its value. */
   @media (max-width: 720px) {
-    dialog {
-      width: 100%;
-      border-radius: 0;
-    }
-
     .facts > div {
       grid-template-columns: minmax(0, 1fr);
       row-gap: var(--space-6);

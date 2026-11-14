@@ -47,6 +47,125 @@ function foldersSection(page: Page) {
   return page.getByRole("region", { name: "Folders" });
 }
 
+test("the scrim closes an empty drawer and confirms before discarding edits", async ({
+  page,
+}) => {
+  await page.goto(`${server.origin}/sources`);
+  const add = page.getByRole("link", { name: "Add a source" });
+  const drawer = page.getByRole("dialog", { name: /^Add a source/ });
+  await add.click();
+  await expect(page.getByLabel("Server", { exact: true })).toBeFocused();
+  await page.mouse.click(10, 100);
+  await expect(drawer).toBeHidden();
+  await expect(add).toBeFocused();
+
+  await add.click();
+  const host = page.getByLabel("Server", { exact: true });
+  await host.fill("imap.example.test");
+  // A drag that starts inside the drawer must not count as an outside click.
+  await host.hover();
+  await page.mouse.down();
+  await page.mouse.move(10, 100);
+  await page.mouse.up();
+  const confirmation = page.getByRole("dialog", {
+    name: "Discard this source?",
+  });
+  await expect(confirmation).toBeHidden();
+  await page.mouse.click(10, 100);
+  await expect(confirmation).toBeVisible();
+  await expect(
+    confirmation.getByRole("button", { name: "Keep editing" }),
+  ).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(confirmation).toBeHidden();
+  await expect(host).toHaveValue("imap.example.test");
+  await page.mouse.click(10, 100);
+  await confirmation.getByRole("button", { name: "Discard source" }).click();
+  await expect(drawer).toBeHidden();
+  await expect(page).toHaveURL(`${server.origin}/sources`);
+  await expect(add).toBeFocused();
+});
+
+test("Back preserves edits until confirmed and Forward opens a fresh drawer", async ({
+  page,
+}) => {
+  await page.goto(`${server.origin}/sources`);
+  await page.getByRole("link", { name: "Add a source" }).click();
+  await connect(page, imap);
+  await expect(page.getByLabel("Name", { exact: true })).toBeVisible();
+  await page.goBack();
+  const confirmation = page.getByRole("dialog", {
+    name: "Discard this source?",
+  });
+  await expect(confirmation).toBeVisible();
+  await expect(page).toHaveURL(`${server.origin}/sources?add`);
+  await confirmation.getByRole("button", { name: "Keep editing" }).click();
+  await expect(page.getByLabel("Name", { exact: true })).toHaveValue(
+    MAILBOX.user,
+  );
+  await page.goBack();
+  await confirmation.getByRole("button", { name: "Discard source" }).click();
+  await expect(page).toHaveURL(`${server.origin}/sources`);
+  await page.goForward();
+  const host = page.getByLabel("Server", { exact: true });
+  await expect(host).toBeFocused();
+  await expect(host).toHaveValue("");
+});
+
+test("Cancel from the folder step confirms and reopening focuses Server", async ({
+  page,
+}) => {
+  await page.goto(`${server.origin}/sources?add`);
+  await connect(page, imap);
+  await expect(page.getByLabel("Name", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await page.getByRole("button", { name: "Discard source" }).click();
+  await expect(page).toHaveURL(`${server.origin}/sources`);
+  await page.getByRole("link", { name: "Add a source" }).click();
+  await expect(page.getByLabel("Server", { exact: true })).toBeFocused();
+});
+
+test("a pending save blocks Back, Escape, Close, Cancel, and the scrim", async ({
+  page,
+}) => {
+  await page.goto(`${server.origin}/sources`);
+  await page.getByRole("link", { name: "Add a source" }).click();
+  await connect(page, imap);
+  await expect(page.getByLabel("Name", { exact: true })).toBeVisible();
+  let release = () => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  let saves = 0;
+  await page.route("**/api/sources", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    saves += 1;
+    await held;
+    await route.continue();
+  });
+  try {
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect.poll(() => saves).toBe(1);
+    await page.goBack();
+    await page.keyboard.press("Escape");
+    await page
+      .getByRole("button", { name: "Close", exact: true })
+      .click({ force: true });
+    await page
+      .getByRole("button", { name: "Cancel", exact: true })
+      .click({ force: true });
+    await page.mouse.click(10, 100);
+    await expect(page).toHaveURL(`${server.origin}/sources?add`);
+    await expect(page.getByRole("button", { name: "Saving…" })).toBeVisible();
+    await expect(
+      page.getByRole("dialog", { name: "Discard this source?" }),
+    ).toBeHidden();
+  } finally {
+    release();
+  }
+  await expect(page).toHaveURL(/\/sources\/\d+$/);
+  await expectState(page, "Waiting", 20_000);
+  expect(saves).toBe(1);
+});
+
 /** Adds Anna with INBOX and waits for the first sync to end. */
 async function addAnna(page: Page) {
   await addSource(page, server, imap, { name: "Anna" });
@@ -165,6 +284,39 @@ test("a wrong password while editing shows why and changes nothing", async ({
   await expectState(page, "Waiting");
 });
 
+test("password managers fill only the mailbox sign-in", async ({ page }) => {
+  // Proton Pass, Bitwarden, LastPass, and 1Password each skip a field only
+  // for their own attribute, and some ignore autocomplete="off".
+  async function expectIgnored(label: string) {
+    const input = page.getByLabel(label, { exact: true });
+    await expect(input).toHaveAttribute("autocomplete", "off");
+    await expect(input).toHaveAttribute("data-protonpass-ignore", "true");
+    await expect(input).toHaveAttribute("data-bwignore", "");
+    await expect(input).toHaveAttribute("data-lpignore", "true");
+    await expect(input).toHaveAttribute("data-1p-ignore", "");
+  }
+
+  await page.goto(`${server.origin}/sources?add`);
+  for (const label of ["Server", "Port"]) {
+    await expectIgnored(label);
+  }
+  const userName = page.getByLabel("User name", { exact: true });
+  await expect(userName).toHaveAttribute("autocomplete", "username");
+  await expect(userName).not.toHaveAttribute("data-protonpass-ignore");
+  const password = page.getByLabel("Password", { exact: true });
+  await expect(password).toHaveAttribute("autocomplete", "current-password");
+  await expect(password).not.toHaveAttribute("data-protonpass-ignore");
+
+  // The edit form's password has no user name beside it, so a manager would
+  // fill another login and replace the stored password with it.
+
+  await addAnna(page);
+  await sourceSection(page).getByRole("button", { name: "Edit" }).click();
+  for (const label of ["Name", "Port", "Password"]) {
+    await expectIgnored(label);
+  }
+});
+
 test("removing asks first, naming the source, and its history stays", async ({
   page,
 }) => {
@@ -205,16 +357,14 @@ test("adding the same server and user name again links to the existing source", 
   await addAnna(page);
   const existing = page.url();
 
-  await page.goto(`${server.origin}/sources/new`);
+  await page.goto(`${server.origin}/sources?add`);
   // The user name matches ignoring case.
-  await connect(page, imap, {
-    name: "Anna again",
-    user: MAILBOX.user.toUpperCase(),
-  });
+  await connect(page, imap, { user: MAILBOX.user.toUpperCase() });
   await expect(
     page.getByText("A source for this server and user name already exists."),
   ).toBeVisible();
   await page.getByRole("link", { name: "Open the existing source" }).click();
+  await page.getByRole("button", { name: "Discard source" }).click();
   await expect(page).toHaveURL(existing);
   await expect(
     page.getByRole("heading", { name: "Anna", level: 1 }),

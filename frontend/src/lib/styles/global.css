@@ -203,8 +203,76 @@ a {
   white-space: nowrap;
 }
 
+/* A modal drawer on the right edge: a native <dialog> opened with
+   showModal(). Its rows hold in every state, so it keeps its layout while it
+   slides out after closing. display and overlay hold it on screen until it
+   has gone, and the scrim fades with it. */
+dialog.drawer {
+  position: fixed;
+  inset: 0 0 0 auto;
+  width: min(var(--drawer-width), 100%);
+  max-width: none;
+  height: 100dvh;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-large) 0 0 var(--radius-large);
+  background: var(--raised);
+  box-shadow: var(--shadow-pop);
+  color: var(--text-1);
+  translate: 100% 0;
+  transition:
+    translate var(--motion-exit) var(--ease-exit),
+    display var(--motion-exit) allow-discrete,
+    overlay var(--motion-exit) allow-discrete;
+}
+
+dialog.drawer[open] {
+  display: grid;
+  translate: 0 0;
+  transition:
+    translate var(--motion-slide) var(--ease-enter),
+    display var(--motion-slide) allow-discrete,
+    overlay var(--motion-slide) allow-discrete;
+}
+
+@starting-style {
+  dialog.drawer[open] {
+    translate: 100% 0;
+  }
+}
+
+dialog.drawer::backdrop {
+  background: var(--scrim);
+  opacity: 0;
+  transition:
+    opacity var(--motion-exit) var(--ease-exit),
+    display var(--motion-exit) allow-discrete,
+    overlay var(--motion-exit) allow-discrete;
+}
+
+dialog.drawer[open]::backdrop {
+  opacity: 1;
+  transition:
+    opacity var(--motion-slide) var(--ease-enter),
+    display var(--motion-slide) allow-discrete,
+    overlay var(--motion-slide) allow-discrete;
+}
+
+@starting-style {
+  dialog.drawer[open]::backdrop {
+    opacity: 0;
+  }
+}
+
 /* DESIGN.md: controls grow for touch on narrow screens. */
 @media (max-width: 720px) {
+  dialog.drawer {
+    width: 100%;
+    border-radius: 0;
+  }
+
   .button,
   .button.large,
   .field > input {

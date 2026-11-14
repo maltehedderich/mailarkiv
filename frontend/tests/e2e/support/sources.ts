@@ -57,13 +57,15 @@ export interface Connection {
   password?: string;
 }
 
-/** Fills the add form's first step and presses Connect, by pointer. */
+/** Fills the add drawer's first step and presses Connect, by pointer. */
 export async function connect(
   page: Page,
   imap: ImapServer,
-  { name, user = MAILBOX.user, password = MAILBOX.password }: Connection,
+  {
+    user = MAILBOX.user,
+    password = MAILBOX.password,
+  }: Omit<Connection, "name"> = {},
 ): Promise<void> {
-  await page.getByLabel("Name", { exact: true }).fill(name);
   await page.getByLabel("Server", { exact: true }).fill(imap.host);
   await page.getByLabel("Port", { exact: true }).fill(String(imap.port));
   await page.getByLabel("User name", { exact: true }).fill(user);
@@ -77,7 +79,7 @@ export function folderChoice(page: Page): Locator {
 }
 
 /**
- * Adds a source through the form with the given folders checked, besides
+ * Adds a source through the add drawer with the given folders checked, besides
  * INBOX, and returns once its page is open.
  */
 export async function addSource(
@@ -87,8 +89,9 @@ export async function addSource(
   connection: Connection,
   folders: string[] = [],
 ): Promise<void> {
-  await page.goto(`${server.origin}/sources/new`);
+  await page.goto(`${server.origin}/sources?add`);
   await connect(page, imap, connection);
+  await page.getByLabel("Name", { exact: true }).fill(connection.name);
   for (const folder of folders) {
     await folderChoice(page)
       .getByRole("checkbox", { name: folder, exact: true })

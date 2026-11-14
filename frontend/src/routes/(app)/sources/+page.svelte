@@ -2,8 +2,10 @@
   import ChevronRightIcon from "~icons/lucide/chevron-right";
   import FolderIcon from "~icons/lucide/folder";
 
-  import { invalidate } from "$app/navigation";
+  import { goto, invalidate } from "$app/navigation";
+  import { page } from "$app/state";
 
+  import AddSource from "#lib/components/AddSource.svelte";
   import FailedLoad from "#lib/components/FailedLoad.svelte";
   import SourceFacts from "#lib/components/SourceFacts.svelte";
   import SourceState from "#lib/components/SourceState.svelte";
@@ -24,6 +26,36 @@
   const loaded = $derived(
     data.session.kind === "ok" && data.sources.kind === "ok",
   );
+
+  // The address opens the add drawer, so Back closes it and the address can
+  // be shared. Without the key nothing can be added, and the notice says why.
+  const adding = $derived(
+    page.url.searchParams.has("add") &&
+      data.sources.kind === "ok" &&
+      data.sources.value.collection === "available",
+  );
+
+  // A plain click keeps focus on the link, so the drawer gives it back there.
+  // Other clicks open the address as the browser would.
+  function openAdd(event: MouseEvent) {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey) return;
+    if (event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    void goto("/sources?add", { reset: false });
+  }
+
+  // The drawer has closed, by Escape, Close, Cancel, or Back.
+  async function closeAdd() {
+    if (page.url.pathname !== "/sources") return;
+    if (page.url.searchParams.has("add")) {
+      await goto("/sources", { reset: false });
+    }
+    // Closing after a direct address or a scrim click may leave focus on
+    // the document. Restore it after navigation has finished too.
+    if (page.url.pathname === "/sources" && !page.url.searchParams.has("add")) {
+      document.querySelector<HTMLElement>("a.add")?.focus();
+    }
+  }
 
   // While a source syncs, reload so its archived count climbs. Each load
   // gives a new result, so the next timer starts only once the last load
@@ -67,7 +99,9 @@
           {sources.length === 1 ? "source" : "sources"}
         </p>
         {#if collection === "available"}
-          <a class="button primary" href="/sources/new">Add a source</a>
+          <a class="button primary add" href="/sources?add" onclick={openAdd}
+            >Add a source</a
+          >
         {/if}
       </div>
     {/if}
@@ -104,7 +138,9 @@
             <p class="next">
               You'll need the server's address, a user name, and a password.
             </p>
-            <a class="button primary" href="/sources/new">Add a source</a>
+            <a class="button primary add" href="/sources?add" onclick={openAdd}
+              >Add a source</a
+            >
           </div>
         {/if}
       {:else}
@@ -156,6 +192,8 @@
     {/if}
   </div>
 </main>
+
+<AddSource open={adding} onclose={closeAdd} />
 
 <style>
   header {

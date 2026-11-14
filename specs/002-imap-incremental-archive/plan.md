@@ -188,6 +188,12 @@ Each step ends in behavior that tests can check and merges to `main` with `mise 
 | `docs/OPERATIONS.md` | The key (FR-043). What collection guarantees and doesn't, the schedule, timeouts, retry waits, log categories, cause `key`, the no-key log entry, trusting a private issuer, and tested servers (FR-044) | Step 8 |
 | `README.md` | Status: Slice 2 of 7 works, with IMAP collection | Step 8 |
 
+## Drawer and session review fixes
+
+Keep the last session watcher after a failed navigation read. Guard leaving the add drawer while Save runs, confirm discarding edits, close untouched forms on scrim clicks, and focus Server after a reopened form renders. Use the existing dialog tokens and native modal behavior; no dependencies or policy exceptions are needed.
+
+Browser regressions cover the credible failures: losing the expiry timer or visibility listeners, leaving a save unseen, discarding edits by accident, and losing keyboard focus. Extend the existing accessibility checks to the confirmation in both themes at 1280 px and 360 px. Run `mise run lint`, `mise run typecheck`, and `mise run audit` (static); `mise run frontend:test` (unit); `mise run server:test` (unit, integration, process); and `mise run test:e2e` (browser). The Go checks already run during review remain applicable because these fixes change only the frontend. The Go suite remains incomplete on this host because `strace` is missing and its certificate-trust test expects a different error type.
+
 ## Remaining risks
 
 - Only the in-memory double and one Dovecot version are run. The double shares the library's parser, so it can't reveal a disagreement between the library and a server. Hosted providers aren't tested, and the operator guide says so.

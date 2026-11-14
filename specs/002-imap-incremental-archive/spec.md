@@ -68,6 +68,8 @@ An administrator adds a source and chooses folders. The messages already in thos
 7. **Given** wrong connection details, **When** the administrator presses Connect, **Then** they see which step failed (server not reachable, secure connection failed, sign-in rejected, or timed out), and nothing is saved.
 8. **Given** the add-source screen, **When** the administrator reaches Save, **Then** the screen says that archived mail can't be removed in this version.
 9. **Given** a finished sync, **When** someone checks the mailbox with a mail client, **Then** nothing changed: no message was marked read, flagged, moved, or deleted.
+10. **Given** an untouched add-source drawer, **When** the administrator clicks outside it, **Then** it closes and focus returns to Add a source. After entering details, the same click, Escape, Close, Cancel, or Back asks whether to discard them; Keep editing preserves the form, and Discard source leaves it. Reopening starts empty with focus in Server.
+11. **Given** a pending Save, **When** the administrator tries to close the drawer or navigate within the app, **Then** it stays open until the result arrives. Reloading or closing the tab warns through the browser. Session expiry can always open sign-in.
 
 ---
 

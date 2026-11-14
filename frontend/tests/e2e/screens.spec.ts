@@ -360,7 +360,6 @@ test.describe("the sources screens", () => {
     ).toBeVisible();
     await check("the add form");
 
-    await page.getByLabel("Name", { exact: true }).fill("Anna");
     await page.getByRole("button", { name: "Connect" }).click();
     await expect(page.getByLabel("Server", { exact: true })).toHaveAttribute(
       "aria-invalid",
@@ -368,18 +367,22 @@ test.describe("the sources screens", () => {
     );
     await check("the add form with field problems");
 
-    await connect(page, imap, {
-      name: "Anna",
-      password: "not the mailbox password",
-    });
+    await connect(page, imap, { password: "not the mailbox password" });
     await expect(
       page.getByText("Sign-in rejected", { exact: true }),
     ).toBeVisible();
     await check("the add form with a failed check");
 
-    await connect(page, imap, { name: "Anna" });
+    await connect(page, imap);
     await expect(folderChoice(page).getByRole("checkbox")).toHaveCount(2);
     await check("the folder choice");
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(
+      page.getByRole("dialog", { name: "Discard this source?" }),
+    ).toBeVisible();
+    await check("the discard confirmation");
+    await page.getByRole("button", { name: "Keep editing" }).click();
+    await page.getByLabel("Name", { exact: true }).fill("Anna");
 
     await page.getByRole("button", { name: "Save" }).click();
     await expectState(page, "Waiting", 20_000);

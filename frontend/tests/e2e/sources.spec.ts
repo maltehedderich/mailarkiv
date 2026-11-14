@@ -56,7 +56,6 @@ async function typeInto(page: Page, target: Locator, text: string) {
 
 /** Fills the first step by keyboard, in the order Tab reaches the fields. */
 async function typeDetails(page: Page, password: string) {
-  await typeInto(page, field(page, "Name"), "Anna");
   await typeInto(page, field(page, "Server"), imap.host);
   await typeInto(page, field(page, "Port"), String(imap.port));
   await typeInto(page, field(page, "User name"), MAILBOX.user);
@@ -80,14 +79,26 @@ test("an administrator adds a source and follows its first sync", async ({
 
   await tabTo(page, page.getByRole("link", { name: "Add a source" }));
   await page.keyboard.press("Enter");
+  // A drawer over the list, at its own address, starting at its first field.
+  const adding = page.getByRole("dialog", { name: /^Add a source/ });
   await expect(
-    page.getByRole("heading", { name: "Add a source", level: 1 }),
+    adding.getByRole("heading", { name: "Connect to the mailbox" }),
   ).toBeVisible();
+  await expect(page).toHaveURL(/\/sources\?add$/);
+  await expect(field(page, "Server")).toBeFocused();
   await expectNoSidewaysScroll(page, "the add form");
   await expect(sourcesLink).toHaveAttribute("aria-current", "page");
 
+  // Escape closes it, gives focus back to the link, and leaves the address.
+  await page.keyboard.press("Escape");
+  await expect(adding).toBeHidden();
+  await expect(page).toHaveURL(/\/sources$/);
+  const addLink = page.getByRole("link", { name: "Add a source" });
+  await expect(addLink).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(field(page, "Server")).toBeFocused();
+
   // The fields in the order Tab reaches them.
-  await typeInto(page, field(page, "Name"), "Anna");
   await typeInto(page, field(page, "Server"), imap.host);
 
   // The port follows the connection security until one is typed.
@@ -128,6 +139,11 @@ test("an administrator adds a source and follows its first sync", async ({
   await expect(item("Gesendete Objekte")).toContainText("2 messages");
   await expect(item("Entwürfe")).toContainText("1 message");
   await expectNoSidewaysScroll(page, "the folder choice");
+
+  // The name comes after the sign-in, and starts as the user name.
+  const name = field(page, "Name");
+  await expect(name).toHaveValue(MAILBOX.user);
+  await typeInto(page, name, "Anna");
 
   await tabTo(page, folder("Gesendete Objekte"));
   await page.keyboard.press("Space");
@@ -206,7 +222,7 @@ test("a wrong password names the step that failed and saves nothing", async ({
   page,
 }) => {
   await signIn(page, server);
-  await page.goto(`${server.origin}/sources/new`);
+  await page.goto(`${server.origin}/sources?add`);
   await typeDetails(page, "not the mailbox password");
   const connect = page.getByRole("button", { name: "Connect" });
   await tabTo(page, connect);
