@@ -173,7 +173,7 @@ go test ./internal/web -run 'TestEveryRouteDeniesWithoutSession|TestSourceRespon
    )
    ```
 
-   Expected: `INBOX messages=50` and `Entwürfe messages=10`. Use `sha256sum .data/fixtures/inbox-01.eml` and compare it with the downloaded copy of “Synthetic inbox message 1” in scenario 1.
+   Expected: `INBOX messages=50` and `Entwürfe messages=10`. Use `shasum -a 256 .data/fixtures/inbox-01.eml` and compare it with the downloaded copy of “Synthetic inbox message 1” in scenario 1.
 
    The named volume keeps mail across container restarts. Use `docker stop mailarkiv-dovecot` and `docker start mailarkiv-dovecot` to stop and resume it. To start over, remove only this throwaway server and its mail with `docker rm -f mailarkiv-dovecot` followed by `docker volume rm mailarkiv-dovecot-mail`, then repeat steps 2 and 3.
 

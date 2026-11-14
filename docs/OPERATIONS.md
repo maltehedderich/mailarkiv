@@ -125,23 +125,34 @@ Every account sees the whole archive. There are no roles.
 
 ## The key
 
-`mise run dev` uses `.data/dev` for the archive and `.data/mailarkiv.key` for its key. It creates the key if missing and reuses it on later starts.
-
-IMAP collection needs a key file outside the data directory. Create it as the user that runs MailArkiv, in a directory that user owns. For a local development archive:
+IMAP collection needs a key file outside the data directory. Create it as the user that runs MailArkiv, in a directory that user owns:
 
 ```sh
-mkdir -p .data
-bin/mailarkiv key create --data-dir .data/demo .data/mailarkiv.key
-bin/mailarkiv serve --data-dir .data/demo --key-file .data/mailarkiv.key
+sudo install -d -o mailarkiv -g mailarkiv -m 0700 /etc/mailarkiv
+sudo -u mailarkiv mailarkiv key create --data-dir /var/lib/mailarkiv /etc/mailarkiv/mailarkiv.key
 ```
 
-Use your existing data directory and key if you have already created them. The key command refuses to overwrite an existing file and creates new files with mode 0600. Keep the key readable only by the service user, and back it up separately from the archive. Anyone who can read both the key and the archive can read the saved IMAP passwords. Paths inside the data directory, including symbolic links into it, are refused; hard links into it are not detected.
+Then start the server with the key:
+
+```sh
+sudo -u mailarkiv mailarkiv serve --data-dir /var/lib/mailarkiv --key-file /etc/mailarkiv/mailarkiv.key
+```
+
+In the [systemd unit](#run-it-as-a-service), the line becomes:
+
+```ini
+ExecStart=/usr/local/bin/mailarkiv serve --data-dir /var/lib/mailarkiv --key-file /etc/mailarkiv/mailarkiv.key
+```
+
+The key command refuses to overwrite an existing file and creates new files with mode 0600. Keep the key readable only by the service user, and back it up separately from the archive. Anyone who can read both the key and the archive can read the saved IMAP passwords. Paths inside the data directory, including symbolic links into it, are refused; hard links into it are not detected.
 
 Open **Sources → Add a source**, enter the mailbox details, press **Connect**, select folders, and save. The account created with `account create` signs you into MailArkiv; the source holds your IMAP credentials.
 
 Without `--key-file`, Sources explains that collection needs the key. No mail is collected and no source can be added, but imports and downloads still work. Startup logs `collection unavailable` with reason `no key file given`.
 
 If the key is lost, every source's IMAP password must be saved again. To replace it, stop the server, create a key at a new path outside the data directory, and start with that path. Each source shows **Needs attention** until you save its password again. Archived messages remain available. There is no command to re-encrypt saved passwords under a new key.
+
+For development, `mise run dev` uses `.data/dev` for the archive and `.data/mailarkiv.key` for its key. It creates the key if missing and reuses it on later starts.
 
 ## Imports and what a result means
 
