@@ -84,13 +84,14 @@ Spacing tokens are named for their pixel values (`--space-2` through `--space-32
 | `--sidebar-width`        | 224 px | Desktop navigation sidebar               |
 | `--tab-bar-height`       | 44 px  | Bottom tab bar at 720 px and below       |
 | `--content-width`        | 880 px | Centred reading and status column        |
+| `--header-inset`         | 24 px or more | View header side padding that lines up with the content column |
 | `--drawer-width`         | 440 px | Right-hand modal detail drawer           |
 | `--form-width`           | 300 px | Standalone forms and error messages      |
 | `--form-width-wide`      | 440 px | Adding and editing a source              |
 | `--dialog-width`         | 400 px | Confirmation dialogs                     |
 | `--toast-width`          | 380 px | Desktop toast notifications              |
 
-Signed-in pages pair a sticky `--sidebar-width` sidebar on `--canvas` with a single `--panel` surface inset by `--space-8`. Both the sidebar's logo row and the view's header are `--header-height` (52 px) tall, aligning the logo with the view title. The Messages header sticks to the top, because it carries the pager, and the page keeps `scroll-padding-top` at its height so focus scrolls clear of it (WCAG 2.4.11). Sign out sits at the foot of the sidebar; if sign-out fails, the error line goes above the button so the button stays under the pointer for the next try. Focused reading and status views centre their body in `--content-width`.
+Signed-in pages pair a sticky `--sidebar-width` sidebar on `--canvas` with a single `--panel` surface inset by `--space-8`. Both the sidebar's logo row and the view's header are `--header-height` (52 px) tall, aligning the logo with the view title. The Messages header sticks to the top, because it carries the pager, and the page keeps `scroll-padding-top` at its height so focus scrolls clear of it (WCAG 2.4.11). Sign out sits at the foot of the sidebar; if sign-out fails, the error line goes above the button so the button stays under the pointer for the next try. Every signed-in view centres its body in `--content-width`. Its header's line spans the panel, but `--header-inset` pads the header's contents onto the column's edges, so the title starts where the content starts and the last header control ends where it ends. Without it, a wide screen leaves the title at the panel's left, the content in the middle, and the button at the far right.
 
 Standalone pages (sign-in and full-page errors) sit directly on `--panel` with no sidebar, constrained to `--form-width`. Forms sit 20% of the way down the viewport instead of vertically centred, so an error line added below never moves the fields.
 
@@ -191,7 +192,9 @@ When a view or drawer cannot load its data, replace the content area with a bloc
 
 ### Sources
 
-A source's state is a dot beside the state word in medium `--text-1`, then what the state is shown with in `--text-2`. State words and category text come from [`words.ts`](src/lib/sources/words.ts), which copies the spec's tables.
+The main navigation lists Messages, Sources, and Status, in that order. Sources uses Lucide's mail icon and stays current on `/sources` and every page below it, including the add form and source details. It uses the existing sidebar item and bottom tab styles, and remains visible when the server has no key.
+
+A source's state is a dot beside the state word in medium `--text-1`, then what the state is shown with in `--text-2`. The dot hangs beside the first line, so text that wraps starts under the state word. State words and category text come from [`words.ts`](src/lib/sources/words.ts), which copies the spec's tables.
 
 | State           | Dot            | Shown with                                                             |
 | --------------- | -------------- | ---------------------------------------------------------------------- |
@@ -201,7 +204,13 @@ A source's state is a dot beside the state word in medium `--text-1`, then what 
 | Needs attention | `--state-bad`  | The category label and its next step: `Sign-in rejected. Save the …`   |
 | Paused          | `--text-4`     | `Since` and its time                                                   |
 
-The Sources list centres in `--content-width`. Each source is a block, separated from the next by `--line`: its name as a link to its page in medium weight, the state line, then facts. Facts sit in Status's 136 px label column at label size, labels in `--text-3` and values in `--text-2`, and stack at 720 px and below. They are `Server` (`imap.example.org, port 993, TLS`), `User name`, `Folders` (the chosen folders in sync order, separated by commas, each cut in its own middle), `Last successful sync` (the time and `archived 12`, or `None yet`), `Collected`, and, when any count is above zero, `Problems` (`1 folder unavailable, 2 messages waiting for retry`). Only times and counts use tabular numerals, because they widen Inter's hyphen in names such as `Sign-in` or `mail-1.example.org`. With no sources the list reads `No sources.`
+The Sources list centres in `--content-width`. Each source is a row, separated from the next by a `--line` hairline, in two columns: who the source is, then a 440 px column for its state and the evidence. The states of every source sit in one column, so a reader finds the one that needs attention by running down it. The whole row opens the source's page, as a message row opens its history: the name is the link, in medium `--text-1`, and its `::after` covers the row. A row takes `--fill-1` on hover or keyboard focus and hides the hairlines beside it. A chevron at the row's end rests in `--text-4` and turns `--text-2` with its row.
+
+Under the name come the mailbox in `--text-3` at label size, worded as on the add form (`anna@example.org on imap.example.org, port 993, TLS`), then the chosen folders in sync order after a 14 px folder icon, separated by commas, each cut in its own middle. Server, user name, and folders rarely change, so they stay quiet. The second column has the state line, then the facts in Status's 136 px label column at label size, labels in `--text-3` and values in `--text-2`: `Last successful sync` (the time and `archived 12`, or `None yet`), `Collected`, and, when any count is above zero, `Problems` (`1 folder unavailable, 2 messages waiting for retry`) after a `--state-warn` dot, as Status marks these problems. Lines sit 4 px apart in both columns, so the mailbox is level with the first fact. A line breaks before a time and never inside it, and a comma stays with the name before it. Only times and counts use tabular numerals, because they widen Inter's hyphen in names such as `Sign-in` or `mail-1.example.org`.
+
+At 1040 px and below a source takes one column: the name, the state line, the mailbox and folders, then the facts, which stack at 720 px and below with 8 px between them. The header shows the count (`6 sources`) in `--text-3` at label size before its button.
+
+With no sources, the list's place holds a box shaped like the Messages drop zone (`--fill-1`, 1 px `--line` edge, `--radius-large`), because it's the other way mail comes in. A section heading reads `No sources yet`. Below it, in `--text-2`: `A source is an IMAP mailbox. MailArkiv first archives every message in the folders you choose, then checks for new mail every 5 minutes. It only reads the mailbox and never changes it.` Then, in `--text-3`: `You'll need the server's address, a user name, and a password.` The text stops at 64 characters a line, and `5 minutes` never breaks. `Add a source` follows as the view's one primary button, so the header has neither count nor button. At 720 px and below the button takes the full width, as in the drop zone. While the server has no key, the notice already says why, so the box gives way to `No sources yet` in `--text-3`, as quiet as the empty Messages list.
 
 When the server started without its key, a notice box (`--fill-1`, `--radius-medium`, transparent border) above the list says what happened in `--text-2`, then the next step in `--text-3`, linking to the key section of the [operator guide](../docs/OPERATIONS.md). The link targets the `#the-key` anchor, so the guide's section must keep the heading `The key`.
 
@@ -218,7 +227,7 @@ On Status, problem sources come first in the Problems section, above the failure
 
 ### Adding, changing, and removing a source
 
-The Sources header ends with `Add a source`, a link styled `button primary`. It's left out while the server has no key, because the notice says why nothing can be added.
+The Sources header ends with `Add a source`, a link styled `button primary`. It's left out while the server has no key, because the notice says why nothing can be added, and while there are no sources, because the empty box carries it.
 
 `/sources/new` has a source page's header, titled `Add a source`. Its form is one column `--form-width-wide` (440 px) wide at the start of the content column, in two steps:
 

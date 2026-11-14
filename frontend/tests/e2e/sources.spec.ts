@@ -16,8 +16,7 @@ import {
 } from "./support/sources";
 
 // An administrator adds a source and follows its first sync with the keyboard
-// alone, at 360 px wide, and the page never scrolls sideways. The navigation
-// item for Sources comes later, so these open /sources by address.
+// alone, at 360 px wide, and the page never scrolls sideways.
 
 let imap: ImapServer;
 let server: TestServer;
@@ -68,8 +67,15 @@ test("an administrator adds a source and follows its first sync", async ({
   page,
 }) => {
   await signIn(page, server);
-  await page.goto(`${server.origin}/sources`);
-  await expect(page.getByText("No sources.")).toBeVisible();
+  const sourcesLink = page
+    .getByRole("navigation", { name: "Main" })
+    .getByRole("link", { name: "Sources", exact: true });
+  await tabTo(page, sourcesLink);
+  await page.keyboard.press("Enter");
+  await expect(sourcesLink).toHaveAttribute("aria-current", "page");
+  await expect(
+    page.getByRole("heading", { name: "No sources yet" }),
+  ).toBeVisible();
   await expectNoSidewaysScroll(page, "the empty list");
 
   await tabTo(page, page.getByRole("link", { name: "Add a source" }));
@@ -78,6 +84,7 @@ test("an administrator adds a source and follows its first sync", async ({
     page.getByRole("heading", { name: "Add a source", level: 1 }),
   ).toBeVisible();
   await expectNoSidewaysScroll(page, "the add form");
+  await expect(sourcesLink).toHaveAttribute("aria-current", "page");
 
   // The fields in the order Tab reaches them.
   await typeInto(page, field(page, "Name"), "Anna");
@@ -139,6 +146,7 @@ test("an administrator adds a source and follows its first sync", async ({
 
   // The first sync starts at once and counts what it has archived.
   await expect(page).toHaveURL(/\/sources\/\d+$/);
+  await expect(sourcesLink).toHaveAttribute("aria-current", "page");
   await expect(
     page.getByRole("heading", { name: "Anna", level: 1 }),
   ).toBeVisible();
@@ -217,5 +225,7 @@ test("a wrong password names the step that failed and saves nothing", async ({
   await expectNoSidewaysScroll(page, "the failed check");
 
   await page.goto(`${server.origin}/sources`);
-  await expect(page.getByText("No sources.")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "No sources yet" }),
+  ).toBeVisible();
 });

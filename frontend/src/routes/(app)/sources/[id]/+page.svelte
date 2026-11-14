@@ -334,7 +334,7 @@
     gap: var(--space-4);
     align-items: center;
     height: var(--header-height);
-    padding: 0 var(--space-24);
+    padding: 0 var(--header-inset);
     border-bottom: 1px solid var(--line);
   }
 

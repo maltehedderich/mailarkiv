@@ -349,7 +349,9 @@ test.describe("the sources screens", () => {
   ) {
     await signIn(page);
     await page.goto(`${server.origin}/sources`);
-    await expect(page.getByText("No sources.")).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "No sources yet" }),
+    ).toBeVisible();
     await check("the empty sources list");
 
     await page.getByRole("link", { name: "Add a source" }).click();

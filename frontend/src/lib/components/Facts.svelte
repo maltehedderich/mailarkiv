@@ -46,7 +46,13 @@
     font-variant-numeric: normal;
   }
 
+  /* Stacked, a label belongs to the value below it, so facts sit further
+     apart than a label and its value. */
   @media (max-width: 720px) {
+    .facts {
+      gap: var(--space-8);
+    }
+
     .facts > :global(div) {
       grid-template-columns: minmax(0, 1fr);
     }

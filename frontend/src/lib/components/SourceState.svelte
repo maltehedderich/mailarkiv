@@ -18,51 +18,62 @@
 
 <p class="state">
   <span class="dot {stateTone(source.state)}"></span>
-  <span class="word">{STATE_WORDS[source.state]}</span>
-  {#if source.state === "syncing" && source.progress !== null}
-    <span class="detail progress">
-      Archived {numbers.format(source.progress.archived)} of
-      {numbers.format(source.progress.found)} found
-    </span>
-  {:else if source.state === "waiting" && source.nextSyncAt !== null}
-    <span class="detail">
-      Next sync
-      <time datetime={source.nextSyncAt}>{formatTime(source.nextSyncAt)}</time>
-    </span>
-  {:else if source.state === "retrying" && failure !== null}
-    <span class="detail">
-      {failure.label}.
-      {#if source.nextSyncAt !== null}
-        Next attempt
+  <span class="text">
+    <span class="word">{STATE_WORDS[source.state]}</span>
+    {#if source.state === "syncing" && source.progress !== null}
+      <span class="detail progress">
+        Archived {numbers.format(source.progress.archived)} of
+        {numbers.format(source.progress.found)} found
+      </span>
+    {:else if source.state === "waiting" && source.nextSyncAt !== null}
+      <span class="detail">
+        Next sync
         <time datetime={source.nextSyncAt}>{formatTime(source.nextSyncAt)}</time
         >
-      {/if}
-    </span>
-  {:else if source.state === "needs_attention" && failure !== null}
-    <span class="detail">{failure.label}. {failure.nextStep}.</span>
-  {:else if source.state === "paused" && source.pausedAt !== null}
-    <span class="detail">
-      Since
-      <time datetime={source.pausedAt}>{formatTime(source.pausedAt)}</time>
-    </span>
-  {/if}
+      </span>
+    {:else if source.state === "retrying" && failure !== null}
+      <span class="detail">
+        {failure.label}.
+        {#if source.nextSyncAt !== null}
+          Next attempt
+          <time datetime={source.nextSyncAt}
+            >{formatTime(source.nextSyncAt)}</time
+          >
+        {/if}
+      </span>
+    {:else if source.state === "needs_attention" && failure !== null}
+      <span class="detail">{failure.label}. {failure.nextStep}.</span>
+    {:else if source.state === "paused" && source.pausedAt !== null}
+      <span class="detail">
+        Since
+        <time datetime={source.pausedAt}>{formatTime(source.pausedAt)}</time>
+      </span>
+    {/if}
+  </span>
 </p>
 
 <style>
+  /* The dot hangs beside the first line, so a detail that wraps starts
+     under the state word. */
   .state {
+    display: grid;
+    grid-template-columns: var(--dot-size) minmax(0, 1fr);
+    column-gap: var(--space-8);
+  }
+
+  .text {
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
     gap: 0 var(--space-8);
+    min-width: 0;
   }
 
-  /* Centred on the word's lowercase letters, as baseline alignment would
-     put an empty box on the text's bottom edge. */
+  /* Centred on the first line. */
   .dot {
-    flex: none;
-    align-self: center;
     width: var(--dot-size);
     height: var(--dot-size);
+    margin-top: calc((var(--leading-body) - var(--dot-size)) / 2);
     border-radius: 50%;
     background: var(--text-4);
   }
@@ -92,5 +103,10 @@
   .progress,
   time {
     font-variant-numeric: tabular-nums;
+  }
+
+  /* A line breaks before a time, never inside it. */
+  time {
+    white-space: nowrap;
   }
 </style>

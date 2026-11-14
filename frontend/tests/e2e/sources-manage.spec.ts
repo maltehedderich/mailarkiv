@@ -182,7 +182,9 @@ test("removing asks first, naming the source, and its history stays", async ({
   await remove.click();
   await dialog.getByRole("button", { name: "Remove source" }).click();
   await expect(page).toHaveURL(/\/sources$/);
-  await expect(page.getByText("No sources.")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "No sources yet" }),
+  ).toBeVisible();
 
   await page.goto(server.origin);
   const rows = page

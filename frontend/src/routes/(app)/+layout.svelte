@@ -2,6 +2,7 @@
   import ActivityIcon from "~icons/lucide/activity";
   import ArchiveIcon from "~icons/lucide/archive";
   import LogOutIcon from "~icons/lucide/log-out";
+  import MailIcon from "~icons/lucide/mail";
 
   import { goto } from "$app/navigation";
   import { page } from "$app/state";
@@ -71,6 +72,17 @@
     >
       <ArchiveIcon />
       Messages
+    </a>
+    <a
+      class="item"
+      href="/sources"
+      aria-current={page.url.pathname === "/sources" ||
+      page.url.pathname.startsWith("/sources/")
+        ? "page"
+        : undefined}
+    >
+      <MailIcon />
+      Sources
     </a>
     <a
       class="item"

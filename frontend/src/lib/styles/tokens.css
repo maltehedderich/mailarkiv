@@ -53,6 +53,13 @@
   --sidebar-width: 224px;
   --tab-bar-height: 44px;
   --content-width: 880px;
+  /* A view header's side padding. It puts the title and actions on the edges
+     of the centred --content-width column below. In padding, 100% is the
+     header's own width. */
+  --header-inset: max(
+    var(--space-24),
+    (100% - var(--content-width)) / 2 + var(--space-24)
+  );
   --drawer-width: 440px;
   --form-width: 300px;
   --form-width-wide: 440px;
