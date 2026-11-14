@@ -1,6 +1,11 @@
 import { describe, expect, test } from "vitest";
 
-import { formatOffset, formatTime } from "./time";
+import {
+  formatOffset,
+  formatTime,
+  formatTimeToday,
+  untilMidnight,
+} from "./time";
 
 // `mise run frontend:test` sets TZ=Europe/Berlin. Expected values come from
 // Europe/Berlin uses +01:00 in winter and +02:00 in summer.
@@ -32,5 +37,36 @@ describe("formatOffset", () => {
     [0, "+00:00"],
   ])("%i minutes east of UTC is %s", (minutes, expected) => {
     expect(formatOffset(minutes)).toBe(expected);
+  });
+});
+
+describe("formatTimeToday", () => {
+  const now = new Date("2026-11-14T15:00:00.000Z");
+
+  test("drops the date on the viewer's current day", () => {
+    expect(formatTimeToday("2026-11-14T15:09:34.000Z", now)).toBe(
+      "16:09:34 +01:00",
+    );
+  });
+
+  test("keeps the date on another day", () => {
+    expect(formatTimeToday("2026-11-13T15:09:34.000Z", now)).toBe(
+      "13 Nov 2026, 16:09:34 +01:00",
+    );
+  });
+
+  test("uses the viewer's day, not the UTC one", () => {
+    // 23:30 UTC on the 14th is 00:30 on the 15th in Berlin.
+    expect(formatTimeToday("2026-11-14T23:30:00.000Z", now)).toBe(
+      "15 Nov 2026, 00:30:00 +01:00",
+    );
+  });
+});
+
+describe("untilMidnight", () => {
+  test("counts to the viewer's next midnight", () => {
+    expect(untilMidnight(new Date("2026-11-14T22:30:00.000Z"))).toBe(
+      30 * 60 * 1000,
+    );
   });
 });

@@ -186,7 +186,7 @@ test("an administrator adds a source and follows its first sync", async ({
   await expectState(page, "Waiting", 30_000);
   await expect(stateSection(page)).toContainText("Next sync");
   const facts = page.getByRole("region", { name: "Source" });
-  await expect(facts).toContainText("archived 5");
+  await expect(facts).toContainText("5 new");
 
   // The list names each message by its source and folder.
   await tabTo(

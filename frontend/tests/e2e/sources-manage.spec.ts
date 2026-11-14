@@ -205,8 +205,8 @@ test("Sync now, Pause, and Resume change the state, and a second sync is refused
   await resume.click();
   await expectState(page, "Syncing");
   await expectState(page, "Waiting", 20_000);
-  await expect(sourceSection(page)).toContainText("archived");
-  await expect(sourceSection(page)).toContainText(/Collected\s*3/);
+  await expect(sourceSection(page)).toContainText(/\d+ new/);
+  await expect(sourceSection(page)).toContainText(/Archived\s*3/);
 
   // With nothing new, the sync may end before the page shows it, so its
   // finish time, to the millisecond, is what shows it ran.
@@ -265,7 +265,7 @@ test("an edit lists the server's folders as it opens, keeps the empty password, 
   await expect(sourceAction(page, "Edit")).toBeFocused();
   await expect(foldersSection(page)).toContainText("Projekte");
   await expectState(page, "Waiting", 20_000);
-  await expect(sourceSection(page)).toContainText(/Collected\s*5/);
+  await expect(sourceSection(page)).toContainText(/Archived\s*5/);
 });
 
 test("after a rejected sign-in, opening the edit form doesn't sign in", async ({

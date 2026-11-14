@@ -14,6 +14,7 @@
     folders = null,
     problems = false,
     mailbox = true,
+    format = formatTime,
   }: {
     source: Omit<Source, "folders">;
     folders?: string[] | null;
@@ -21,6 +22,8 @@
     problems?: boolean;
     /** Show the Server and User name rows. */
     mailbox?: boolean;
+    /** Formats each time. The list drops today's date. */
+    format?: (rfc3339: string) => string;
   } = $props();
 
   const numbers = new Intl.NumberFormat("en-US");
@@ -61,13 +64,13 @@
         None yet
       {:else}
         <time datetime={source.lastSuccess.at}
-          >{formatTime(source.lastSuccess.at)}</time
-        >, archived {numbers.format(source.lastSuccess.archived)}
+          >{format(source.lastSuccess.at)}</time
+        >, {numbers.format(source.lastSuccess.archived)} new
       {/if}
     </dd>
   </div>
   <div>
-    <dt>Collected</dt>
+    <dt>Archived</dt>
     <dd>
       {numbers.format(source.collected)}
       {source.collected === 1 ? "message" : "messages"}

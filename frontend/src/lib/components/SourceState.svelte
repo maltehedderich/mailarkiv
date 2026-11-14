@@ -7,7 +7,21 @@
   // The state word, and what the state is shown with: the next sync, the
   // progress, the failure, or when it was paused.
 
-  let { source }: { source: Omit<Source, "folders"> } = $props();
+  let {
+    source,
+    format = formatTime,
+    aligned = false,
+  }: {
+    source: Omit<Source, "folders">;
+    /** Formats each time. The list drops today's date. */
+    format?: (rfc3339: string) => string;
+    /**
+     * Put the state word in the facts' label column and its detail in their
+     * value column, with the dot hung in the gutter, so the state and the
+     * facts below it share one edge.
+     */
+    aligned?: boolean;
+  } = $props();
 
   const numbers = new Intl.NumberFormat("en-US");
 
@@ -16,7 +30,7 @@
   );
 </script>
 
-<p class="state">
+<p class="state" class:aligned>
   <span class="dot {stateTone(source.state)}"></span>
   <span class="text">
     <span class="word">{STATE_WORDS[source.state]}</span>
@@ -33,17 +47,14 @@
     {:else if source.state === "waiting" && source.nextSyncAt !== null}
       <span class="detail">
         Next sync
-        <time datetime={source.nextSyncAt}>{formatTime(source.nextSyncAt)}</time
-        >
+        <time datetime={source.nextSyncAt}>{format(source.nextSyncAt)}</time>
       </span>
     {:else if source.state === "retrying" && failure !== null}
       <span class="detail">
         {failure.label}.
         {#if source.nextSyncAt !== null}
           Next attempt
-          <time datetime={source.nextSyncAt}
-            >{formatTime(source.nextSyncAt)}</time
-          >
+          <time datetime={source.nextSyncAt}>{format(source.nextSyncAt)}</time>
         {/if}
       </span>
     {:else if source.state === "needs_attention" && failure !== null}
@@ -51,7 +62,7 @@
     {:else if source.state === "paused" && source.pausedAt !== null}
       <span class="detail">
         Since
-        <time datetime={source.pausedAt}>{formatTime(source.pausedAt)}</time>
+        <time datetime={source.pausedAt}>{format(source.pausedAt)}</time>
       </span>
     {/if}
   </span>
@@ -115,5 +126,54 @@
   /* A line breaks before a time, never inside it. */
   time {
     white-space: nowrap;
+  }
+
+  /* The facts' grid. The dot sits in the gutter left of the column, so the
+     state word starts on the labels' edge. The detail takes the facts' size,
+     leaving the state word as the line's one emphasis. */
+  .aligned {
+    position: relative;
+    grid-template-columns: var(--facts-label, 136px) minmax(0, 1fr);
+    column-gap: var(--space-16);
+    align-items: baseline;
+  }
+
+  .aligned .text {
+    display: contents;
+  }
+
+  .aligned .dot {
+    position: absolute;
+    top: 0;
+    left: calc(-1 * (var(--dot-size) + var(--space-8)));
+  }
+
+  .aligned .detail {
+    min-width: 0;
+    font-size: var(--size-label);
+    line-height: var(--leading-label);
+  }
+
+  /* One column has no gutter to hang the dot in, so the line returns to its
+     plain form. */
+  @media (max-width: 1040px) {
+    .aligned {
+      grid-template-columns: var(--dot-size) minmax(0, 1fr);
+      column-gap: var(--space-8);
+      align-items: normal;
+    }
+
+    .aligned .text {
+      display: flex;
+    }
+
+    .aligned .dot {
+      position: static;
+    }
+
+    .aligned .detail {
+      font-size: inherit;
+      line-height: inherit;
+    }
   }
 </style>

@@ -10,10 +10,10 @@
   import SourceFacts from "#lib/components/SourceFacts.svelte";
   import SourceState from "#lib/components/SourceState.svelte";
   import UntrustedText from "#lib/components/UntrustedText.svelte";
+  import { formatTimeToday, untilMidnight } from "#lib/format/time.js";
   import {
     KEY_GUIDE_URL,
     REFRESH_MS,
-    SECURITY_WORDS,
     SOURCES_DATA,
   } from "#lib/sources/describe.js";
 
@@ -22,6 +22,15 @@
   let { data }: PageProps = $props();
 
   const numbers = new Intl.NumberFormat("en-US");
+
+  // The list drops the date from today's times, so they lead with the clock.
+  // At midnight the day changes, and today's times must take their date back.
+  let now = $state(new Date());
+  $effect(() => {
+    const timer = setTimeout(() => (now = new Date()), untilMidnight(now));
+    return () => clearTimeout(timer);
+  });
+  const format = $derived((rfc3339: string) => formatTimeToday(rfc3339, now));
 
   const loaded = $derived(
     data.session.kind === "ok" && data.sources.kind === "ok",
@@ -94,10 +103,10 @@
     {#if data.sources.kind === "ok" && data.sources.value.sources.length > 0}
       {@const { collection, sources } = data.sources.value}
       <div class="actions">
-        <p class="count">
-          {numbers.format(sources.length)}
-          {sources.length === 1 ? "source" : "sources"}
-        </p>
+        <!-- A single row needs no count. -->
+        {#if sources.length > 1}
+          <p class="count">{numbers.format(sources.length)} sources</p>
+        {/if}
         {#if collection === "available"}
           <a class="button primary add" href="/sources?add" onclick={openAdd}
             >Add a source</a
@@ -155,13 +164,12 @@
                     ><UntrustedText value={source.name} /></a
                   >
                 </h2>
-                <!-- The comma stays on the server's line. -->
+                <!-- Port and security rarely matter while scanning, so they
+                     wait on the source's page. -->
                 <p class="mailbox">
                   <UntrustedText value={source.userName} /> on
-                  <span class="unit"
-                    ><UntrustedText value={source.host} />,</span
+                  <span class="unit"><UntrustedText value={source.host} /></span
                   >
-                  port {source.port}, {SECURITY_WORDS[source.security]}
                 </p>
                 <p class="folders">
                   <FolderIcon />
@@ -179,8 +187,8 @@
                 </p>
               </div>
               <div class="evidence">
-                <SourceState {source} />
-                <SourceFacts {source} problems mailbox={false} />
+                <SourceState {source} {format} aligned />
+                <SourceFacts {source} {format} problems mailbox={false} />
               </div>
               <ChevronRightIcon />
             </li>
@@ -283,17 +291,20 @@
     margin-top: var(--space-12);
   }
 
-  /* The rows' own padding already clears the header's line. */
+  /* The rows' own padding already clears the header's line. Their side
+     padding reaches into the gutter, so the text starts on the header's
+     edges and only the hover fill extends past them. */
   .sources {
     display: grid;
-    margin: calc(-1 * var(--space-8)) 0;
+    margin: calc(-1 * var(--space-8)) calc(-1 * var(--space-6))
+      calc(-1 * var(--space-8)) calc(-1 * var(--space-10));
     padding: 0;
     list-style: none;
   }
 
   /* Who the source is beside its state and the evidence, so the states of
      every source sit in one column. The evidence column fits the label
-     column and the widest value, a time with "archived 1,204". */
+     column and the widest value, a dated time with "1,204 new". */
   .sources > li {
     position: relative;
     display: grid;
@@ -431,10 +442,13 @@
     min-width: 0;
   }
 
-  /* Level with the name, and quiet until its row is lit. */
+  /* Level with the name, and quiet until its row is lit. Lucide's chevron
+     ends 3/8 of its box short of the edge, so it moves into the row's
+     padding to put its tip on the header button's edge. */
   .sources > li > :global(.icon) {
     margin-top: var(--space-2);
     color: var(--text-4);
+    translate: calc(var(--icon-size) * 3 / 8) 0;
   }
 
   .sources > li:is(:hover, :has(:focus-visible)) > :global(.icon) {
@@ -503,6 +517,10 @@
     .empty {
       justify-items: stretch;
       padding: var(--space-16);
+    }
+
+    .sources {
+      margin-inline: calc(-1 * var(--space-8)) calc(-1 * var(--space-4));
     }
 
     .sources > li {
