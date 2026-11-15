@@ -100,8 +100,11 @@ test("the whole flow works by keyboard", async ({ page }) => {
   await page.keyboard.press("Enter");
   await expect(page.getByRole("heading", { name: "Messages" })).toBeVisible();
 
-  await tabTo(page, page.getByLabel("Choose a file"));
+  // Playwright turns on file chooser interception without waiting for it, so
+  // a key press sent straight after can beat it and open no chooser. Waiting
+  // before tabbing gives interception the Tab round trips to take effect.
   const chooser = page.waitForEvent("filechooser");
+  await tabTo(page, page.getByLabel("Choose a file"));
   await page.keyboard.press("Space");
   await (
     await chooser
