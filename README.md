@@ -4,9 +4,9 @@ A self-hosted email archive for Linux, designed to help you keep, find, and expo
 
 MailArkiv is for individuals, small businesses, and IT teams who want a searchable archive with little infrastructure to maintain.
 
-> **Status:** Slice 1 of 7 works: sign in, import one `.eml` file at a time, list what's stored, and download the exact original. There are no release packages yet, so you build from source. The features below describe the intended first release.
+> **Status:** Slices 1 and 2 of 7 are in `main`: sign in, import one `.eml` file at a time, collect mail from IMAP mailboxes, list what's stored, and download the exact original. IMAP collection has been tested against Dovecot 2.4.2, not against hosted providers. There are no release packages yet, so you build from source. The features below describe the intended first release.
 
-IMAP collection is available during Slice 2 development. Start the server with its [password key](docs/OPERATIONS.md#the-key), then choose **Sources → Add a source**. Real-server validation of Slice 2 is still pending.
+To collect from IMAP, start the server with its [password key](docs/OPERATIONS.md#the-key), then choose **Sources → Add a source**.
 
 ## Start here
 

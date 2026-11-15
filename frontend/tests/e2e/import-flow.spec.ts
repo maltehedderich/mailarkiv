@@ -1,3 +1,7 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
 import { startImportGate, type ImportGate } from "./support/proxy";
@@ -20,19 +24,30 @@ const FILE = {
 };
 const WARNING = "Imported mail can't be removed in this version.";
 
+let largePath: Promise<string> | undefined;
+
 /**
- * Larger than the socket buffers between the browser and the proxy, so a held
- * body stops the upload partway.
+ * The path of large.eml, written once per worker. Larger than the socket
+ * buffers between the browser and the proxy, so a held body stops the upload
+ * partway. A path, not a buffer: Playwright decodes a buffer inside the page,
+ * which can outlast the test timeout on a busy machine.
  */
-function largeFile(name = "large.eml") {
-  const header = Buffer.from("Subject: Large\r\n\r\n");
-  const body = Buffer.alloc(48_000_000 - header.length, "a");
-  return {
-    name,
-    mimeType: "message/rfc822",
-    buffer: Buffer.concat([header, body]),
-  };
+function largeFile(): Promise<string> {
+  largePath ??= (async () => {
+    const dir = await mkdtemp(join(tmpdir(), "mailarkiv-e2e-large-"));
+    const path = join(dir, "large.eml");
+    const header = Buffer.from("Subject: Large\r\n\r\n");
+    const body = Buffer.alloc(48_000_000 - header.length, "a");
+    await writeFile(path, Buffer.concat([header, body]));
+    return path;
+  })();
+  return largePath;
 }
+
+test.afterAll(async () => {
+  if (largePath === undefined) return;
+  await rm(dirname(await largePath), { recursive: true, force: true });
+});
 
 let server: TestServer;
 let gate: ImportGate;
@@ -106,7 +121,7 @@ test("progress moves to a separate storing state, and a second submission isn't 
   await signIn(page);
   const imports = countImports(page);
   gate.hold();
-  await page.getByLabel("Choose a file").setInputFiles(largeFile());
+  await page.getByLabel("Choose a file").setInputFiles(await largeFile());
 
   await importButton(page).click();
 
@@ -329,7 +344,7 @@ test("choosing a file moves neither button, and the box keeps its height through
   };
 
   gate.hold();
-  await page.getByLabel("Choose a file").setInputFiles(largeFile());
+  await page.getByLabel("Choose a file").setInputFiles(await largeFile());
   expect(await choose.boundingBox()).toEqual(ready.choose);
   expect(await importButton(page).boundingBox()).toEqual(ready.import);
   expect(await importBox(page).boundingBox()).toEqual(ready.box);
@@ -367,7 +382,7 @@ test("a screen reader hears the choice, each slow step, and each refusal", async
 
   // Large, so the held upload stops partway.
   gate.hold();
-  await page.getByLabel("Choose a file").setInputFiles(largeFile());
+  await page.getByLabel("Choose a file").setInputFiles(await largeFile());
   await importButton(page).click();
   await expect(said).toHaveText("Uploading");
   gate.sendBody();
@@ -410,7 +425,7 @@ test("an import ending moves focus only if Import had it", async ({ page }) => {
 
   // Focus left for a row during the upload, and stays there.
   gate.hold();
-  await page.getByLabel("Choose a file").setInputFiles(largeFile());
+  await page.getByLabel("Choose a file").setInputFiles(await largeFile());
   await importButton(page).click();
   const row = page.getByRole("link", { name: /history of synthetic.eml/i });
   await row.focus();
