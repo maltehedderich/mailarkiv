@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// Contract: GET /api/messages lists the most recent import first. page starts
+// Contract: GET /api/messages lists the most recent entry first. page starts
 // at 1 and defaults to 1, anything else is 400 bad_page, and a page past the
 // end has no items and the real total.
 func TestListMessages(t *testing.T) {
@@ -35,8 +35,10 @@ func TestListMessages(t *testing.T) {
 	}
 
 	firstPage := fmt.Sprintf(`{"items":[
-		{"id":%d,"content_hash":%q,"size":%d,"file_name":"older-again.eml","imported_at":%q,"import_count":2},
-		{"id":%d,"content_hash":%q,"size":%d,"file_name":"newer.eml","imported_at":%q,"import_count":1}
+		{"id":%d,"content_hash":%q,"size":%d,"observation_count":2,
+		 "latest":{"source_type":"manual_import","observed_at":%q,"account_email":"admin@example.test","file_name":"older-again.eml"}},
+		{"id":%d,"content_hash":%q,"size":%d,"observation_count":1,
+		 "latest":{"source_type":"manual_import","observed_at":%q,"account_email":"admin@example.test","file_name":"newer.eml"}}
 	],"page":1,"page_size":50,"total":2}`,
 		ids[string(older)], hashOf(older), len(older), testTime,
 		ids[string(newer)], hashOf(newer), len(newer), testTime)

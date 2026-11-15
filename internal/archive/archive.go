@@ -58,15 +58,39 @@ func (a *Archive) blobPath(contentHash string) string {
 	return filepath.Join(a.blobsDir, contentHash[0:2], contentHash[2:4], contentHash)
 }
 
-// Message is one distinct set of bytes, with what its latest import recorded.
+// Message is one distinct set of bytes, with its latest history entry.
 type Message struct {
 	ID          int64
 	ContentHash string // Lowercase hex SHA-256.
 	Size        int64
-	FileName    *string // Of the latest import. Nil when none was supplied.
-	ImportedAt  time.Time
-	ImportCount int
+	Latest      Entry
+	// ObservationCount counts every entry, imports and collections alike.
+	ObservationCount int
 }
+
+// Entry is one sighting of a message's bytes. Its method is private, so the
+// set is closed: ImportEntry and CollectionEntry.
+type Entry interface{ isEntry() }
+
+// ImportEntry is one manual import.
+type ImportEntry struct {
+	ObservedAt time.Time
+	// AccountEmail is the importing account's stored, lowercase address.
+	AccountEmail string
+	FileName     *string // Nil when none was supplied.
+}
+
+// CollectionEntry is one folder of a source where collection found the
+// bytes. The web adapter asks collect for the source's and folder's labels.
+type CollectionEntry struct {
+	ObservedAt time.Time
+	SourceID   int64
+	FolderID   int64
+	ReceivedAt *time.Time // Nil when the server reported no time.
+}
+
+func (ImportEntry) isEntry()     {}
+func (CollectionEntry) isEntry() {}
 
 // ImportMeta is what an import records besides the bytes.
 type ImportMeta struct {

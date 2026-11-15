@@ -8,18 +8,27 @@ const messageJSON = {
   id: 17,
   content_hash: HASH,
   size: 31,
-  file_name: "invoice.eml",
-  imported_at: "2026-11-06T15:50:52.123Z",
-  import_count: 1,
+  observation_count: 1,
+  latest: {
+    source_type: "manual_import",
+    observed_at: "2026-11-06T15:50:52.123Z",
+    account_email: "admin@example.test",
+    file_name: "invoice.eml",
+  },
 };
 
 const message = {
   id: 17,
   contentHash: HASH,
   size: 31,
-  fileName: "invoice.eml",
-  importedAt: "2026-11-06T15:50:52.123Z",
-  importCount: 1,
+  observedAt: "2026-11-06T15:50:52.123Z",
+  observationCount: 1,
+  latest: {
+    sourceType: "manual_import",
+    observedAt: "2026-11-06T15:50:52.123Z",
+    accountEmail: "admin@example.test",
+    fileName: "invoice.eml",
+  },
 };
 
 type Answered = Extract<ImportResponse, { kind: "response" }>;
@@ -51,11 +60,14 @@ describe("a marked response with a listed outcome gives that outcome", () => {
   test("a missing file name stays missing", () => {
     const body = {
       outcome: "archived",
-      message: { ...messageJSON, file_name: null },
+      message: {
+        ...messageJSON,
+        latest: { ...messageJSON.latest, file_name: null },
+      },
     };
     expect(classify(marked(201, body))).toEqual({
       outcome: "archived",
-      message: { ...message, fileName: null },
+      message: { ...message, latest: { ...message.latest, fileName: null } },
     });
   });
 

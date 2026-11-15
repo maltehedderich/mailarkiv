@@ -534,10 +534,10 @@ func (u *stalledUpload) wait() importAttempt {
 
 // listedMessage is a message as the API contract writes it.
 type listedMessage struct {
-	ID          int64  `json:"id"`
-	ContentHash string `json:"content_hash"`
-	Size        int64  `json:"size"`
-	ImportCount int    `json:"import_count"`
+	ID               int64  `json:"id"`
+	ContentHash      string `json:"content_hash"`
+	Size             int64  `json:"size"`
+	ObservationCount int    `json:"observation_count"`
 }
 
 // importAnswer is the body of an import's answer in the API contract.
@@ -589,7 +589,7 @@ func (p *serverProcess) assertListedOnce(token string, content []byte, importCou
 		p.t.Fatalf("the list holds %+v with total %d, want one message", items, total)
 	}
 	message := items[0]
-	if message.ContentHash != contentHash(content) || message.Size != int64(len(content)) || message.ImportCount != importCount {
+	if message.ContentHash != contentHash(content) || message.Size != int64(len(content)) || message.ObservationCount != importCount {
 		p.t.Errorf("listed %+v, want hash %s, size %d, and %d imports", message, contentHash(content), len(content), importCount)
 	}
 	return message
@@ -635,6 +635,29 @@ func (p *serverProcess) status(token string) statusAnswer {
 		p.t.Fatalf("the status isn't JSON: %q: %v", body, err)
 	}
 	return answer
+}
+
+// problemCount reads GET /api/session. The server runs on the real clock, so
+// the time left is only checked to lie within a fresh session's 12 hours.
+func (p *serverProcess) problemCount(token string) int {
+	p.t.Helper()
+	response, body := p.request(http.MethodGet, "/api/session", "", token)
+	if response.StatusCode != http.StatusOK {
+		p.t.Fatalf("GET /api/session = %d %s, want 200", response.StatusCode, body)
+	}
+	var answer struct {
+		ProblemCount *int `json:"problem_count"`
+		ExpiresIn    *int `json:"expires_in"`
+	}
+	decoder := json.NewDecoder(strings.NewReader(body))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&answer); err != nil || answer.ProblemCount == nil || answer.ExpiresIn == nil {
+		p.t.Fatalf("GET /api/session = %s, want problem_count and expires_in alone: %v", body, err)
+	}
+	if *answer.ExpiresIn <= 0 || *answer.ExpiresIn > 12*60*60 {
+		p.t.Errorf("expires_in = %d, want 1 to 43200 seconds", *answer.ExpiresIn)
+	}
+	return *answer.ProblemCount
 }
 
 // assertLogged stops the server, which guarantees all of its stderr has been

@@ -92,6 +92,8 @@ Only a signed-in administrator can import, list, or download mail, including thr
 7. **Given** a blocked account, **When** the operator sets a new password, **Then** the account can sign in at once.
 8. **Given** another website that embeds a MailArkiv page in a frame, **When** a browser loads it, **Then** the browser refuses to show the page.
 9. **Given** a session that ends while a page is open, **When** the administrator takes an action, **Then** the sign-in page opens and says the session ended, and signing in returns them to the same page.
+10. **Given** a page left open with no action, **When** the session's 12 hours run out, **Then** the page leaves the screen and the sign-in page opens and says the session ended.
+11. **Given** a page in a background tab whose session ended through sign-out or a password change, **When** the tab is shown again, **Then** the sign-in page opens and says the session ended, with no action.
 
 ---
 
@@ -260,7 +262,7 @@ Unreferenced originals are not failures, but each one MUST show this next step: 
 
 **All screens**
 
-- **FR-040**: When a session ends while a page is open, the next action MUST open the sign-in page with a message that the session ended. Signing in MUST return the administrator to the same page.
+- **FR-040**: When a session ends while a page is open, the page MUST open the sign-in page with a message that the session ended. It MUST do so when the 12 hours run out, with no action, and when the page is shown again after the session ended any other way. Otherwise the next action MUST do so. The page's content MUST leave the screen before sign-in opens. Signing in MUST return the administrator to the same page.
 - **FR-041**: Sign-in, the message list, import, import history, and the status screen MUST meet WCAG 2.2 AA and work by keyboard alone. Import results MUST be announced to screen readers. Drag-and-drop, if offered, MUST be an addition to a file button.
 - **FR-042**: The same screens MUST work at 360 px wide with no horizontal page scrolling.
 - **FR-043**: Times MUST be absolute, in the viewer's time zone with the UTC offset shown, and never relative only.

@@ -22,9 +22,13 @@ const STUB_MESSAGE = {
   id: 17,
   content_hash: HASH,
   size: 31,
-  file_name: "stub.eml",
-  imported_at: "2026-11-06T15:50:52.123Z",
-  import_count: 1,
+  observation_count: 1,
+  latest: {
+    source_type: "manual_import",
+    observed_at: "2026-11-06T15:50:52.123Z",
+    account_email: "admin@example.test",
+    file_name: "stub.eml",
+  },
 };
 
 const WORDS = [
@@ -268,7 +272,7 @@ test("on the real server, Archived is listed and Failed isn't", async ({
   await expect(list).toContainText("archived.eml");
 
   await result(page).getByRole("link", { name: "Open import history" }).click();
-  const drawer = page.getByRole("dialog", { name: "Import history" });
+  const drawer = page.getByRole("dialog", { name: "History" });
   await expect(drawer).toContainText("archived.eml");
   await drawer.getByRole("button", { name: "Close" }).click();
 

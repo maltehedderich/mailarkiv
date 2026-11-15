@@ -47,7 +47,7 @@ func importFile(s *server, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body := &stallReader{body: r.Body, controller: controller}
-	meta := archive.ImportMeta{AccountEmail: signedInAccount(r).Email, FileName: fileName}
+	meta := archive.ImportMeta{AccountEmail: signedInSession(r).Account.Email, FileName: fileName}
 	result, importErr := s.archive.Import(r.Context(), body, meta)
 	if _, dropped := result.(archive.Dropped); dropped {
 		// The body ended early, so no one is waiting for an answer. This ends the
@@ -71,8 +71,12 @@ func importFile(s *server, w http.ResponseWriter, r *http.Request) {
 		if result.Outcome == archive.Archived {
 			status = http.StatusCreated
 		}
-		message := newMessageJSON(result.Message)
-		writeJSON(w, status, importAnswer{Outcome: result.Outcome.String(), Message: &message})
+		messages, err := s.encodeMessages(r.Context(), []archive.Message{result.Message})
+		if err != nil {
+			s.writeInternalError(w, r, err)
+			return
+		}
+		writeJSON(w, status, importAnswer{Outcome: result.Outcome.String(), Message: &messages[0]})
 	case archive.Refused:
 		status := http.StatusUnprocessableEntity
 		if result.Reason == archive.TooLarge {

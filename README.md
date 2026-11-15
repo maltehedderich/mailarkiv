@@ -6,6 +6,8 @@ MailArkiv is for individuals, small businesses, and IT teams who want a searchab
 
 > **Status:** Slice 1 of 7 works: sign in, import one `.eml` file at a time, list what's stored, and download the exact original. There are no release packages yet, so you build from source. The features below describe the intended first release.
 
+IMAP collection is available during Slice 2 development. Start the server with its [password key](docs/OPERATIONS.md#the-key), then choose **Sources → Add a source**. Real-server validation of Slice 2 is still pending.
+
 ## Start here
 
 - To run MailArkiv, follow the [operator guide](docs/OPERATIONS.md). It covers the build, accounts, HTTPS, and what this version doesn't promise.
@@ -13,6 +15,20 @@ MailArkiv is for individuals, small businesses, and IT teams who want a searchab
 - Read the [product scope](docs/PRODUCT.md) for user journeys, first-release requirements, and candidates for later releases.
 - Read the [architecture principles](docs/ARCHITECTURE.md) for the design, storage model, and reliability rules.
 - Read the [architecture decision records](docs/adr/) for adopted dependencies and their versions.
+
+## Local development
+
+Run `mise run dev:account admin@example.test` once to create a local account, then
+`mise run dev` and open `http://localhost:5173`.
+
+For a local IMAP source, follow the [Dovecot setup](specs/002-imap-incremental-archive/quickstart.md).
+When `.data/ca.pem` exists, `mise run dev` uses it to verify the mailbox server's
+certificate. An existing `SSL_CERT_FILE` setting takes precedence. Restart
+`mise run dev` after creating or replacing the CA file.
+
+With that Dovecot setup, add a source using server `localhost`, TLS on port `993`
+(or STARTTLS on port `143`), user `test@example.test`, and the generated password
+in `.data/dovecot-password`. The mail container must be running separately.
 
 ## Planned features
 

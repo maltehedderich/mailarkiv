@@ -1,16 +1,18 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
+import type { ApiResult, SessionInfo } from "./api";
 import {
   clearSignedIn,
   markSignedIn,
   safeNext,
   showsSessionEnded,
   signInPath,
+  watchSession,
 } from "./session";
 
-// A session that ends while a page is open sends the next action to sign-in
-// with a message, and signing in returns to the same page. A first visit with
-// no session shows no such message.
+// A session that ends while a page is open sends the page to sign-in with a
+// message, and signing in returns to the same page. A first visit with no
+// session shows no such message.
 
 const ORIGIN = "http://localhost:8080";
 
@@ -171,5 +173,160 @@ describe("safeNext", () => {
     "http://[::1",
   ])("refuses %j", (next) => {
     expect(safeNext(next, ORIGIN)).toBe("/");
+  });
+});
+
+describe("watchSession", () => {
+  type Read = ApiResult<SessionInfo>;
+
+  let page: EventTarget & { visibilityState: DocumentVisibilityState };
+  let windowEvents: EventTarget;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    page = Object.assign(new EventTarget(), {
+      visibilityState: "visible" as DocumentVisibilityState,
+    });
+    windowEvents = new EventTarget();
+    vi.stubGlobal("document", page);
+    vi.stubGlobal("window", windowEvents);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** A session read that answers when the test says so. */
+  function heldRead() {
+    let answer: (result: Read) => void = () => {};
+    const read = vi.fn(
+      () => new Promise<Read>((resolve) => (answer = resolve)),
+    );
+    return { read, answer: (result: Read) => answer(result) };
+  }
+
+  const ok = (expiresIn: number): Read => ({
+    kind: "ok",
+    value: { problemCount: 0, expiresIn },
+  });
+
+  const show = () => page.dispatchEvent(new Event("visibilitychange"));
+  // Lets an answered read finish its work.
+  const settle = () => vi.advanceTimersByTimeAsync(0);
+
+  test("ends the page when the time left runs out, and not before", () => {
+    const end = vi.fn();
+    watchSession(60, heldRead().read, end);
+
+    vi.advanceTimersByTime(59_999);
+    expect(end).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(end).toHaveBeenCalledOnce();
+  });
+
+  test("a page shown after the deadline ends at once, without a request", () => {
+    const end = vi.fn();
+    const { read } = heldRead();
+    watchSession(60, read, end);
+
+    // The laptop slept through the deadline, so the timer hasn't fired yet.
+    vi.setSystemTime(Date.now() + 61_000);
+    show();
+
+    expect(end).toHaveBeenCalledOnce();
+    expect(read).not.toHaveBeenCalled();
+    vi.runAllTimers();
+    expect(end).toHaveBeenCalledOnce();
+  });
+
+  test("a page shown before the deadline ends if the server says the session ended", async () => {
+    const end = vi.fn();
+    const { read, answer } = heldRead();
+    watchSession(3600, read, end);
+
+    show();
+    expect(read).toHaveBeenCalledOnce();
+    answer({ kind: "session_ended" });
+    await settle();
+
+    expect(end).toHaveBeenCalledOnce();
+  });
+
+  test.each(["focus", "pageshow"])("%s reads the session too", async (name) => {
+    const end = vi.fn();
+    const { read, answer } = heldRead();
+    watchSession(3600, read, end);
+
+    windowEvents.dispatchEvent(new Event(name));
+    answer({ kind: "session_ended" });
+    await settle();
+
+    expect(end).toHaveBeenCalledOnce();
+  });
+
+  test("a session still open moves the deadline to the server's time left", async () => {
+    const end = vi.fn();
+    const { read, answer } = heldRead();
+    watchSession(3600, read, end);
+
+    show();
+    answer(ok(30));
+    await settle();
+
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(end).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(end).toHaveBeenCalledOnce();
+  });
+
+  test("a read that fails keeps the page and its deadline", async () => {
+    const end = vi.fn();
+    const { read, answer } = heldRead();
+    watchSession(60, read, end);
+
+    show();
+    answer({ kind: "unavailable" });
+    await settle();
+    expect(end).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(end).toHaveBeenCalledOnce();
+  });
+
+  test("a hidden page reads nothing", () => {
+    const { read } = heldRead();
+    watchSession(3600, read, vi.fn());
+
+    page.visibilityState = "hidden";
+    show();
+
+    expect(read).not.toHaveBeenCalled();
+  });
+
+  test("events that fire together send one read", () => {
+    const { read } = heldRead();
+    watchSession(3600, read, vi.fn());
+
+    show();
+    windowEvents.dispatchEvent(new Event("focus"));
+    windowEvents.dispatchEvent(new Event("pageshow"));
+
+    expect(read).toHaveBeenCalledOnce();
+  });
+
+  test("after stop, nothing ends the page", async () => {
+    const end = vi.fn();
+    const { read, answer } = heldRead();
+    const stop = watchSession(60, read, end);
+
+    show();
+    stop();
+    answer({ kind: "session_ended" });
+    await settle();
+    show();
+    await vi.advanceTimersByTimeAsync(120_000);
+
+    expect(end).not.toHaveBeenCalled();
+    expect(read).toHaveBeenCalledOnce();
   });
 });

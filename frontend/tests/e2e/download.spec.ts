@@ -178,7 +178,7 @@ test("a failure in the history shows in the drawer and outlasts it", async ({
   await damage();
 
   await page.getByRole("link", { name: /history of/i }).click();
-  const drawer = page.getByRole("dialog", { name: "Import history" });
+  const drawer = page.getByRole("dialog", { name: "History" });
   await drawer.getByRole("button", { name: "Download" }).click();
 
   const inDrawer = drawer.getByRole("region", { name: "Notifications" });

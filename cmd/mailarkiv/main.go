@@ -12,13 +12,15 @@ const (
 	exitBadArgs = 2
 
 	usage = `Usage:
-  mailarkiv serve --data-dir DIR [--listen ADDR]
+  mailarkiv serve --data-dir DIR [--listen ADDR] [--key-file PATH]
   mailarkiv account create --data-dir DIR EMAIL
   mailarkiv account set-password --data-dir DIR EMAIL
+  mailarkiv key create --data-dir DIR PATH
 
 Options:
   --data-dir DIR   Directory that holds the archive. Required.
   --listen ADDR    Address to listen on. Default: ` + defaultListen + `
+  --key-file PATH  Key for stored IMAP passwords. Required for collection.
 
 The account commands ask for the password. Without a terminal, they read one
 line from stdin. The password is never an argument.
@@ -40,6 +42,8 @@ func run(args []string) int {
 		return serve(args[1:])
 	case "account":
 		return account(args[1:])
+	case "key":
+		return key(args[1:])
 	default:
 		return badArgs()
 	}

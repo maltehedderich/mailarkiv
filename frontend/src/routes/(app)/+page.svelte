@@ -305,7 +305,7 @@
     justify-content: space-between;
     gap: var(--space-16);
     height: var(--header-height);
-    padding: 0 var(--space-24);
+    padding: 0 var(--header-inset);
     border-bottom: 1px solid var(--line);
     border-radius: var(--radius-large) var(--radius-large) 0 0;
     background: var(--panel);
@@ -349,6 +349,9 @@
       minmax(0, 1fr) 185px 62px 72px 40px
       calc(var(--control-height) + var(--space-4));
     column-gap: var(--space-12);
+    /* The rows' side padding reaches into the gutter, so names start on the
+       header's edge and only the hover fill extends past it. */
+    margin-inline: calc(-1 * var(--space-10)) calc(-1 * var(--space-4));
   }
 
   .heads,
@@ -450,6 +453,7 @@
 
     .table {
       display: block;
+      margin-inline: calc(-1 * var(--space-8)) calc(-1 * var(--space-4));
     }
 
     .heads {

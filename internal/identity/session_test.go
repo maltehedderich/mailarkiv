@@ -28,12 +28,12 @@ func (f *fixture) assertNoSession(t *testing.T, token, why string) {
 
 func (f *fixture) assertSession(t *testing.T, token, email string) {
 	t.Helper()
-	account, err := f.identity.LookupSession(context.Background(), token)
+	session, err := f.identity.LookupSession(context.Background(), token)
 	if err != nil {
 		t.Fatalf("LookupSession = %v, want %s's session", err, email)
 	}
-	if account.Email != email {
-		t.Fatalf("session belongs to %q, want %q", account.Email, email)
+	if session.Account.Email != email {
+		t.Fatalf("session belongs to %q, want %q", session.Account.Email, email)
 	}
 }
 

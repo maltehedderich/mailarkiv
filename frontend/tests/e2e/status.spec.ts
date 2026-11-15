@@ -160,7 +160,7 @@ test("a damaged original is counted on every page, and a restart clears it", asy
   // The message ID opens its history, which names the file to import again.
   await occurrence.getByRole("link", { name: `Message ${id}` }).click();
   await expect(page).toHaveURL(`${server.origin}/?message=${id}`);
-  const drawer = page.getByRole("dialog", { name: "Import history" });
+  const drawer = page.getByRole("dialog", { name: "History" });
   await expect(drawer).toContainText("synthetic.eml");
   await page.keyboard.press("Escape");
   await expect(drawer).toBeHidden();

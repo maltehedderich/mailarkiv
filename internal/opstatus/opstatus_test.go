@@ -51,7 +51,7 @@ func (f *fixture) logEntries(t *testing.T) []map[string]any {
 
 func pointer[T any](value T) *T { return &value }
 
-// The frontend keys its failure messages by these six category names.
+// The frontend keys its failure messages by these category names.
 func TestCategoryNames(t *testing.T) {
 	tests := []struct {
 		category Category
@@ -63,6 +63,8 @@ func TestCategoryNames(t *testing.T) {
 		{StoredOriginalMissing, "stored_original_missing"},
 		{StoredOriginalDamaged, "stored_original_damaged"},
 		{TempFileNotRemoved, "temp_file_not_removed"},
+		{MessageTooLarge, "message_too_large"},
+		{MessageRemoved, "message_removed"},
 	}
 	for _, tt := range tests {
 		if got := tt.category.String(); got != tt.want {
@@ -71,7 +73,7 @@ func TestCategoryNames(t *testing.T) {
 	}
 }
 
-// Another package can't name a private field, so it can't make a seventh category.
+// Another package can't name a private field, so it can't make a category of its own.
 func TestCategoryIsClosed(t *testing.T) {
 	category := reflect.TypeFor[Category]()
 	if category.Kind() != reflect.Struct {
@@ -102,7 +104,7 @@ func TestEntitiesHoldOnlyTheAllowedFields(t *testing.T) {
 		},
 		{
 			reflect.TypeFor[FailureEvent](),
-			[]string{"At", "Category", "ContentHash", "MessageID", "Restored"},
+			[]string{"At", "Category", "ContentHash", "MessageID", "Restored", "SourceID"},
 		},
 	}
 	for _, tt := range tests {
@@ -136,16 +138,18 @@ func TestProblemCount(t *testing.T) {
 
 	f.status.RecordFailure(FailureEvent{Category: StorageFull})
 	f.status.RecordFailure(FailureEvent{Category: TempFileNotRemoved})
+	f.status.RecordFailure(FailureEvent{Category: MessageTooLarge, SourceID: pointer(int64(3))})
+	f.status.RecordFailure(FailureEvent{Category: MessageRemoved, SourceID: pointer(int64(3))})
 	f.status.AddUnreferenced(UnreferencedOriginal{ContentHash: "aa", Size: 1})
 	f.status.AddUnreferenced(UnreferencedOriginal{ContentHash: "bb", Size: 2})
 	f.status.AddUnreferenced(UnreferencedOriginal{ContentHash: "cc", Size: 3})
-	if got := f.status.ProblemCount(); got != 5 {
-		t.Fatalf("count = %d, want 5", got)
+	if got := f.status.ProblemCount(); got != 7 {
+		t.Fatalf("count = %d, want 7", got)
 	}
 
 	f.status.RemoveUnreferenced("bb")
-	if got := f.status.ProblemCount(); got != 4 {
-		t.Fatalf("count after removing one = %d, want 4", got)
+	if got := f.status.ProblemCount(); got != 6 {
+		t.Fatalf("count after removing one = %d, want 6", got)
 	}
 	want := []UnreferencedOriginal{{ContentHash: "aa", Size: 1}, {ContentHash: "cc", Size: 3}}
 	if got := f.status.Snapshot().Unreferenced; !reflect.DeepEqual(got, want) {
@@ -153,8 +157,8 @@ func TestProblemCount(t *testing.T) {
 	}
 
 	f.status.RemoveUnreferenced("not listed")
-	if got := f.status.ProblemCount(); got != 4 {
-		t.Fatalf("count after removing an unlisted hash = %d, want 4", got)
+	if got := f.status.ProblemCount(); got != 6 {
+		t.Fatalf("count after removing an unlisted hash = %d, want 6", got)
 	}
 }
 
@@ -187,24 +191,37 @@ func TestFailureIsListedAndLogged(t *testing.T) {
 			name:    "no message",
 			event:   FailureEvent{Category: StorageFull},
 			wantLog: map[string]any{"category": "storage_full"},
-			absent:  []string{"message_id", "content_hash", "restored"},
+			absent:  []string{"message_id", "content_hash", "restored", "source_id"},
 		},
 		{
 			name:    "content hash only",
 			event:   FailureEvent{Category: CatalogWriteFailed, ContentHash: &hash},
 			wantLog: map[string]any{"category": "catalog_write_failed", "content_hash": hash},
-			absent:  []string{"message_id", "restored"},
+			absent:  []string{"message_id", "restored", "source_id"},
 		},
 		{
 			name:    "message and hash",
 			event:   FailureEvent{Category: StoredOriginalDamaged, MessageID: pointer(int64(17)), ContentHash: &hash},
 			wantLog: map[string]any{"category": "stored_original_damaged", "message_id": float64(17), "content_hash": hash},
-			absent:  []string{"restored"},
+			absent:  []string{"restored", "source_id"},
 		},
 		{
 			name:    "restored",
 			event:   FailureEvent{Category: StoredOriginalMissing, MessageID: pointer(int64(17)), ContentHash: &hash, Restored: true},
 			wantLog: map[string]any{"category": "stored_original_missing", "message_id": float64(17), "content_hash": hash, "restored": true},
+			absent:  []string{"source_id"},
+		},
+		{
+			name:    "message too large",
+			event:   FailureEvent{Category: MessageTooLarge, SourceID: pointer(int64(3))},
+			wantLog: map[string]any{"category": "message_too_large", "source_id": float64(3)},
+			absent:  []string{"message_id", "content_hash", "restored"},
+		},
+		{
+			name:    "message removed",
+			event:   FailureEvent{Category: MessageRemoved, SourceID: pointer(int64(4))},
+			wantLog: map[string]any{"category": "message_removed", "source_id": float64(4)},
+			absent:  []string{"message_id", "content_hash", "restored"},
 		},
 	}
 

@@ -125,9 +125,8 @@ func TestRowReadFailure(t *testing.T) {
 	if failures := server.status(token).Failures; len(failures) != 0 {
 		t.Errorf("failures = %+v, want none", failures)
 	}
-	response, body := server.request(http.MethodGet, "/api/session", "", token)
-	if response.StatusCode != http.StatusOK || body != `{"problem_count":0}` {
-		t.Errorf("GET /api/session = %d %s, want a problem count of 0", response.StatusCode, body)
+	if got := server.problemCount(token); got != 0 {
+		t.Errorf("problem count = %d, want 0", got)
 	}
 
 	if code := server.stop(syscall.SIGTERM); code != 0 {

@@ -230,6 +230,78 @@ test("a session ended by a new password opens sign-in, then returns to the page"
   await expect(page.getByText("No mail yet")).toBeVisible();
 });
 
+// A page left open opens sign-in when the session's 12 hours run out, with no
+// action, and the mail is gone from the screen.
+test("a page left open opens sign-in when the session runs out", async ({
+  page,
+}) => {
+  await server.createAccount(EMAIL, PASSWORD);
+  await page.clock.install();
+  await signInFromStart(page);
+  await importFile(page);
+  await expect(page.getByRole("list", { name: "Messages" })).toContainText(
+    "synthetic.eml",
+  );
+
+  await page.clock.fastForward("12:00:00");
+
+  await expect(page).toHaveURL(`${server.origin}/sign-in?ended=1`);
+  await expect(page.getByText(ENDED)).toBeVisible();
+  await expect(page.getByText("synthetic.eml")).toHaveCount(0);
+});
+
+test("a failed session read during navigation keeps the expiry deadline", async ({
+  page,
+}) => {
+  await server.createAccount(EMAIL, PASSWORD);
+  await page.clock.install();
+  await signInFromStart(page);
+  await page.route("**/api/session", (route) =>
+    route.fulfill({
+      status: 500,
+      json: { error: "internal_error" },
+      headers: { "MailArkiv-Response": "1" },
+    }),
+  );
+  await page.getByRole("link", { name: "Sources", exact: true }).click();
+  await expect(page).toHaveURL(`${server.origin}/sources`);
+  await expect(page.getByText("This page couldn't be loaded.")).toBeVisible();
+
+  await page.clock.fastForward("12:00:00");
+  await expect(page).toHaveURL(
+    `${server.origin}/sign-in?ended=1&next=%2Fsources`,
+  );
+  await expect(page.getByText(ENDED)).toBeVisible();
+});
+
+// Headless Chromium doesn't change visibility, so the test sends the event
+// the browser would when showing the tab again.
+test("a page shown again after a new password opens sign-in", async ({
+  page,
+}) => {
+  await server.createAccount(EMAIL, PASSWORD);
+  await signInFromStart(page);
+  // A failed navigation read must also keep the visibility listeners.
+  await page.route("**/api/session", (route) => route.abort());
+  await page.getByRole("link", { name: "Sources", exact: true }).click();
+  await expect(page).toHaveURL(`${server.origin}/sources`);
+  await expect(page.getByText("This page couldn't be loaded.")).toBeVisible();
+  await page.unroute("**/api/session");
+
+  await server.setPassword(EMAIL, NEW_PASSWORD);
+  await page.evaluate(() =>
+    document.dispatchEvent(new Event("visibilitychange")),
+  );
+
+  await expect(page).toHaveURL(
+    `${server.origin}/sign-in?ended=1&next=%2Fsources`,
+  );
+  await expect(page.getByText(ENDED)).toBeVisible();
+
+  await submitSignIn(page, EMAIL, NEW_PASSWORD);
+  await expect(page).toHaveURL(`${server.origin}/sources`);
+});
+
 // The page fetches the file, gets a marked 401, and opens sign-in. The
 // browser saves nothing.
 test("a download after the session ended opens sign-in", async ({ page }) => {

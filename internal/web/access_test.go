@@ -3,7 +3,10 @@ package web
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -11,6 +14,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/maltehedderich/mailarkiv/internal/imaptest"
 )
 
 const noSession = `{"error":"no_session"}`
@@ -23,19 +28,118 @@ func concretePath(path string, id int64) string {
 	return wildcard.ReplaceAllString(path, strconv.FormatInt(id, 10))
 }
 
-// requestBody is what a direct request to the route sends: new mail for a
-// route that takes a body, so a request that got through would store it.
-func requestBody(route Route) io.Reader {
-	if route.Method == http.MethodPost {
+// routePath fills a route's wildcards: with sourceID under /api/sources, and
+// with messageID elsewhere.
+func routePath(route Route, messageID, sourceID int64) string {
+	if strings.HasPrefix(route.Path, "/api/sources/") {
+		return concretePath(route.Path, sourceID)
+	}
+	return concretePath(route.Path, messageID)
+}
+
+// requestBody is what a direct request to the route sends, so a request
+// that got through would change something: a valid source for the source
+// routes, for the mailbox at addr, and new mail for any other route that
+// takes a body. The host is localhost, so a source for 127.0.0.1 isn't a
+// duplicate. An empty addr stands for port 993.
+func requestBody(t *testing.T, route Route, addr string) io.Reader {
+	t.Helper()
+	port := 993
+	if addr != "" {
+		_, portText, err := net.SplitHostPort(addr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if port, err = strconv.Atoi(portText); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mailbox := map[string]any{
+		"host": "localhost", "port": port, "security": "tls", "user_name": mailboxUser, "password": mailboxPassword,
+	}
+	switch route.pattern() {
+	case "POST /api/sources":
+		mailbox["name"] = "Sent directly"
+		mailbox["folders"] = []string{"INBOX"}
+		return bytes.NewReader(encode(t, mailbox))
+	case "POST /api/sources/check":
+		return bytes.NewReader(encode(t, mailbox))
+	case "PATCH /api/sources/{id}":
+		return strings.NewReader(`{"name":"Changed directly","folders":["INBOX","Sent directly"]}`)
+	case "POST /api/sources/{id}/check":
+		return strings.NewReader(`{}`)
+	}
+	if route.Method == http.MethodPost && !strings.HasPrefix(route.Path, "/api/sources/") {
 		return bytes.NewReader(mail("sent without a session"))
 	}
 	return nil
 }
 
+// sourceState dumps every source and folder row, sealed passwords included,
+// so a test can tell whether a request changed any.
+func (h *harness) sourceState(t *testing.T) string {
+	t.Helper()
+	var dump strings.Builder
+	for _, table := range []string{"imap_source", "imap_folder", "imap_message_problem"} {
+		rows, err := h.db.Reader.Query("SELECT * FROM " + table + " ORDER BY rowid")
+		if err != nil {
+			t.Fatal(err)
+		}
+		columns, err := rows.Columns()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for rows.Next() {
+			values := make([]any, len(columns))
+			pointers := make([]any, len(columns))
+			for i := range values {
+				pointers[i] = &values[i]
+			}
+			if err := rows.Scan(pointers...); err != nil {
+				t.Fatal(err)
+			}
+			fmt.Fprintf(&dump, "%s %v\n", table, values)
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
+		rows.Close()
+	}
+	return dump.String()
+}
+
+// withSource is a harness whose collector has a key and trusts a double,
+// with one source for it, saved over the API. The collector doesn't start,
+// so nothing syncs.
+func withSource(t *testing.T) (*harness, *imaptest.Server, int64) {
+	t.Helper()
+	double := newMailbox(t)
+	h := newHarnessWith(t, Routes(), harnessOptions{key: true, roots: trusting(t, double)})
+	h.createAccount(t, "source-owner@example.test")
+	owner := h.signIn(t, "source-owner@example.test")
+	response, body := h.send(t, http.MethodPost, "/api/sources", bytes.NewReader(encode(t, sourceBody(t, double))), owner)
+	if response.StatusCode != http.StatusCreated {
+		t.Fatalf("POST /api/sources = %d %s, want 201", response.StatusCode, body)
+	}
+	return h, double, createdID(t, body)
+}
+
+// createdID reads the id from a source answer.
+func createdID(t *testing.T, body string) int64 {
+	t.Helper()
+	var created struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(body), &created); err != nil || created.ID == 0 {
+		t.Fatalf("no source ID in %q: %v", body, err)
+	}
+	return created.ID
+}
+
 // Generated from the route table, so a new route is covered as soon as it's
 // added.
 func TestEveryRouteDeniesWithoutSession(t *testing.T) {
-	h := newHarness(t, Routes())
+	h, double, sourceID := withSource(t)
 	h.createAccount(t, "admin@example.test")
 	h.createAccount(t, "second@example.test")
 
@@ -74,16 +178,17 @@ func TestEveryRouteDeniesWithoutSession(t *testing.T) {
 	}
 
 	before := h.counts(t)
+	sourcesBefore := h.sourceState(t)
 	var checked int
 	for _, route := range Routes() {
 		if route.Access != SignedIn {
 			continue
 		}
 		checked++
-		path := concretePath(route.Path, id)
+		path := routePath(route, id, sourceID)
 		for _, tt := range without {
 			t.Run(route.pattern()+"/"+tt.name, func(t *testing.T) {
-				response, body := h.send(t, route.Method, path, requestBody(route), tt.change)
+				response, body := h.send(t, route.Method, path, requestBody(t, route, double.Addr()), tt.change)
 
 				if response.StatusCode != http.StatusUnauthorized || body != noSession {
 					t.Fatalf("%s %s = %d %q, want 401 %s", route.Method, path, response.StatusCode, body, noSession)
@@ -96,6 +201,12 @@ func TestEveryRouteDeniesWithoutSession(t *testing.T) {
 	}
 	if after := h.counts(t); after != before {
 		t.Fatalf("the archive changed: %+v, then %+v", before, after)
+	}
+	if after := h.sourceState(t); after != sourcesBefore {
+		t.Fatalf("the sources changed:\n%s\nthen\n%s", sourcesBefore, after)
+	}
+	if n := double.Logins(); n != 1 {
+		t.Errorf("the double saw %d LOGIN commands, want 1: the source's own", n)
 	}
 
 	// The valid session still works, so the denials above weren't about it.
@@ -275,7 +386,7 @@ func TestEverySignedInRouteFailsClosedWhenTheCatalogFails(t *testing.T) {
 		path := concretePath(route.Path, 1)
 		t.Run(route.pattern(), func(t *testing.T) {
 			change := both(session, withHeader("Sec-Fetch-Mode", "navigate"), withHeader("Referer", h.server.URL+"/"))
-			response, body := h.send(t, route.Method, path, requestBody(route), change)
+			response, body := h.send(t, route.Method, path, requestBody(t, route, ""), change)
 
 			assertJSONResponse(t, response, body, http.StatusInternalServerError, `{"error":"internal_error"}`)
 			if ran.Load() {

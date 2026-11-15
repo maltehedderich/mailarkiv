@@ -303,12 +303,15 @@ func TestSessions(t *testing.T) {
 		t.Errorf("expires_at = %d, want created_at plus 12 hours, %d", row.expiresAt, signedInAt.Add(12*time.Hour).UnixMilli())
 	}
 
-	account, err := f.identity.LookupSession(context.Background(), token)
+	session, err := f.identity.LookupSession(context.Background(), token)
 	if err != nil {
 		t.Fatalf("LookupSession = %v", err)
 	}
-	if account.Email != "admin@example.test" {
-		t.Errorf("account email = %q, want admin@example.test", account.Email)
+	if session.Account.Email != "admin@example.test" {
+		t.Errorf("account email = %q, want admin@example.test", session.Account.Email)
+	}
+	if session.ExpiresIn != 12*time.Hour {
+		t.Errorf("expires in %v at sign-in, want 12h", session.ExpiresIn)
 	}
 
 	t.Run("refuses an unknown token", func(t *testing.T) {
@@ -335,6 +338,27 @@ func TestSessions(t *testing.T) {
 			t.Fatalf("sessions after the second sign-in = %d, want only the new one", len(sessions))
 		}
 	})
+}
+
+// A lookup reports the time left, which use doesn't extend.
+func TestLookupSessionReportsTheTimeLeft(t *testing.T) {
+	f := newFixture(t)
+	f.create(t, "admin@example.test", goodPassword)
+	token, err := f.identity.SignIn(context.Background(), "admin@example.test", goodPassword)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	f.clock.Advance(5*time.Hour + 30*time.Second)
+	for range 2 {
+		session, err := f.identity.LookupSession(context.Background(), token)
+		if err != nil {
+			t.Fatalf("LookupSession = %v", err)
+		}
+		if want := 6*time.Hour + 59*time.Minute + 30*time.Second; session.ExpiresIn != want {
+			t.Errorf("expires in %v after 5h0m30s, want %v", session.ExpiresIn, want)
+		}
+	}
 }
 
 func TestLookupSessionFailsWhenTheCatalogFails(t *testing.T) {

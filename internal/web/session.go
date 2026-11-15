@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/maltehedderich/mailarkiv/internal/identity"
 )
@@ -89,9 +90,21 @@ func newSessionCookie(value string, maxAge int) *http.Cookie {
 }
 
 // readSession answers GET /api/session. The guard has already checked the
-// session, so this only reports the problem count.
-func readSession(s *server, w http.ResponseWriter, _ *http.Request) {
+// session, so this reports the problem count and the whole seconds the session
+// has left. The count is the failure events and unreferenced originals
+// opstatus counts, plus each source the status screen lists. The seconds are
+// rounded down, so a page that ends at that time never outlives the session.
+func readSession(s *server, w http.ResponseWriter, r *http.Request) {
+	sources, err := s.problemSources(r)
+	if err != nil {
+		s.writeInternalError(w, r, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, struct {
-		ProblemCount int `json:"problem_count"`
-	}{s.status.ProblemCount()})
+		ProblemCount int   `json:"problem_count"`
+		ExpiresIn    int64 `json:"expires_in"`
+	}{
+		ProblemCount: s.status.ProblemCount() + len(sources),
+		ExpiresIn:    int64(signedInSession(r).ExpiresIn / time.Second),
+	})
 }

@@ -76,7 +76,7 @@ test("a hostile name shows as text with its override as a code", async ({
 
   // The history shows the whole name the same way.
   await row.getByRole("link", { name: /history of/i }).click();
-  const drawer = page.getByRole("dialog", { name: "Import history" });
+  const drawer = page.getByRole("dialog", { name: "History" });
   await expect(drawer.getByRole("listitem")).toContainText(
     `${MARKUP}U+202Elmth.exe`,
   );

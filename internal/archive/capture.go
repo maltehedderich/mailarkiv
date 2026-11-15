@@ -12,7 +12,6 @@ import (
 	"os"
 	"path/filepath"
 	"syscall"
-	"time"
 
 	"github.com/maltehedderich/mailarkiv/internal/fault"
 	"github.com/maltehedderich/mailarkiv/internal/opstatus"
@@ -48,19 +47,50 @@ func (a *Archive) Import(ctx context.Context, body io.Reader, meta ImportMeta) (
 
 	// Once the bytes are in, capture finishes even if the client leaves, so the
 	// archive matches whatever the client might later learn.
-	return a.capture(context.WithoutCancel(ctx), head, body, meta)
+	return a.capture(context.WithoutCancel(ctx), head, body, a.importing(meta))
 }
 
-func (a *Archive) capture(ctx context.Context, head []byte, rest io.Reader, meta ImportMeta) (Result, error) {
+// captureKind is what differs between an import and a collection.
+type captureKind struct {
+	// record adds the entry for the message in the commit's transaction.
+	// observedAt is in Unix milliseconds.
+	record func(ctx context.Context, tx *sql.Tx, messageID, observedAt int64) error
+	// fail reports a capture that stored nothing.
+	fail func(category opstatus.Category, contentHash string, cause error) Failed
+}
+
+func (a *Archive) importing(meta ImportMeta) captureKind {
+	return captureKind{
+		record: func(ctx context.Context, tx *sql.Tx, messageID, observedAt int64) error {
+			observation, err := tx.ExecContext(ctx,
+				`INSERT INTO source_observation (message_id, source_type, observed_at, account_email, file_name)
+				 VALUES (?, 'manual_import', ?, ?, ?)`,
+				messageID, observedAt, meta.AccountEmail, nullable(meta.FileName))
+			if err != nil {
+				return err
+			}
+			observationID, err := observation.LastInsertId()
+			if err != nil {
+				return err
+			}
+			_, err = tx.ExecContext(ctx,
+				"UPDATE message SET latest_observation_id = ? WHERE id = ?", observationID, messageID)
+			return err
+		},
+		fail: a.fail,
+	}
+}
+
+func (a *Archive) capture(ctx context.Context, head []byte, rest io.Reader, kind captureKind) (Result, error) {
 	temp, err := a.createTemp()
 	if err != nil {
-		return a.fail(storageCategory(err), "", fmt.Errorf("create a temp file: %w", err)), nil
+		return kind.fail(storageCategory(err), "", fmt.Errorf("create a temp file: %w", err)), nil
 	}
 
-	size, contentHash, result := a.receive(temp, head, rest)
+	size, contentHash, result := a.receive(temp, head, rest, kind.fail)
 	closeErr := temp.Close()
 	if result == nil && closeErr != nil {
-		result = a.fail(opstatus.StorageWriteFailed, "", fmt.Errorf("close the temp file: %w", closeErr))
+		result = kind.fail(opstatus.StorageWriteFailed, "", fmt.Errorf("close the temp file: %w", closeErr))
 	}
 	if result != nil {
 		a.removeTemp(temp.Name())
@@ -80,13 +110,13 @@ func (a *Archive) capture(ctx context.Context, head []byte, rest io.Reader, meta
 	blob, err := a.ensureBlob(temp.Name(), contentHash)
 	if err != nil {
 		a.removeTemp(temp.Name())
-		return a.fail(opstatus.StorageWriteFailed, contentHash, err), nil
+		return kind.fail(opstatus.StorageWriteFailed, contentHash, err), nil
 	}
 
-	message, rowAtCommit, err := a.commit(ctx, contentHash, size, meta)
+	message, rowAtCommit, err := a.commit(ctx, contentHash, size, kind.record)
 	if err != nil {
 		// The blob stays. Recovery lists it as unreferenced at the next start.
-		return a.fail(opstatus.CatalogWriteFailed, contentHash, err), nil
+		return kind.fail(opstatus.CatalogWriteFailed, contentHash, err), nil
 	}
 	// Only a kill means anything here. The commit is done, so no error path is left.
 	_ = fault.At("after-commit")
@@ -117,7 +147,7 @@ func (a *Archive) createTemp() (*os.File, error) {
 // receive streams the file into temp, hashing it on the way, and fsyncs it. A
 // nil result means the bytes are durable in temp. A read error is the client's,
 // so it gives Dropped, apart from a write error, which is the server's.
-func (a *Archive) receive(temp *os.File, head []byte, rest io.Reader) (int64, string, Result) {
+func (a *Archive) receive(temp *os.File, head []byte, rest io.Reader, fail func(opstatus.Category, string, error) Failed) (int64, string, Result) {
 	hash := sha256.New()
 	write := func(p []byte) error {
 		if err := fault.At("temp-write"); err != nil {
@@ -132,7 +162,7 @@ func (a *Archive) receive(temp *os.File, head []byte, rest io.Reader) (int64, st
 	}
 
 	if err := write(head); err != nil {
-		return 0, "", a.fail(storageCategory(err), "", fmt.Errorf("write the temp file: %w", err))
+		return 0, "", fail(storageCategory(err), "", fmt.Errorf("write the temp file: %w", err))
 	}
 	size := int64(len(head))
 	buffer := make([]byte, copyBufferSize)
@@ -144,7 +174,7 @@ func (a *Archive) receive(temp *os.File, head []byte, rest io.Reader) (int64, st
 				return 0, "", Refused{Reason: TooLarge}
 			}
 			if err := write(buffer[:n]); err != nil {
-				return 0, "", a.fail(storageCategory(err), "", fmt.Errorf("write the temp file: %w", err))
+				return 0, "", fail(storageCategory(err), "", fmt.Errorf("write the temp file: %w", err))
 			}
 		}
 		if errors.Is(readErr, io.EOF) {
@@ -156,7 +186,7 @@ func (a *Archive) receive(temp *os.File, head []byte, rest io.Reader) (int64, st
 	}
 
 	if err := syncTemp(temp); err != nil {
-		return 0, "", a.fail(storageCategory(err), "", fmt.Errorf("sync the temp file: %w", err))
+		return 0, "", fail(storageCategory(err), "", fmt.Errorf("sync the temp file: %w", err))
 	}
 	return size, hex.EncodeToString(hash.Sum(nil)), nil
 }
@@ -270,25 +300,22 @@ func decideOutcome(rowBefore, rowAtCommit bool, blob blobState) (Outcome, opstat
 	}
 }
 
-// commit records the import in one transaction. The message row and its
+// commit records the capture in one transaction. The message row and its
 // latest_observation_id are set together, so a committed row is never NULL
 // there, and the list's join can't hide it. The bool reports whether the row
 // already existed at commit.
-func (a *Archive) commit(ctx context.Context, contentHash string, size int64, meta ImportMeta) (Message, bool, error) {
+func (a *Archive) commit(ctx context.Context, contentHash string, size int64,
+	record func(ctx context.Context, tx *sql.Tx, messageID, observedAt int64) error,
+) (Message, bool, error) {
 	if err := fault.At("before-commit"); err != nil {
-		return Message{}, false, fmt.Errorf("record the import: %w", err)
+		return Message{}, false, fmt.Errorf("record the message: %w", err)
 	}
 	if err := fault.At("commit"); err != nil {
-		return Message{}, false, fmt.Errorf("record the import: %w", err)
+		return Message{}, false, fmt.Errorf("record the message: %w", err)
 	}
 
 	observedAt := a.now().UnixMilli()
-	message := Message{
-		ContentHash: contentHash,
-		Size:        size,
-		FileName:    meta.FileName,
-		ImportedAt:  time.UnixMilli(observedAt).UTC(),
-	}
+	var message Message
 	var rowAtCommit bool
 
 	err := sqlitedb.InTx(ctx, a.db.Writer, func(tx *sql.Tx) error {
@@ -304,30 +331,19 @@ func (a *Archive) commit(ctx context.Context, contentHash string, size int64, me
 		}
 		rowAtCommit = added == 0
 
+		var id int64
 		if err := tx.QueryRowContext(ctx,
-			"SELECT id FROM message WHERE content_hash = ?", contentHash).Scan(&message.ID); err != nil {
+			"SELECT id FROM message WHERE content_hash = ?", contentHash).Scan(&id); err != nil {
 			return err
 		}
-		observation, err := tx.ExecContext(ctx,
-			`INSERT INTO source_observation (message_id, source_type, observed_at, account_email, file_name)
-			 VALUES (?, 'manual_import', ?, ?, ?)`,
-			message.ID, observedAt, meta.AccountEmail, nullable(meta.FileName))
-		if err != nil {
+		if err := record(ctx, tx, id, observedAt); err != nil {
 			return err
 		}
-		observationID, err := observation.LastInsertId()
-		if err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx,
-			"UPDATE message SET latest_observation_id = ? WHERE id = ?", observationID, message.ID); err != nil {
-			return err
-		}
-		return tx.QueryRowContext(ctx,
-			"SELECT COUNT(*) FROM source_observation WHERE message_id = ?", message.ID).Scan(&message.ImportCount)
+		message, err = readMessage(ctx, tx, id)
+		return err
 	})
 	if err != nil {
-		return Message{}, false, fmt.Errorf("record the import: %w", err)
+		return Message{}, false, fmt.Errorf("record the message: %w", err)
 	}
 	return message, rowAtCommit, nil
 }

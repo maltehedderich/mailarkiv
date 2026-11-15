@@ -41,7 +41,16 @@ run = [{ tasks = ["dev:server", "dev:frontend"] }]
 [tasks."dev:server"]
 description = "Run the server against the local development data"
 hide = true
-run = "go run ./cmd/mailarkiv serve --data-dir .data/dev"
+run = [
+  "mkdir -p .data",
+  "if [ ! -e .data/mailarkiv.key ]; then go run ./cmd/mailarkiv key create --data-dir .data/dev .data/mailarkiv.key; fi",
+  '''
+  if [ -z "${SSL_CERT_FILE:-}" ] && [ -f .data/ca.pem ]; then
+    export SSL_CERT_FILE="$PWD/.data/ca.pem"
+  fi
+  exec go run ./cmd/mailarkiv serve --data-dir .data/dev --key-file .data/mailarkiv.key
+  ''',
+]
 
 [tasks."dev:frontend"]
 description = "Run the frontend dev server"
@@ -104,10 +113,12 @@ env = { TZ = "Europe/Berlin" }
 run = "bunx vitest run"
 
 [tasks."test:e2e"]
-description = "Run the browser tests against the built binary"
+description = "Run the browser tests against the built binary and the test IMAP server"
 depends = ["build"]
-dir = "frontend"
-run = "bunx playwright test"
+run = [
+  "go build -o bin/imaptestserver ./internal/imaptest/cmd/imaptestserver",
+  "cd frontend && bunx playwright test",
+]
 
 [tasks.test]
 description = "Run the full test suite"
