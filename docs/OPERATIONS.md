@@ -2,7 +2,7 @@
 
 This guide is for the person who runs MailArkiv on a server. It covers building it, running it, managing accounts, putting it behind HTTPS, and what this version does and doesn't promise.
 
-MailArkiv is built in seven slices toward its first release. It imports `.eml` files, lists stored messages, and downloads the exact original bytes. IMAP collection is available while Slice 2 is being developed; its real-server validation is still pending. Search, deletion, and backup come in later slices. [What this version doesn't promise](#what-this-version-doesnt-promise) lists the limits.
+MailArkiv is built in seven slices toward its first release. Slices 1 and 2 are done. MailArkiv imports `.eml` files, collects mail from IMAP mailboxes, lists stored messages, and downloads the exact original bytes. IMAP collection has only been tested against a test server so far; validation against a real mail server is still pending. Search, deletion, and backup come in later slices. [What this version doesn't promise](#what-this-version-doesnt-promise) lists the limits.
 
 ## What you need
 
