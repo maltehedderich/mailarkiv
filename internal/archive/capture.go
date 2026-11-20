@@ -122,6 +122,12 @@ func (a *Archive) capture(ctx context.Context, head []byte, rest io.Reader, kind
 	_ = fault.At("after-commit")
 
 	outcome, event := decideOutcome(rowBefore, rowAtCommit, blob)
+	if !rowAtCommit {
+		signal(a.captured)
+	}
+	if outcome == Restored {
+		signal(a.restored)
+	}
 	if event != noEvent {
 		a.status.RecordFailure(opstatus.FailureEvent{
 			Category:    event,

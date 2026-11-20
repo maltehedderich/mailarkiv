@@ -30,6 +30,9 @@ type Archive struct {
 	now      func() time.Time
 	// Tests wrap the real inspector to hold concurrent captures at this boundary.
 	inspectBlob func(path, contentHash string) blobState
+	// captured and restored hold at most one waiting signal each.
+	captured chan struct{}
+	restored chan struct{}
 }
 
 // Open prepares tmp/ and blobs/ in the data directory. status records failure
@@ -44,6 +47,8 @@ func Open(dataDir string, db *sqlitedb.DB, status *opstatus.Status, logger *slog
 		logger:      logger,
 		now:         now,
 		inspectBlob: inspectBlob,
+		captured:    make(chan struct{}, 1),
+		restored:    make(chan struct{}, 1),
 	}
 	for _, dir := range []string{a.tmpDir, a.blobsDir} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -58,7 +63,8 @@ func (a *Archive) blobPath(contentHash string) string {
 	return filepath.Join(a.blobsDir, contentHash[0:2], contentHash[2:4], contentHash)
 }
 
-// Message is one distinct set of bytes, with its latest history entry.
+// Message is one distinct set of bytes as a list row shows it: its
+// processing state, list date, summary, and latest history entry.
 type Message struct {
 	ID          int64
 	ContentHash string // Lowercase hex SHA-256.
@@ -66,6 +72,14 @@ type Message struct {
 	Latest      Entry
 	// ObservationCount counts every entry, imports and collections alike.
 	ObservationCount int
+	Processing       ProcessingState
+	ListDate         time.Time
+	// ListDateIsArchiveTime is true when the list date is the first archive
+	// time, for any reason.
+	ListDateIsArchiveTime bool
+	// Summary is nil until processing reads the message, and stays nil for
+	// an unreadable one.
+	Summary *Summary
 }
 
 // Entry is one sighting of a message's bytes. Its method is private, so the

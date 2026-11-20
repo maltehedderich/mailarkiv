@@ -25,18 +25,23 @@ type Page struct {
 const entryColumns = `o.source_type, o.observed_at, o.account_email, o.file_name,
        o.imap_source_id, o.imap_folder_id, o.received_at`
 
-// messageColumns are the columns scanMessage reads, joined to the message's
-// latest entry as o.
+// messageColumns are the columns scanMessage reads, from messageTables.
 const messageColumns = `m.id, m.content_hash, m.size,
        (SELECT COUNT(*) FROM source_observation c WHERE c.message_id = m.id),
+       m.processing_state, m.list_date, ` + summaryColumns + `,
        ` + entryColumns
+
+// messageTables joins a message to its latest entry as o and its summary, if
+// it has one, as s.
+const messageTables = `message m
+JOIN source_observation o ON o.id = m.latest_observation_id
+LEFT JOIN message_summary s ON s.message_id = m.id`
 
 // The list's order, newest first, which message_list_order serves. The ID
 // makes it total, so pages never repeat or skip a message.
 const listQuery = `
 SELECT ` + messageColumns + `
-FROM message m
-JOIN source_observation o ON o.id = m.latest_observation_id
+FROM ` + messageTables + `
 ORDER BY m.list_date DESC, m.first_archived_at DESC, m.id DESC
 LIMIT ? OFFSET ?`
 
@@ -82,8 +87,7 @@ func (a *Archive) List(ctx context.Context, page int) (Page, error) {
 func readMessage(ctx context.Context, tx *sql.Tx, id int64) (Message, error) {
 	row := tx.QueryRowContext(ctx, `
 SELECT `+messageColumns+`
-FROM message m
-JOIN source_observation o ON o.id = m.latest_observation_id
+FROM `+messageTables+`
 WHERE m.id = ?`, id)
 	return scanMessage(row)
 }
@@ -92,16 +96,25 @@ type scanner interface{ Scan(dest ...any) error }
 
 func scanMessage(row scanner) (Message, error) {
 	var message Message
+	var state string
+	var listDate int64
+	var summary summaryRow
 	var entry entryRow
-	targets := append([]any{&message.ID, &message.ContentHash, &message.Size, &message.ObservationCount}, entry.targets()...)
+	targets := []any{&message.ID, &message.ContentHash, &message.Size, &message.ObservationCount, &state, &listDate}
+	targets = append(append(targets, summary.targets()...), entry.targets()...)
 	if err := row.Scan(targets...); err != nil {
 		return Message{}, err
 	}
-	latest, err := entry.entry()
-	if err != nil {
+	var err error
+	if message.Processing, err = parseProcessingState(state); err != nil {
 		return Message{}, err
 	}
-	message.Latest = latest
+	message.ListDate = time.UnixMilli(listDate).UTC()
+	message.Summary = summary.summary()
+	message.ListDateIsArchiveTime = message.Summary == nil || message.Summary.DateReason != nil
+	if message.Latest, err = entry.entry(); err != nil {
+		return Message{}, err
+	}
 	return message, nil
 }
 
