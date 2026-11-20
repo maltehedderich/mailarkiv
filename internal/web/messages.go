@@ -162,6 +162,18 @@ var pageNumber = regexp.MustCompile(`^[1-9][0-9]*$`)
 // listMessages answers GET /api/messages?page=N. A page past the end has no
 // items and the real total, so the client can move to the last page.
 func listMessages(s *server, w http.ResponseWriter, r *http.Request) {
+	writePage(s, w, r, s.archive.List)
+}
+
+// listProcessingProblems answers GET /api/processing-problems?page=N as
+// listMessages does, with only the messages processed with problems or that
+// couldn't be read.
+func listProcessingProblems(s *server, w http.ResponseWriter, r *http.Request) {
+	writePage(s, w, r, s.archive.ProblemList)
+}
+
+// writePage reads the query's page from list and writes it.
+func writePage(s *server, w http.ResponseWriter, r *http.Request, list func(context.Context, int) (archive.Page, error)) {
 	page := 1
 	if values, given := r.URL.Query()["page"]; given {
 		if len(values) != 1 || !pageNumber.MatchString(values[0]) {
@@ -177,7 +189,7 @@ func listMessages(s *server, w http.ResponseWriter, r *http.Request) {
 		page = number
 	}
 
-	listed, err := s.archive.List(r.Context(), page)
+	listed, err := list(r.Context(), page)
 	if err != nil {
 		s.writeInternalError(w, r, err)
 		return

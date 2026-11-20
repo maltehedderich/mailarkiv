@@ -2,6 +2,7 @@
   import ArchiveIcon from "~icons/lucide/archive";
   import DownloadIcon from "~icons/lucide/download";
   import PaperclipIcon from "~icons/lucide/paperclip";
+  import ProblemsIcon from "~icons/lucide/triangle-alert";
 
   import { goto } from "$app/navigation";
   import { navigating, page } from "$app/state";
@@ -12,30 +13,17 @@
   import UntrustedText from "#lib/components/UntrustedText.svelte";
   import { startDownload } from "#lib/download/start.js";
   import { entryName } from "#lib/format/entry.js";
-  import { displayName } from "#lib/format/file-name.js";
+  import { rowDisplay } from "#lib/format/row.js";
   import { formatSize } from "#lib/format/size.js";
   import { formatTime } from "#lib/format/time.js";
-  import { displayParts, displayText } from "#lib/format/untrusted.js";
 
   let { message, historyHref }: { message: Message; historyHref: string } =
     $props();
 
   // A message processing has read shows its sender and subject. Any other
-  // names itself by its latest entry, as before processing.
-  const summarized = $derived(
-    message.processing === "processed" ||
-      message.processing === "processed_with_problems",
-  );
-
-  const shownName = $derived(entryName(message.latest));
-
-  // What the link and the download are named by. It has its codes in place,
-  // so a label can't be reordered either.
-  const name = $derived(
-    summarized
-      ? displayText(message.subject ?? "(no subject)").text
-      : displayName(shownName).text,
-  );
+  // names itself by its latest entry, beside its state. The label has its
+  // codes in place, so it can't be reordered either.
+  const shown = $derived(rowDisplay(message));
 
   // The drawer opens once its history has arrived, so the row stays marked
   // from the click until then, and while the drawer is open. Beside the drawer,
@@ -59,33 +47,44 @@
 
 <!-- One row of the message list. The parent <ul> sets the columns. -->
 <li class:open>
-  {#if summarized}
-    <span class="sender"><Sender sender={message.sender} /></span>
+  {#if shown.kind === "summary"}
+    <span class="sender"><Sender shown={shown.sender} /></span>
   {/if}
-  <!-- The title is the subject, or the entry's name before processing. It is
-       one element in both, so focus stays on the link when processing
-       finishes and the list refreshes. The link's label replaces its content,
-       so the attachment mark sits beside it. -->
-  <span class="title" class:entry={!summarized}
+  <!-- The title is the subject, or the entry's name when processing hasn't
+       read the message. It is one element in both, so focus stays on the link
+       when processing finishes and the list refreshes. The link's label
+       replaces its content, so the marks sit beside it. -->
+  <span class="title" class:entry={shown.kind === "capture"}
     ><!-- Its ::after stretches over the row, so the whole row opens the
          history. Keeping focus and scroll lets the dialog give focus back
          to this link. --><a
       id="history-{message.id}"
       class="link"
       href={historyHref}
-      aria-label="History of {name}"
+      aria-label="History of {shown.label}"
       data-sveltekit-reset="false"
       onkeydown={openOnEnter}
-      >{#if !summarized}<EntryName
-          entry={message.latest}
-        />{:else if message.subject === null}<span class="missing"
-          >(no subject)</span
-        >{:else}<UntrustedText split={displayParts(message.subject)} />{/if}</a
-    >{#if summarized && message.hasAttachments}<span class="attachments"
+      >{#if shown.kind === "capture"}<EntryName
+          entry={shown.entry}
+        />{:else if shown.subject.kind === "missing"}<span class="missing"
+          >{shown.subject.text}</span
+        >{:else}<UntrustedText split={shown.subject.subject} />{/if}</a
+    >{#if shown.kind === "summary" && message.hasAttachments}<span
+        class="attachments"
         ><PaperclipIcon /><span class="visually-hidden">Has attachments</span
+        ></span
+      >{/if}{#if shown.kind === "summary" && shown.problems !== null}<span
+        class="problems"
+        title={shown.problems}
+        ><ProblemsIcon /><span class="visually-hidden">{shown.problems}</span
         ></span
       >{/if}</span
   >
+  {#if shown.kind === "capture"}
+    <span class="state"
+      ><span class="dot {shown.tone}"></span><span>{shown.state}</span></span
+    >
+  {/if}
   <!-- The column heads are hidden from screen readers, so values that don't
        name themselves carry their head. The mark keeps its space in every
        row, so the dates line up. -->
@@ -105,12 +104,12 @@
   <button
     class="button ghost icon-only download"
     type="button"
-    aria-label="Download {name}"
+    aria-label="Download {shown.label}"
     onclick={() =>
       startDownload({
         id: message.id,
         contentHash: message.contentHash,
-        fileName: shownName,
+        fileName: entryName(message.latest),
       })}
   >
     <DownloadIcon />
@@ -160,12 +159,14 @@
     min-width: 0;
   }
 
-  /* Placed by column, because a row before processing has no sender cell. */
+  /* Placed by column, because a row processing hasn't read has no sender
+     cell. */
   .sender {
     grid-column: 1;
   }
 
-  .title {
+  .title,
+  .state {
     grid-column: 2;
   }
 
@@ -181,10 +182,10 @@
     grid-column: 5;
   }
 
-  /* Before processing, the entry's name takes the sender's place and the
-     subject's room. */
+  /* The entry's name takes the sender's place, and the state the
+     subject's. */
   .title.entry {
-    grid-column: 1 / 3;
+    grid-column: 1;
   }
 
   .sender,
@@ -224,7 +225,29 @@
     color: var(--text-3);
   }
 
+  .state {
+    display: flex;
+    align-items: center;
+    gap: var(--space-6);
+    min-width: 0;
+    color: var(--text-3);
+    white-space: nowrap;
+  }
+
+  .dot {
+    flex: none;
+    width: var(--dot-size);
+    height: var(--dot-size);
+    border-radius: 50%;
+    background: var(--text-4);
+  }
+
+  .dot.warn {
+    background: var(--state-warn);
+  }
+
   .attachments,
+  .problems,
   .mark {
     display: flex;
     flex: none;
@@ -232,15 +255,20 @@
   }
 
   .attachments :global(.icon),
+  .problems :global(.icon),
   .mark :global(.icon) {
     width: var(--icon-size-small);
     height: var(--icon-size-small);
   }
 
   /* Above the link's ::after, so a hover shows its title. */
+  .problems,
   .mark {
     position: relative;
     z-index: 1;
+  }
+
+  .mark {
     width: var(--icon-size-small);
   }
 
@@ -301,7 +329,8 @@
       grid-column: 1;
     }
 
-    .title {
+    .title,
+    .state {
       grid-row: 2;
       grid-column: 1;
     }
@@ -348,7 +377,8 @@
       grid-area: sender;
     }
 
-    .title {
+    .title,
+    .state {
       grid-area: subject;
     }
 

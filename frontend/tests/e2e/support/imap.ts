@@ -20,6 +20,8 @@ export interface ImapOptions {
   password: string;
   /** In the order the server lists them, after INBOX. */
   folders: ImapFolder[];
+  /** Files added unchanged after the synthetic messages, in this order. */
+  messages?: { folder: string; path: string }[];
   /** How long each message's first body fetch waits, so a sync can be watched. */
   fetchDelayMs?: number;
 }
@@ -50,6 +52,9 @@ export async function startImap(options: ImapOptions): Promise<ImapServer> {
   ];
   for (const folder of options.folders) {
     args.push("--folder", `${folder.name}=${folder.messages}`);
+  }
+  for (const message of options.messages ?? []) {
+    args.push("--message", `${message.folder}=${message.path}`);
   }
   if (options.fetchDelayMs !== undefined) {
     args.push("--fetch-delay", `${options.fetchDelayMs}ms`);

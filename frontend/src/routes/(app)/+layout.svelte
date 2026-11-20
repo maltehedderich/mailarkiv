@@ -107,7 +107,10 @@
       <a
         class="item"
         href="/status"
-        aria-current={page.url.pathname === "/status" ? "page" : undefined}
+        aria-current={page.url.pathname === "/status" ||
+        page.url.pathname === "/problems"
+          ? "page"
+          : undefined}
       >
         <ActivityIcon />
         Status

@@ -1,9 +1,13 @@
 package processing
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -13,18 +17,24 @@ import (
 	"sync"
 	"syscall"
 	"testing"
+	"time"
 )
 
 // The test binary is also the worker, as the server binary is in production.
+// The modes other than 1 break the worker on purpose.
 func TestMain(m *testing.M) {
-	if os.Getenv("MAILARKIV_TEST_PARSE_WORKER") == "1" {
+	switch mode := os.Getenv("MAILARKIV_TEST_PARSE_WORKER"); mode {
+	case "":
+		if err := markInheritedCloseOnExec(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		os.Exit(m.Run())
+	case "1":
 		os.Exit(RunWorker(os.Stdin, os.Stdout))
+	default:
+		os.Exit(runBrokenWorker(mode, os.Getenv("MAILARKIV_TEST_DEATH_MARKER")))
 	}
-	if err := markInheritedCloseOnExec(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-	os.Exit(m.Run())
 }
 
 // markInheritedCloseOnExec keeps descriptors the tests inherited out of the
@@ -44,6 +54,48 @@ func markInheritedCloseOnExec() error {
 	return nil
 }
 
+// exitDied is how a worker in a dying mode exits.
+const exitDied = 7
+
+// runBrokenWorker takes each request, then breaks as mode says: hang never
+// answers, die exits, and die-once exits only if no worker has created
+// marker yet, and otherwise answers.
+func runBrokenWorker(mode, marker string) int {
+	in := bufio.NewReader(os.Stdin)
+	for {
+		var request workerRequest
+		if err := ReadFrame(in, &request); err != nil {
+			return workerDone
+		}
+		original := make([]byte, request.Size)
+		if _, err := io.ReadFull(in, original); err != nil {
+			return workerBadRequest
+		}
+		switch mode {
+		case "hang":
+			for {
+				time.Sleep(time.Hour)
+			}
+		case "die":
+			return exitDied
+		case "die-once":
+			file, err := os.OpenFile(marker, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+			if err == nil {
+				file.Close()
+				return exitDied
+			}
+			if !errors.Is(err, fs.ErrExist) {
+				return workerBadRequest
+			}
+		default:
+			return workerBadRequest
+		}
+		if err := WriteFrame(os.Stdout, read(original, request.Text)); err != nil {
+			return workerBadRequest
+		}
+	}
+}
+
 // testWorkerCommand starts this test binary as a worker, with nothing in its
 // environment but the switch above.
 func testWorkerCommand() *exec.Cmd {
@@ -52,9 +104,33 @@ func testWorkerCommand() *exec.Cmd {
 	return cmd
 }
 
+// modeWorkerCommand starts the nth worker in modes[n], and every worker after
+// the last mode in that one. marker is die-once's file.
+func modeWorkerCommand(marker string, modes ...string) func() *exec.Cmd {
+	var mu sync.Mutex
+	started := 0
+	return func() *exec.Cmd {
+		mu.Lock()
+		mode := modes[min(started, len(modes)-1)]
+		started++
+		mu.Unlock()
+		cmd := exec.Command(os.Args[0])
+		cmd.Env = []string{"MAILARKIV_TEST_PARSE_WORKER=" + mode, "MAILARKIV_TEST_DEATH_MARKER=" + marker}
+		return cmd
+	}
+}
+
+// testLimit stands in for the 60 s limit, so a hung worker costs 2 s.
+const testLimit = 2 * time.Second
+
 func newTestPool(t *testing.T, size int, logger *slog.Logger) *Pool {
 	t.Helper()
-	pool, err := NewPool(size, testWorkerCommand, logger)
+	return newTestPoolWith(t, size, testWorkerCommand, logger)
+}
+
+func newTestPoolWith(t *testing.T, size int, command func() *exec.Cmd, logger *slog.Logger) *Pool {
+	t.Helper()
+	pool, err := NewPool(size, testLimit, command, logger)
 	if err != nil {
 		t.Fatalf("NewPool: %v", err)
 	}

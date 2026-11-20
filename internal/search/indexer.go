@@ -309,7 +309,7 @@ type address struct {
 }
 
 // document reads message's original in a worker. When the original is
-// missing or damaged, or the worker dies on it, the document holds only
+// missing or damaged, or no worker finishes it, the document holds only
 // what the summary has.
 func (m *Module) document(ctx context.Context, message archive.ProcessedMessage) (document, error) {
 	d := document{
@@ -322,7 +322,7 @@ func (m *Module) document(ctx context.Context, message archive.ProcessedMessage)
 		d.HasAttachments = summary.HasAttachments
 	}
 	content, err := m.config.Processor.Read(ctx, message.ID, true)
-	stopped, workerStopped := errors.AsType[*processing.WorkerStoppedError](err)
+	_, workerStopped := errors.AsType[*processing.WorkerStoppedError](err)
 	switch {
 	case err == nil:
 		d.Subject = content.Subject
@@ -331,9 +331,9 @@ func (m *Module) document(ctx context.Context, message archive.ProcessedMessage)
 		d.AttachmentNames = content.AttachmentNames
 		d.Text = content.Text
 		return d, nil
-	case workerStopped:
-		m.config.Logger.Error("processing_worker_stopped", "message_id", message.ID, "exit", stopped.Exit)
-	case errors.Is(err, archive.ErrOriginalMissing), errors.Is(err, archive.ErrOriginalDamaged):
+	case workerStopped, errors.Is(err, archive.ErrOriginalMissing), errors.Is(err, archive.ErrOriginalDamaged):
+		// Processing logged each worker that stopped, and the archive
+		// recorded the original's failure.
 	default:
 		return document{}, err
 	}

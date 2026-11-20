@@ -19,7 +19,7 @@ import (
 	"github.com/maltehedderich/mailarkiv/internal/imaptest"
 )
 
-const usage = `Usage: imaptestserver --ca-out PATH --user NAME --password PASSWORD [--folder NAME=COUNT]... [--fetch-delay DURATION]
+const usage = `Usage: imaptestserver --ca-out PATH --user NAME --password PASSWORD [--folder NAME=COUNT]... [--message FOLDER=PATH]... [--fetch-delay DURATION]
 
   --ca-out PATH          write the test CA's certificate here, for SSL_CERT_FILE
   --user NAME            the mailbox's user name
@@ -27,6 +27,11 @@ const usage = `Usage: imaptestserver --ca-out PATH --user NAME --password PASSWO
   --folder NAME=COUNT    fill a folder with COUNT synthetic messages. Repeat it
                          for more folders. NAME may contain "=", because COUNT
                          follows the last one
+  --message FOLDER=PATH  add the file at PATH to INBOX or a folder --folder
+                         names, after the synthetic messages. BODY[] returns
+                         its bytes unchanged, even with no header or LF line
+                         ends. Repeat it for more. FOLDER can't contain "=",
+                         because PATH follows the first one
   --fetch-delay DURATION hold each message's first body fetch this long
 `
 
@@ -75,6 +80,15 @@ func serve(double *imaptest.Server, options options, stdout io.Writer, stop <-ch
 	if err := fill(double, options.folders, options.fetchDelay); err != nil {
 		return fmt.Errorf("fill the mailbox: %w", err)
 	}
+	for index, m := range options.messages {
+		body, err := os.ReadFile(m.path)
+		if err != nil {
+			return fmt.Errorf("read message %d: %w", index+1, err)
+		}
+		if _, err := double.AddRawMessage(m.folder, body, time.Time{}); err != nil {
+			return fmt.Errorf("add message %d: %w", index+1, err)
+		}
+	}
 	if _, err := fmt.Fprintln(stdout, double.Addr()); err != nil {
 		return fmt.Errorf("print the address: %w", err)
 	}
@@ -87,6 +101,7 @@ type options struct {
 	user       string
 	password   string
 	folders    folderList
+	messages   messageList
 	fetchDelay time.Duration
 }
 
@@ -98,6 +113,7 @@ func parseArgs(args []string) (options, error) {
 	flags.StringVar(&o.user, "user", "", "")
 	flags.StringVar(&o.password, "password", "", "")
 	flags.Var(&o.folders, "folder", "")
+	flags.Var(&o.messages, "message", "")
 	flags.DurationVar(&o.fetchDelay, "fetch-delay", 0, "")
 	if err := flags.Parse(args); err != nil {
 		return options{}, err
@@ -136,6 +152,26 @@ func (l *folderList) Set(value string) error {
 		return fmt.Errorf("%q has no count of 0 or more", value)
 	}
 	*l = append(*l, folder{name: value[:at], count: count})
+	return nil
+}
+
+type message struct {
+	folder string
+	path   string
+}
+
+// messageList collects each --message in the order given, which is the order
+// of their UIDs.
+type messageList []message
+
+func (l *messageList) String() string { return "" }
+
+func (l *messageList) Set(value string) error {
+	folder, path, found := strings.Cut(value, "=")
+	if !found || folder == "" || path == "" {
+		return fmt.Errorf("%q isn't FOLDER=PATH", value)
+	}
+	*l = append(*l, message{folder: folder, path: path})
 	return nil
 }
 

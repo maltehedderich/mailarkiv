@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -17,6 +18,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/maltehedderich/mailarkiv/internal/archive"
 )
 
 const goodPassword = "correct horse battery"
@@ -150,10 +153,42 @@ func hashOf(b []byte) string {
 // sender or subject, and the first archive time as its list date. latest is
 // the row's latest entry as JSON.
 func notProcessedRow(id int64, content []byte, listDate string, observationCount int, latest string) string {
-	return fmt.Sprintf(`{"id":%d,"content_hash":%q,"size":%d,"processing":"not_processed",`+
+	return summaryLessRow("not_processed", id, content, listDate, observationCount, latest)
+}
+
+// summaryLessRow is a list row for a message without a summary, which is not
+// processed yet or couldn't be read.
+func summaryLessRow(processing string, id int64, content []byte, listDate string, observationCount int, latest string) string {
+	return fmt.Sprintf(`{"id":%d,"content_hash":%q,"size":%d,"processing":%q,`+
 		`"list_date":%q,"list_date_is_archive_time":true,"sender":null,"subject":null,"has_attachments":false,`+
 		`"observation_count":%d,"latest":%s}`,
-		id, hashOf(content), len(content), listDate, observationCount, latest)
+		id, hashOf(content), len(content), processing, listDate, observationCount, latest)
+}
+
+// importMail imports content as name and returns its message ID.
+func (h *harness) importMail(t *testing.T, session func(*http.Request), content []byte, name string) int64 {
+	t.Helper()
+	response, body := h.send(t, http.MethodPost, "/api/imports", bytes.NewReader(content), both(session, withFileName(name)))
+	if response.StatusCode != http.StatusCreated && response.StatusCode != http.StatusOK {
+		t.Fatalf("import %s = %d %s", name, response.StatusCode, body)
+	}
+	return messageID(t, body)
+}
+
+// recordProcessed stores a processing result as processing would.
+func (h *harness) recordProcessed(t *testing.T, id int64, result archive.ProcessingResult) {
+	t.Helper()
+	if recorded, err := h.archive.RecordProcessed(context.Background(), id, result); err != nil || !recorded {
+		t.Fatalf("record message %d: %t, %v", id, recorded, err)
+	}
+}
+
+// unreadable is the result for a message no worker could finish.
+func unreadable() archive.ProcessingResult {
+	return archive.ProcessingResult{
+		State: archive.Unreadable, ListDate: testNow,
+		Problems: []archive.Problem{{Position: "", Kind: "took_too_long"}},
+	}
 }
 
 // importEntry is a manual import's entry as JSON. fileName is JSON: a quoted

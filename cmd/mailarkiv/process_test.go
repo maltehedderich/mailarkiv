@@ -562,6 +562,7 @@ type listedMessage struct {
 	ContentHash      string `json:"content_hash"`
 	Size             int64  `json:"size"`
 	ObservationCount int    `json:"observation_count"`
+	Processing       string `json:"processing"`
 }
 
 // importAnswer is the body of an import's answer in the API contract.

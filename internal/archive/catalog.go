@@ -37,19 +37,39 @@ const messageTables = `message m
 JOIN source_observation o ON o.id = m.latest_observation_id
 LEFT JOIN message_summary s ON s.message_id = m.id`
 
-// The list's order, newest first, which message_list_order serves. The ID
-// makes it total, so pages never repeat or skip a message.
-const listQuery = `
-SELECT ` + messageColumns + `
-FROM ` + messageTables + `
-ORDER BY m.list_date DESC, m.first_archived_at DESC, m.id DESC
-LIMIT ? OFFSET ?`
+// listOrder is the list's order, newest first, which message_list_order and
+// message_with_problems serve. The ID makes it total, so pages never repeat
+// or skip a message.
+const listOrder = "ORDER BY m.list_date DESC, m.first_archived_at DESC, m.id DESC"
+
+// withProblems matches message_with_problems' condition, so SQLite can use it.
+const withProblems = "m.processing_state IN ('processed_with_problems', 'unreadable')"
 
 // List returns page number page, counting from 1. A page past the end has no
 // items and the real total.
 func (a *Archive) List(ctx context.Context, page int) (Page, error) {
+	result, err := a.listPage(ctx, page, "1")
+	if err != nil {
+		return Page{}, fmt.Errorf("list messages: %w", err)
+	}
+	return result, nil
+}
+
+// ProblemList is List with only the messages processed with problems or that
+// couldn't be read.
+func (a *Archive) ProblemList(ctx context.Context, page int) (Page, error) {
+	result, err := a.listPage(ctx, page, withProblems)
+	if err != nil {
+		return Page{}, fmt.Errorf("list processing problems: %w", err)
+	}
+	return result, nil
+}
+
+// listPage reads one page of the messages that match where, a constant
+// condition on message m.
+func (a *Archive) listPage(ctx context.Context, page int, where string) (Page, error) {
 	if page < 1 {
-		return Page{}, fmt.Errorf("list page %d: pages count from 1", page)
+		return Page{}, fmt.Errorf("page %d: pages count from 1", page)
 	}
 	result := Page{Items: []Message{}}
 	// A page so far past the end that its offset overflows still lists nothing.
@@ -60,7 +80,12 @@ func (a *Archive) List(ctx context.Context, page int) (Page, error) {
 
 	// One read transaction, so the items and the total come from one snapshot.
 	err := sqlitedb.InTx(ctx, a.db.Reader, func(tx *sql.Tx) error {
-		rows, err := tx.QueryContext(ctx, listQuery, PageSize, offset)
+		rows, err := tx.QueryContext(ctx, `
+SELECT `+messageColumns+`
+FROM `+messageTables+`
+WHERE `+where+`
+`+listOrder+`
+LIMIT ? OFFSET ?`, PageSize, offset)
 		if err != nil {
 			return err
 		}
@@ -75,10 +100,10 @@ func (a *Archive) List(ctx context.Context, page int) (Page, error) {
 		if err := rows.Err(); err != nil {
 			return err
 		}
-		return tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM message").Scan(&result.Total)
+		return tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM message m WHERE "+where).Scan(&result.Total)
 	})
 	if err != nil {
-		return Page{}, fmt.Errorf("list messages: %w", err)
+		return Page{}, err
 	}
 	return result, nil
 }

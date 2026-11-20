@@ -391,3 +391,66 @@ func TestDeleteMessageForgetsItsFault(t *testing.T) {
 		t.Errorf("fetched UIDs %v, want 1 and 3", got)
 	}
 }
+
+// A message the in-memory server would rewrite, such as one that doesn't
+// start with a header, is served byte for byte by the double itself, also
+// after Renumber.
+func TestAddRawMessage(t *testing.T) {
+	server := newDouble(t, imaptest.ImplicitTLS)
+	bodies := map[imap.UID][]byte{
+		1: []byte("Das ist keine Kopfzeile\r\nFrom: ina@example.com\r\n\r\nText\r\n"),
+		2: faultBodies[0],
+		3: []byte("From: ben@example.test\nSubject: LF\n\nBody\n"),
+	}
+	for uid := imap.UID(1); uid <= 3; uid++ {
+		add := server.AddRawMessage
+		if uid == 2 {
+			add = server.AddMessage
+		}
+		got, err := add("INBOX", bodies[uid], faultReceived.Add(time.Duration(uid)*time.Hour))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != uid {
+			t.Fatalf("UID = %d, want %d", got, uid)
+		}
+	}
+
+	check := func(t *testing.T, bodies map[imap.UID][]byte) {
+		t.Helper()
+		client := examined(t, server, "INBOX")
+		fetched, err := client.Fetch(imap.UIDSetNum(slices.Collect(maps.Keys(bodies))...), metadata).Collect()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for uid, message := range byUID(fetched) {
+			if message.RFC822Size != int64(len(bodies[uid])) {
+				t.Errorf("UID %d RFC822.SIZE = %d, want %d", uid, message.RFC822Size, len(bodies[uid]))
+			}
+		}
+		fetched, err = client.Fetch(imap.UIDSetNum(slices.Collect(maps.Keys(bodies))...), bodyPeek).Collect()
+		if err != nil {
+			t.Fatal(err)
+		}
+		messages := byUID(fetched)
+		if len(messages) != len(bodies) {
+			t.Fatalf("fetched %d bodies, want %d", len(messages), len(bodies))
+		}
+		for uid, want := range bodies {
+			if got := messages[uid].FindBodySection(&imap.FetchItemBodySection{Peek: true}); !bytes.Equal(got, want) {
+				t.Errorf("UID %d body = %q, want %q", uid, got, want)
+			}
+		}
+	}
+	check(t, bodies)
+
+	renumbered, err := server.Renumber("INBOX")
+	if err != nil {
+		t.Fatal(err)
+	}
+	moved := map[imap.UID][]byte{}
+	for old, body := range bodies {
+		moved[renumbered[old]] = body
+	}
+	check(t, moved)
+}

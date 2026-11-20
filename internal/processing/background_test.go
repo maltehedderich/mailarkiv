@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -26,6 +27,11 @@ type processingFixture struct {
 
 func newProcessingFixture(t *testing.T) *processingFixture {
 	t.Helper()
+	return newProcessingFixtureWith(t, 2, testLimit, testWorkerCommand)
+}
+
+func newProcessingFixtureWith(t *testing.T, workers int, limit time.Duration, command func() *exec.Cmd) *processingFixture {
+	t.Helper()
 	dataDir := filepath.Join(t.TempDir(), "data")
 	if err := os.Mkdir(dataDir, 0o700); err != nil {
 		t.Fatal(err)
@@ -41,7 +47,11 @@ func newProcessingFixture(t *testing.T) *processingFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pool := newTestPool(t, 2, logger)
+	pool, err := NewPool(workers, limit, command, logger)
+	if err != nil {
+		t.Fatalf("NewPool: %v", err)
+	}
+	t.Cleanup(pool.Close)
 	return &processingFixture{
 		t: t, dataDir: dataDir, db: db, archive: a, status: status, pool: pool,
 		processor: New(a, pool, logger), log: log,

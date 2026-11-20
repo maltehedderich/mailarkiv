@@ -65,3 +65,21 @@ func TestListMessages(t *testing.T) {
 		})
 	}
 }
+
+// Contract: a row without a summary has no sender or subject, keeps its
+// latest entry, and marks its list date as the archive time, whether it waits
+// for processing or couldn't be read.
+func TestListUnreadableRow(t *testing.T) {
+	h := newHarness(t, Routes())
+	h.createAccount(t, "admin@example.test")
+	session := h.signIn(t, "admin@example.test")
+
+	broken := mail("Kaputt")
+	id := h.importMail(t, session, broken, "kaputt.eml")
+	h.recordProcessed(t, id, unreadable())
+
+	response, body := h.do(t, http.MethodGet, "/api/messages", session)
+	assertJSONResponse(t, response, body, http.StatusOK, `{"items":[`+
+		summaryLessRow("unreadable", id, broken, testTime, 1, importEntry(testTime, "admin@example.test", `"kaputt.eml"`))+
+		`],"page":1,"page_size":50,"total":1}`)
+}

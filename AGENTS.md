@@ -18,7 +18,7 @@ Read [the design guide](frontend/DESIGN.md) before you build or change a screen.
 | `mise run typecheck` | `svelte-kit sync`, `svelte-check --fail-on-warnings` | Static |
 | `mise run audit` | `govulncheck ./...`, `bun audit --ignore=GHSA-gcqx-w48m-w2h4`, `cargo audit` in `mailarkiv-search/` | Static, needs network |
 | `mise run search:test` | `cargo test --locked`, then `cargo test --locked --features faults`, in `mailarkiv-search/` | Unit, integration |
-| `mise run server:test` | Builds `bin/mailarkiv-search` and `bin/faults/mailarkiv-search` first, then `go test -race ./...`, including process-level crash, syscall, and marker tests. Needs `strace` | Unit, integration, process |
+| `mise run server:test` | Builds `bin/mailarkiv-search` and `bin/faults/mailarkiv-search` first, then `go test -race ./...`, including process-level crash, syscall, and marker tests, then `go test -run '^$' -fuzz FuzzBoundaryScanner -fuzztime 10s ./internal/mailparse`. Needs `strace` | Unit, integration, process, fuzz |
 | `mise run frontend:test` | `vitest run` | Unit |
 | `mise run test:e2e` | Builds `bin/mailarkiv` and `bin/mailarkiv-search`, and `go build` of `bin/imaptestserver`, the test IMAP server, then `playwright test` against the built binaries and that server | End to end |
 | `mise run test` | The four test tasks above | |

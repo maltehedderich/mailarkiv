@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"math"
 	"os"
 	"reflect"
 	"slices"
@@ -344,5 +345,131 @@ func TestOpenVerifiedGivesFirstArchiveTime(t *testing.T) {
 	defer original.File.Close()
 	if want := testNow.Truncate(time.Millisecond); !original.FirstArchivedAt.Equal(want) {
 		t.Errorf("FirstArchivedAt = %s, want %s", original.FirstArchivedAt, want)
+	}
+}
+
+// unreadableAt is the result for a message no worker could read.
+func unreadableAt(listDate time.Time) ProcessingResult {
+	return ProcessingResult{State: Unreadable, ListDate: listDate, Problems: []Problem{{Position: "", Kind: "took_too_long"}}}
+}
+
+// problemIDs returns the IDs on one page of the problem list, in order, and
+// the total.
+func (f *fixture) problemIDs(t *testing.T, page int) ([]int64, int) {
+	t.Helper()
+	listed, err := f.archive.ProblemList(context.Background(), page)
+	if err != nil {
+		t.Fatalf("ProblemList(%d): %v", page, err)
+	}
+	ids := make([]int64, len(listed.Items))
+	for i, item := range listed.Items {
+		ids[i] = item.ID
+	}
+	return ids, listed.Total
+}
+
+// The problem list holds the messages processed with problems or that
+// couldn't be read, in the list's order. The newest list dates belong to
+// messages it leaves out.
+func TestProblemList(t *testing.T) {
+	f := newFixture(t)
+	ids := make([]int64, 6)
+	for i := range ids {
+		ids[i] = f.importNew(t, fmt.Sprint(i))
+	}
+	f.record(t, ids[0], unreadableAt(testNow))
+	f.record(t, ids[1], readSummary(testNow))
+	f.record(t, ids[2], ProcessingResult{State: Processed, ListDate: testNow, Summary: &Summary{}})
+	f.record(t, ids[3], readSummary(testNow))
+	f.record(t, ids[5], unreadableAt(testNow))
+	dates := []struct{ listDate, firstArchived int64 }{
+		{5_000, 1_000},
+		{9_000, 1_000},  // The newest problem, so first.
+		{10_000, 1_000}, // Processed without problems.
+		{5_000, 2_000},  // The same list date as ids[0], archived later, so before it.
+		{11_000, 1_000}, // Not processed yet.
+		{3_000, 4_000},
+	}
+	for i, date := range dates {
+		f.setDates(t, ids[i], date.listDate, date.firstArchived)
+	}
+
+	got, total := f.problemIDs(t, 1)
+	want := []int64{ids[1], ids[3], ids[0], ids[5]}
+	if !slices.Equal(got, want) || total != len(want) {
+		t.Fatalf("problem list = %v with a total of %d, want %v and %d", got, total, want, len(want))
+	}
+
+	// The problem list reads rows as the message list does.
+	page, err := f.archive.ProblemList(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, err := f.archive.Rows(context.Background(), want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(page.Items, rows) {
+		t.Errorf("the problem list shows %+v, Rows %+v", page.Items, rows)
+	}
+	if unreadable := page.Items[2]; unreadable.Processing != Unreadable || unreadable.Summary != nil ||
+		!unreadable.ListDateIsArchiveTime || unreadable.Latest == nil {
+		t.Errorf("an unreadable message reads as %+v", unreadable)
+	}
+}
+
+// The problem list pages as the message list does, and counts only its own
+// rows.
+func TestProblemListPages(t *testing.T) {
+	const problems = 55
+	f := newFixture(t)
+	for i := range problems {
+		f.record(t, f.importNew(t, fmt.Sprint(i)), unreadableAt(testNow))
+	}
+	f.importNew(t, "waiting")
+	f.record(t, f.importNew(t, "read"), ProcessingResult{State: Processed, ListDate: testNow, Summary: &Summary{}})
+
+	var walked []int64
+	for page, size := range []int{50, 5, 0} {
+		ids, total := f.problemIDs(t, page+1)
+		if len(ids) != size || total != problems {
+			t.Fatalf("page %d has %d items with a total of %d, want %d and %d", page+1, len(ids), total, size, problems)
+		}
+		walked = append(walked, ids...)
+	}
+	for i := 1; i < len(walked); i++ {
+		if walked[i] >= walked[i-1] {
+			t.Fatalf("message %d follows message %d, want each ID below the one before", walked[i], walked[i-1])
+		}
+	}
+
+	if ids, total := f.problemIDs(t, math.MaxInt); len(ids) != 0 || total != problems {
+		t.Errorf("the last possible page has %d items with a total of %d, want 0 and %d", len(ids), total, problems)
+	}
+	if _, err := f.archive.ProblemList(context.Background(), 0); err == nil {
+		t.Error("page 0 gave no error")
+	}
+}
+
+func TestProcessingCounts(t *testing.T) {
+	f := newFixture(t)
+	if counts, err := f.archive.ProcessingCounts(context.Background()); err != nil || counts != (ProcessingCounts{}) {
+		t.Errorf("an empty archive counts %+v, %v; want all 0", counts, err)
+	}
+
+	ids := make([]int64, 7)
+	for i := range ids {
+		ids[i] = f.importNew(t, fmt.Sprint(i))
+	}
+	f.record(t, ids[0], unreadableAt(testNow))
+	f.record(t, ids[2], readSummary(testNow))
+	f.record(t, ids[3], ProcessingResult{State: Processed, ListDate: testNow, Summary: &Summary{}})
+	f.record(t, ids[5], readSummary(testNow))
+	f.record(t, ids[6], readSummary(testNow))
+
+	counts, err := f.archive.ProcessingCounts(context.Background())
+	want := ProcessingCounts{NotProcessed: 2, ProcessedWithProblems: 3, Unreadable: 1}
+	if err != nil || counts != want {
+		t.Errorf("ProcessingCounts = %+v, %v; want %+v", counts, err, want)
 	}
 }

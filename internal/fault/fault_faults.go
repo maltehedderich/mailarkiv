@@ -1,8 +1,8 @@
 //go:build faults
 
-// Package fault marks the points in capture, recovery, and download where tests
-// stop the process or inject an operating system error. This file is only in the
-// build that process tests make with -tags faults.
+// Package fault marks the points in capture, recovery, download, and processing
+// where tests stop the process, hang it, or inject an operating system error.
+// This file is only in the build that process tests make with -tags faults.
 package fault
 
 import (
@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"syscall"
+	"time"
 )
 
 // actions is what each point does, parsed once from MAILARKIV_FAULTS. A mistake
@@ -30,6 +31,8 @@ func parse(setting string) map[string]func() error {
 		switch action {
 		case "kill":
 			parsed[point] = kill
+		case "hang":
+			parsed[point] = hang
 		case "ENOSPC":
 			parsed[point] = returns(syscall.ENOSPC)
 		case "EACCES":
@@ -54,6 +57,15 @@ func kill() error {
 	}
 	// SIGKILL is on its way, and nothing after this point may run.
 	select {}
+}
+
+// hang blocks the caller for good, as a parse that never ends would. It sleeps
+// rather than waiting on nothing, because the runtime ends a process whose
+// goroutines all wait on nothing.
+func hang() error {
+	for {
+		time.Sleep(time.Hour)
+	}
 }
 
 // At does what MAILARKIV_FAULTS says for this point, if anything.
