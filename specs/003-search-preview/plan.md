@@ -1,6 +1,6 @@
 # Implementation Plan: Find Messages Quickly and Safely
 
-**Branch**: `003-search-preview` (not created yet) | **Date**: 2026-11-15 | **Spec**: [spec.md](spec.md)
+**Branch**: `003-search-preview` | **Date**: 2026-11-15 | **Spec**: [spec.md](spec.md)
 
 **Input**: Feature specification from `specs/003-search-preview/spec.md`
 
@@ -104,10 +104,10 @@ The commands in `AGENTS.md` stay, and they change in step 1, with `AGENTS.md` in
 
 | Command | Runs for this slice | Layer |
 | ------- | ------------------- | ----- |
-| `mise run lint` | `gofmt -l`, `go vet`, `staticcheck`, `prettier --check`, and new: `cargo fmt --check`, `cargo clippy --locked --all-targets -- -D warnings` | Static |
+| `mise run lint` | `gofmt -l`, `go vet`, `staticcheck`, `prettier --check`, and new: `cargo fmt --check`, `cargo clippy --locked --all-targets -- -D warnings`, and the same clippy run with `--features faults` | Static |
 | `mise run typecheck` | `svelte-kit sync`, `svelte-check --fail-on-warnings` | Static |
 | `mise run audit` | `govulncheck ./...`, including enmime and the pins, `bun audit --ignore=GHSA-gcqx-w48m-w2h4`, and new: `cargo audit` | Static, needs network |
-| `mise run search:test` | New. `cargo test --locked` in `mailarkiv-search/` | Unit, integration |
+| `mise run search:test` | New. `cargo test --locked`, then `cargo test --locked --features faults`, in `mailarkiv-search/` | Unit, integration |
 | `mise run server:test` | `go test -race ./...`: `mailparse`, `processing` with real workers, `search` against the real search process, `archive` and migration tests, `archtest`, and the process tests. Depends on new `search:build` and `search:build:faults`. Needs `strace` | Unit, integration, process |
 | `mise run frontend:test` | `vitest run` | Unit |
 | `mise run test:e2e` | Builds `bin/mailarkiv`, `bin/mailarkiv-search`, `bin/imaptestserver`, and new `bin/imagehost`, then `playwright test` | End to end |
@@ -115,7 +115,7 @@ The commands in `AGENTS.md` stay, and they change in step 1, with `AGENTS.md` in
 | `mise run check` | `lint`, `typecheck`, `test`, `audit`. CI gates on this | |
 | `mise run sizing` | New, outside `check`. Seeds 5,000,000 messages and measures | Performance, manual |
 
-`search:build` runs `cargo build --release --locked --target x86_64-unknown-linux-musl` and copies the result to `bin/mailarkiv-search`. `search:build:faults` builds with `--features faults` in the dev profile to `bin/faults/mailarkiv-search`, which process tests copy beside the `faults` server binary. `mise run setup` checks for `musl-gcc` and says how to install it. `.github/workflows/check.yml` installs `musl-tools` with `strace`, and caches `~/.cargo/registry` and `mailarkiv-search/target` keyed on `Cargo.lock`.
+`search:build` runs `cargo build --release --locked --target x86_64-unknown-linux-musl` and copies the result to `bin/mailarkiv-search`. `search:build:faults` builds with `--features faults` in the dev profile to `bin/faults/mailarkiv-search`, which process tests copy beside the `faults` server binary. `mise run setup` checks for `musl-gcc` and says how to install it. `.github/workflows/check.yml` installs `musl-tools` with `strace`, and caches `~/.cargo/registry` and `mailarkiv-search/target` keyed on `Cargo.lock` and `mise.lock`.
 
 This planning change adds only documents under `specs/003-search-preview/`. Per `AGENTS.md`, the check for it is a review against the constitution and of local links.
 
@@ -191,14 +191,14 @@ Each step ends in behavior that tests can check and merges to `main` with `mise 
 
 | Step | Delivers | Verified by |
 | ---- | -------- | ----------- |
-| 1. Walking skeleton | Toolchain: Rust, `cargo-audit`, `musl-tools` in CI, the new tasks and lint, audit, and test commands, and `AGENTS.md`. Migration 0003 with every column and table. `mailparse` reading From, Subject, Date, and the text body. `processing` with the background pool and the worker. Rows with sender, subject, and list date in the new order. `mailarkiv-search` with `hello`, `open`, `index`, and `search` for words with prefixes. The `search` supervisor without backoff, the indexer with its cursor and delete before add, and an automatic first build. `POST /api/search` and a words field. ADR 0007 amended, ADR 0009, the ARCHITECTURE lines | User Story 1 scenarios 1, 2, 9. `TestMigrateSlice2Catalog`. Risks 4, 17, 18 |
-| 2. Processing | The boundary scanner and every bound, worker limits and the retry after a death, problem kinds, all four states, the list date rule, the malformed set, `GET /api/processing-problems` and its page, and rows for each state | User Story 3 scenarios 1 to 6, 9, 10. SC-003. Risks 3, 7, 13, 16 |
-| 3. Search | Every filter, addresses and domains, one-character words, accents, the date range, Has attachments, totals, `not_included`, the page cap, `full_list`, the 10 s deadline, and Back to results | User Story 1. SC-001, SC-010. Risks 8, 14, 15, 21 |
+| 1. Walking skeleton | Toolchain: Rust, `cargo-audit`, `musl-tools` in CI, the new tasks and lint, audit, and test commands, and `AGENTS.md`. Migration 0003 with every column and table, and the list order through `message_list_order`. `mailparse` reading everything processing stores, because processing runs once per message: From, Subject, Date, recipients, attachments, and both bodies, the list date rule, `has_attachments` with the embedded image rule, enmime's problem kinds, and the body cut at 2,000,000 bytes. `processing` with the background pool and the worker, which take the original and answer attachments as raw bytes after a frame. Rows with sender, subject, and list date in the new order. `mailarkiv-search` with `hello`, `open`, `index`, and `search` for words with prefixes, and complete index documents. The `search` supervisor with its restart wait from 1 to 60 s, the indexer with its cursor, delete before add, and the same wait before a failed batch is sent again, and an automatic first build. Four failure categories in `opstatus` and the client: `search_process_stopped`, `search_process_did_not_start`, `search_process_did_not_answer`, and `index_write_failed`. `POST /api/search` and a words field. ADR 0007 amended, ADR 0009, the ARCHITECTURE lines | User Story 1 scenarios 1, 2, 9. `TestMigrateSlice2Catalog`. Risks 4, 17, 18 |
+| 2. Processing | The boundary scanner and the bounds it reports, worker limits and the retry after a death, the Go fault action `hang` for hung workers, the malformed set, `GET /api/processing-problems` and its page, rows for each state, and ADR 0003 | User Story 3 scenarios 1 to 6, 9, 10. SC-003. Risks 3, 7, 13, 16 |
+| 3. Search | Every filter, addresses and domains, one-character words, accents, the date range, Has attachments, totals, `not_included`, the page cap, `full_list`, the 10 s deadline, and Back to results. The fixed set lives in `internal/web/testdata/searchset/` | User Story 1. SC-001, SC-010. Risks 8, 14, 15, 21 |
 | 4. Message view | `content`, `text`, `html`, and attachment routes, the interactive pool, the rewrite, embedded and remote images, attachment names, the image host, and the hostile and image sets | User Story 2. SC-002, SC-013. Risks 1, 12, 22 |
-| 5. Index reliability | Backoff and the crash window, Needs rebuild and its row, maintenance by request, the disk pause, rebuild with resume and swap, `POST /api/search/rebuild`, and both crash matrices | User Story 3 scenarios 7, 8, User Story 5. SC-005 to SC-008. Risks 6, 9, 10, 11 |
+| 5. Index reliability | The crash window, Needs rebuild and its row, maintenance by request, the disk pause, rebuild with resume and swap, `POST /api/search/rebuild`, both crash matrices, and the other four failure categories | User Story 3 scenarios 7, 8, User Story 5. SC-005 to SC-008. Risks 6, 9, 10, 11 |
 | 6. Visibility | The status screen's search and processing section, the eight categories with repeats, the problem count, the log lines, and the marker test across the log, status, and addresses | User Story 6. SC-009. Risk 5 |
 | 7. Access and interface completion | Frame and direct request tests for the new routes, `TestSearchProcessHasNoAddress`, keyboard, 360 px, axe, and the design guide | User Story 4. SC-004, SC-012. Risks 2, 20 |
-| 8. Sizing and release | The sizing tool and its run, the results page, the operator guide, ADR 0003, and the README | User Story 7. SC-011. Risk 19 |
+| 8. Sizing and release | The sizing tool, which seeds the fixed set with its generated mail, and its run, the results page, the operator guide, and the README | User Story 7. SC-011. Risk 19 |
 
 `TestSearchProcessHasNoAddress` checks that the search process's open file descriptors include no socket, which is how User Story 4 scenario 5 holds: there is no address for another account to connect to.
 
@@ -208,7 +208,7 @@ Each step ends in behavior that tests can check and merges to `main` with `mise 
 | -------- | ------ | ---- |
 | `docs/adr/0007` | Tantivy 0.27.0 with corrected release dates, no advisory and no exception, pipes instead of a socket, a second file beside the server, `NoMergePolicy` with maintenance by request, and the finding that automatic merges retry after each commit | Step 1 |
 | `docs/adr/0009` (new) | Untrusted mail is parsed in worker processes of the server binary: why, the two pools, the 60 s kill, and what a worker may do | Step 1 |
-| `docs/ARCHITECTURE.md` | Search index rules: pipes instead of a socket, maintenance by request. The technology table names 0.27.0. The `go.mod` line: `x/net` and `x/text` arrive with this slice at the pinned versions. The link to `docs/research/search-benchmark/README.md` points to a file that isn't in the repository; restore the file or change the link | Step 1 |
+| `docs/ARCHITECTURE.md` | Search index rules: pipes instead of a socket, maintenance by request. The technology table names 0.27.0. The `go.mod` line: `x/net` and `x/text` arrive with this slice at the pinned versions. The link to `docs/research/search-benchmark/README.md` points to a file that commit `696b3a0` removed on purpose, so it and ADR 0007's link point to that file at commit `f61d6a1` | Step 1 |
 | `AGENTS.md` | The required checks table: Rust lint and audit, `search:test`, the helper builds that `server:test` and `test:e2e` need, and `musl-gcc` | Step 1 |
 | `mise.toml`, `.github/workflows/check.yml` | Tools, tasks, `musl-tools`, and cargo caches. `dev:server` builds `bin/mailarkiv` instead of `go run`, so the search program is beside it | Step 1 |
 | `frontend/DESIGN.md` | Rows with sender, building on the uncommitted sender rule, in step 1. State marks and the problem list in step 2. The search form and results header in step 3. The message view, preview frame, image notice, and attachment list in step 4. The status section and rebuild confirmation in step 6 | Steps 1 to 4 and 6 |
