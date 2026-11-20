@@ -552,3 +552,43 @@ func TestDecideOutcome(t *testing.T) {
 		})
 	}
 }
+
+// assertArchiveTimes checks the columns capture sets on a message: both
+// times at, and waiting to be processed.
+func (f *fixture) assertArchiveTimes(t *testing.T, messageID int64, at time.Time) {
+	t.Helper()
+	var firstArchived, listDate int64
+	var state string
+	var seq sql.NullInt64
+	err := f.db.Reader.QueryRow(
+		"SELECT first_archived_at, list_date, processing_state, processed_seq FROM message WHERE id = ?",
+		messageID).Scan(&firstArchived, &listDate, &state, &seq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := at.UnixMilli()
+	if firstArchived != want || listDate != want || state != "not_processed" || seq.Valid {
+		t.Errorf("message %d: first_archived_at %d, list_date %d, %s, processed_seq %v; want %d, %d, not_processed, NULL",
+			messageID, firstArchived, listDate, state, seq, want, want)
+	}
+}
+
+// Until processing reads a message, it is dated by its first entry. Importing
+// the same bytes later adds an entry and changes neither time.
+func TestImportSetsTheFirstArchiveTime(t *testing.T) {
+	f := newFixture(t)
+	body := []byte("Subject: Dated\r\n\r\nBody\r\n")
+
+	stored, ok := f.importBytes(t, body, name("first.eml")).(Stored)
+	if !ok || stored.Outcome != Archived {
+		t.Fatalf("first import = %#v, want Stored with Archived", stored)
+	}
+	f.assertArchiveTimes(t, stored.Message.ID, testNow)
+
+	f.archive.now = func() time.Time { return testNow.Add(time.Hour) }
+	again, ok := f.importBytes(t, body, name("again.eml")).(Stored)
+	if !ok || again.Outcome != AlreadyArchived || again.Message.ID != stored.Message.ID {
+		t.Fatalf("second import = %#v, want Stored with AlreadyArchived for message %d", again, stored.Message.ID)
+	}
+	f.assertArchiveTimes(t, stored.Message.ID, testNow)
+}

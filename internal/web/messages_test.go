@@ -7,9 +7,10 @@ import (
 	"testing"
 )
 
-// Contract: GET /api/messages lists the most recent entry first. page starts
-// at 1 and defaults to 1, anything else is 400 bad_page, and a page past the
-// end has no items and the real total.
+// Contract: GET /api/messages lists messages by list date, then first archive
+// time, then ID, all newest first. page starts at 1 and defaults to 1,
+// anything else is 400 bad_page, and a page past the end has no items and the
+// real total.
 func TestListMessages(t *testing.T) {
 	h := newHarness(t, Routes())
 	h.createAccount(t, "admin@example.test")
@@ -24,7 +25,7 @@ func TestListMessages(t *testing.T) {
 	}{
 		{older, "older.eml"},
 		{newer, "newer.eml"},
-		// Importing the older bytes again makes them the most recent import.
+		// Importing the older bytes again adds an entry and doesn't move them.
 		{older, "older-again.eml"},
 	} {
 		response, body := h.send(t, http.MethodPost, "/api/imports", bytes.NewReader(step.content), both(session, withFileName(step.name)))
@@ -34,14 +35,16 @@ func TestListMessages(t *testing.T) {
 		ids[string(step.content)] = messageID(t, body)
 	}
 
+	// The test clock gives every capture the same time, so the newer
+	// message's higher ID puts it first.
 	firstPage := fmt.Sprintf(`{"items":[
-		{"id":%d,"content_hash":%q,"size":%d,"observation_count":2,
-		 "latest":{"source_type":"manual_import","observed_at":%q,"account_email":"admin@example.test","file_name":"older-again.eml"}},
 		{"id":%d,"content_hash":%q,"size":%d,"observation_count":1,
-		 "latest":{"source_type":"manual_import","observed_at":%q,"account_email":"admin@example.test","file_name":"newer.eml"}}
+		 "latest":{"source_type":"manual_import","observed_at":%q,"account_email":"admin@example.test","file_name":"newer.eml"}},
+		{"id":%d,"content_hash":%q,"size":%d,"observation_count":2,
+		 "latest":{"source_type":"manual_import","observed_at":%q,"account_email":"admin@example.test","file_name":"older-again.eml"}}
 	],"page":1,"page_size":50,"total":2}`,
-		ids[string(older)], hashOf(older), len(older), testTime,
-		ids[string(newer)], hashOf(newer), len(newer), testTime)
+		ids[string(newer)], hashOf(newer), len(newer), testTime,
+		ids[string(older)], hashOf(older), len(older), testTime)
 
 	for _, tt := range []struct {
 		name   string
