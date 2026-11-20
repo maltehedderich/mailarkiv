@@ -65,6 +65,10 @@ func TestCategoryNames(t *testing.T) {
 		{TempFileNotRemoved, "temp_file_not_removed"},
 		{MessageTooLarge, "message_too_large"},
 		{MessageRemoved, "message_removed"},
+		{SearchProcessStopped, "search_process_stopped"},
+		{SearchProcessDidNotStart, "search_process_did_not_start"},
+		{SearchProcessDidNotAnswer, "search_process_did_not_answer"},
+		{IndexWriteFailed, "index_write_failed"},
 	}
 	for _, tt := range tests {
 		if got := tt.category.String(); got != tt.want {
@@ -104,7 +108,11 @@ func TestEntitiesHoldOnlyTheAllowedFields(t *testing.T) {
 		},
 		{
 			reflect.TypeFor[FailureEvent](),
-			[]string{"At", "Category", "ContentHash", "MessageID", "Restored", "SourceID"},
+			[]string{"At", "Category", "ContentHash", "Detail", "MessageID", "Restored", "SourceID"},
+		},
+		{
+			reflect.TypeFor[Detail](),
+			[]string{"Cause", "ExitStatus", "FirstMessageID", "GenerationID", "LastMessageID", "Operation", "Signal"},
 		},
 	}
 	for _, tt := range tests {
@@ -262,6 +270,118 @@ func TestFailureIsListedAndLogged(t *testing.T) {
 				t.Error("log line has no time")
 			}
 		})
+	}
+}
+
+// Search failures log as "search failure" with their detail, at error level,
+// and count as problems.
+func TestSearchFailureIsListedAndLogged(t *testing.T) {
+	tests := []struct {
+		name    string
+		event   FailureEvent
+		wantLog map[string]any
+	}{
+		{
+			name:    "stopped by a signal",
+			event:   FailureEvent{Category: SearchProcessStopped, Detail: &Detail{Signal: pointer(9)}},
+			wantLog: map[string]any{"category": "search_process_stopped", "signal": float64(9)},
+		},
+		{
+			name:    "stopped with a status",
+			event:   FailureEvent{Category: SearchProcessStopped, Detail: &Detail{ExitStatus: pointer(3)}},
+			wantLog: map[string]any{"category": "search_process_stopped", "exit_status": float64(3)},
+		},
+		{
+			name:    "did not start",
+			event:   FailureEvent{Category: SearchProcessDidNotStart, Detail: &Detail{Cause: CauseMissing}},
+			wantLog: map[string]any{"category": "search_process_did_not_start", "cause": "missing"},
+		},
+		{
+			name:    "did not answer",
+			event:   FailureEvent{Category: SearchProcessDidNotAnswer, Detail: &Detail{Operation: OperationSearch}},
+			wantLog: map[string]any{"category": "search_process_did_not_answer", "operation": "search"},
+		},
+		{
+			name: "index write failed",
+			event: FailureEvent{Category: IndexWriteFailed, Detail: &Detail{
+				GenerationID: pointer(int64(3)), FirstMessageID: pointer(int64(17)), LastMessageID: pointer(int64(40)),
+				Cause: CausePermissionDenied,
+			}},
+			wantLog: map[string]any{
+				"category": "index_write_failed", "generation_id": float64(3),
+				"first_message_id": float64(17), "last_message_id": float64(40), "cause": "permission_denied",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture(t)
+			f.status.RecordFailure(tt.event)
+
+			if got := f.status.ProblemCount(); got != 1 {
+				t.Errorf("count = %d, want 1", got)
+			}
+			listed := tt.event
+			listed.At = startTime
+			if failures := f.status.Snapshot().Failures; len(failures) != 1 || !reflect.DeepEqual(failures[0], listed) {
+				t.Errorf("listed %+v, want %+v", failures, listed)
+			}
+			entries := f.logEntries(t)
+			if len(entries) != 1 {
+				t.Fatalf("wrote %d log lines, want 1", len(entries))
+			}
+			want := map[string]any{"level": "ERROR", "msg": "search failure"}
+			for key, value := range tt.wantLog {
+				want[key] = value
+			}
+			for key := range entries[0] {
+				if key == "time" {
+					continue
+				}
+				if _, expected := want[key]; !expected {
+					t.Errorf("log holds %s = %v, want it absent", key, entries[0][key])
+				}
+			}
+			for key, value := range want {
+				if entries[0][key] != value {
+					t.Errorf("log %s = %v, want %v", key, entries[0][key], value)
+				}
+			}
+		})
+	}
+}
+
+// The causes and operations in a detail are closed sets, so a detail can't
+// carry text from mail.
+func TestDetailWords(t *testing.T) {
+	tests := []struct {
+		got  fmt.Stringer
+		want string
+	}{
+		{CauseMissing, "missing"},
+		{CauseNotExecutable, "not_executable"},
+		{CauseBadHello, "bad_hello"},
+		{CauseNoSpace, "no_space"},
+		{CausePermissionDenied, "permission_denied"},
+		{CauseOther, "other"},
+		{OperationOpen, "open"},
+		{OperationIndex, "index"},
+		{OperationSearch, "search"},
+		{OperationMaintain, "maintain"},
+		{OperationClose, "close"},
+		{OperationSize, "size"},
+	}
+	for _, tt := range tests {
+		if tt.got.String() != tt.want {
+			t.Errorf("String() = %q, want %q", tt.got.String(), tt.want)
+		}
+	}
+	for _, closed := range []reflect.Type{reflect.TypeFor[Cause](), reflect.TypeFor[Operation]()} {
+		for field := range closed.Fields() {
+			if field.IsExported() {
+				t.Errorf("%s exports the field %s", closed.Name(), field.Name)
+			}
+		}
 	}
 }
 
