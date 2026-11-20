@@ -1,6 +1,6 @@
 # ADR 0001: Use embedded Bleve for search
 
-**Status:** Superseded by [ADR 0007](0007-tantivy-search-process.md) on 2026-11-06, after the benchmark in [docs/research/search-benchmark](../research/search-benchmark/)
+**Status:** Superseded by [ADR 0007](0007-tantivy-search-process.md) on 2026-11-06, after [the benchmark](https://github.com/maltehedderich/mailarkiv/blob/f61d6a1/docs/research/search-benchmark/README.md)
 
 ## Context
 
