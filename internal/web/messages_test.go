@@ -2,7 +2,6 @@ package web
 
 import (
 	"bytes"
-	"fmt"
 	"net/http"
 	"testing"
 )
@@ -37,14 +36,10 @@ func TestListMessages(t *testing.T) {
 
 	// The test clock gives every capture the same time, so the newer
 	// message's higher ID puts it first.
-	firstPage := fmt.Sprintf(`{"items":[
-		{"id":%d,"content_hash":%q,"size":%d,"observation_count":1,
-		 "latest":{"source_type":"manual_import","observed_at":%q,"account_email":"admin@example.test","file_name":"newer.eml"}},
-		{"id":%d,"content_hash":%q,"size":%d,"observation_count":2,
-		 "latest":{"source_type":"manual_import","observed_at":%q,"account_email":"admin@example.test","file_name":"older-again.eml"}}
-	],"page":1,"page_size":50,"total":2}`,
-		ids[string(newer)], hashOf(newer), len(newer), testTime,
-		ids[string(older)], hashOf(older), len(older), testTime)
+	firstPage := `{"items":[` +
+		notProcessedRow(ids[string(newer)], newer, testTime, 1, importEntry(testTime, "admin@example.test", `"newer.eml"`)) + "," +
+		notProcessedRow(ids[string(older)], older, testTime, 2, importEntry(testTime, "admin@example.test", `"older-again.eml"`)) +
+		`],"page":1,"page_size":50,"total":2}`
 
 	for _, tt := range []struct {
 		name   string

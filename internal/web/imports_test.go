@@ -27,9 +27,8 @@ const testTime = "2026-11-06T15:50:52.123Z"
 // storedJSON is an import's answer from admin@example.test. fileName is JSON:
 // a quoted name or null.
 func storedJSON(outcome string, id int64, content []byte, fileName string, observationCount int) string {
-	return fmt.Sprintf(`{"outcome":%q,"message":{"id":%d,"content_hash":%q,"size":%d,"observation_count":%d,`+
-		`"latest":{"source_type":"manual_import","observed_at":%q,"account_email":"admin@example.test","file_name":%s}}}`,
-		outcome, id, hashOf(content), len(content), observationCount, testTime, fileName)
+	return fmt.Sprintf(`{"outcome":%q,"message":%s}`, outcome,
+		notProcessedRow(id, content, testTime, observationCount, importEntry(testTime, "admin@example.test", fileName)))
 }
 
 // messageID reads the ID from an import's answer.
