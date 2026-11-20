@@ -1,0 +1,297 @@
+package archive
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/maltehedderich/mailarkiv/internal/sqlitedb"
+)
+
+// ProcessingState is where processing stands with a message. A message
+// moves from NotProcessed to one of the others once.
+type ProcessingState struct{ name string }
+
+var (
+	NotProcessed          = ProcessingState{"not_processed"}
+	Processed             = ProcessingState{"processed"}
+	ProcessedWithProblems = ProcessingState{"processed_with_problems"}
+	Unreadable            = ProcessingState{"unreadable"}
+)
+
+// String returns the state's name, which the API shares.
+func (s ProcessingState) String() string { return s.name }
+
+func parseProcessingState(name string) (ProcessingState, error) {
+	for _, state := range []ProcessingState{NotProcessed, Processed, ProcessedWithProblems, Unreadable} {
+		if state.name == name {
+			return state, nil
+		}
+	}
+	return ProcessingState{}, fmt.Errorf("a message has the unknown processing state %q", name)
+}
+
+// Summary is what a row shows of a message that processing read. The values
+// arrive cut to the catalog's lengths.
+type Summary struct {
+	SenderName    *string
+	SenderAddress *string
+	MoreSenders   int
+	Subject       *string
+	DateHeader    *string
+	// DateReason is nil when the list date is the Date header's time, and
+	// otherwise "missing", "unreadable", or "ahead".
+	DateReason     *string
+	HasAttachments bool
+}
+
+// Problem is one kind of problem in one part of a message.
+type Problem struct {
+	// Position is the part number, or "" for the whole message.
+	Position     string
+	DeclaredType *string
+	Kind         string
+}
+
+// ProcessingResult is what processing found in one message.
+type ProcessingResult struct {
+	State    ProcessingState
+	ListDate time.Time
+	// Summary is nil for an Unreadable message.
+	Summary  *Summary
+	Problems []Problem
+}
+
+// ProcessedMessage is a message the indexer reads after its cursor.
+type ProcessedMessage struct {
+	ID              int64
+	Seq             int64
+	State           ProcessingState
+	FirstArchivedAt time.Time
+	ListDate        time.Time
+	// Summary is nil for an Unreadable message.
+	Summary *Summary
+}
+
+// RecordProcessed stores processing's result for a message that is not
+// processed yet, with the next processed_seq, in one transaction. It reports
+// false and changes nothing when the message already has a result.
+func (a *Archive) RecordProcessed(ctx context.Context, messageID int64, result ProcessingResult) (bool, error) {
+	if result.State == NotProcessed || result.State == (ProcessingState{}) {
+		return false, fmt.Errorf("record message %d: %q isn't a result", messageID, result.State.name)
+	}
+	if (result.State == Unreadable) != (result.Summary == nil) {
+		return false, fmt.Errorf("record message %d: only an unreadable message has no summary", messageID)
+	}
+	changed := false
+	err := sqlitedb.InTx(ctx, a.db.Writer, func(tx *sql.Tx) error {
+		// The catalog has one writer, so the highest value plus 1 leaves no gaps.
+		updated, err := tx.ExecContext(ctx, `
+UPDATE message
+SET processing_state = ?, list_date = ?,
+    processed_seq = (SELECT COALESCE(MAX(processed_seq), 0) + 1 FROM message)
+WHERE id = ? AND processing_state = 'not_processed'`,
+			result.State.name, result.ListDate.UnixMilli(), messageID)
+		if err != nil {
+			return err
+		}
+		if n, err := updated.RowsAffected(); err != nil || n == 0 {
+			return err
+		}
+		changed = true
+		if s := result.Summary; s != nil {
+			_, err := tx.ExecContext(ctx, `
+INSERT INTO message_summary
+    (message_id, sender_name, sender_address, more_senders, subject, date_header, date_reason, has_attachments)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+				messageID, nullable(s.SenderName), nullable(s.SenderAddress), s.MoreSenders,
+				nullable(s.Subject), nullable(s.DateHeader), nullable(s.DateReason), s.HasAttachments)
+			if err != nil {
+				return err
+			}
+		}
+		for _, problem := range result.Problems {
+			_, err := tx.ExecContext(ctx,
+				"INSERT INTO message_problem (message_id, position, declared_type, kind) VALUES (?, ?, ?, ?)",
+				messageID, problem.Position, nullable(problem.DeclaredType), problem.Kind)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return false, fmt.Errorf("record message %d's processing: %w", messageID, err)
+	}
+	return changed, nil
+}
+
+// NotProcessed returns up to limit IDs of messages not processed yet, newest
+// capture first, leaving out the IDs in skip.
+func (a *Archive) NotProcessed(ctx context.Context, limit int, skip map[int64]bool) ([]int64, error) {
+	rows, err := a.db.Reader.QueryContext(ctx,
+		"SELECT id FROM message WHERE processing_state = 'not_processed' ORDER BY id DESC LIMIT ?",
+		limit+len(skip))
+	if err != nil {
+		return nil, fmt.Errorf("list messages not processed: %w", err)
+	}
+	defer rows.Close()
+	var ids []int64
+	for rows.Next() && len(ids) < limit {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("list messages not processed: %w", err)
+		}
+		if !skip[id] {
+			ids = append(ids, id)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list messages not processed: %w", err)
+	}
+	return ids, nil
+}
+
+// CountNotProcessed counts the messages that have no processing result yet.
+func (a *Archive) CountNotProcessed(ctx context.Context) (int, error) {
+	var count int
+	err := a.db.Reader.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM message WHERE processing_state = 'not_processed'").Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count messages not processed: %w", err)
+	}
+	return count, nil
+}
+
+// HighestProcessedSeq returns the highest processed_seq, or 0 when no message
+// is processed.
+func (a *Archive) HighestProcessedSeq(ctx context.Context) (int64, error) {
+	var highest int64
+	err := a.db.Reader.QueryRowContext(ctx, "SELECT COALESCE(MAX(processed_seq), 0) FROM message").Scan(&highest)
+	if err != nil {
+		return 0, fmt.Errorf("read the highest processed_seq: %w", err)
+	}
+	return highest, nil
+}
+
+// summaryColumns are the columns of message_summary s that summaryRow scans.
+const summaryColumns = `s.message_id IS NOT NULL, s.sender_name, s.sender_address, s.more_senders,
+       s.subject, s.date_header, s.date_reason, s.has_attachments`
+
+// ProcessedAfter returns up to limit messages whose processed_seq is above
+// cursor, in processed_seq order.
+func (a *Archive) ProcessedAfter(ctx context.Context, cursor int64, limit int) ([]ProcessedMessage, error) {
+	rows, err := a.db.Reader.QueryContext(ctx, `
+SELECT m.id, m.processed_seq, m.processing_state, m.first_archived_at, m.list_date, `+summaryColumns+`
+FROM message m
+LEFT JOIN message_summary s ON s.message_id = m.id
+WHERE m.processed_seq > ?
+ORDER BY m.processed_seq
+LIMIT ?`, cursor, limit)
+	if err != nil {
+		return nil, fmt.Errorf("read messages processed after %d: %w", cursor, err)
+	}
+	defer rows.Close()
+	var messages []ProcessedMessage
+	for rows.Next() {
+		var message ProcessedMessage
+		var state string
+		var firstArchived, listDate int64
+		var summary summaryRow
+		targets := append([]any{&message.ID, &message.Seq, &state, &firstArchived, &listDate}, summary.targets()...)
+		if err := rows.Scan(targets...); err != nil {
+			return nil, fmt.Errorf("read messages processed after %d: %w", cursor, err)
+		}
+		if message.State, err = parseProcessingState(state); err != nil {
+			return nil, err
+		}
+		message.FirstArchivedAt = time.UnixMilli(firstArchived).UTC()
+		message.ListDate = time.UnixMilli(listDate).UTC()
+		message.Summary = summary.summary()
+		messages = append(messages, message)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read messages processed after %d: %w", cursor, err)
+	}
+	return messages, nil
+}
+
+// Rows returns the list rows for ids, in the order given. An ID with no
+// message is left out.
+func (a *Archive) Rows(ctx context.Context, ids []int64) ([]Message, error) {
+	messages := make([]Message, 0, len(ids))
+	err := sqlitedb.InTx(ctx, a.db.Reader, func(tx *sql.Tx) error {
+		for _, id := range ids {
+			message, err := readMessage(ctx, tx, id)
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			messages = append(messages, message)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("read rows: %w", err)
+	}
+	return messages, nil
+}
+
+// summaryRow holds summaryColumns as scanned.
+type summaryRow struct {
+	present        bool
+	senderName     sql.NullString
+	senderAddress  sql.NullString
+	moreSenders    sql.NullInt64
+	subject        sql.NullString
+	dateHeader     sql.NullString
+	dateReason     sql.NullString
+	hasAttachments sql.NullBool
+}
+
+func (r *summaryRow) targets() []any {
+	return []any{&r.present, &r.senderName, &r.senderAddress, &r.moreSenders,
+		&r.subject, &r.dateHeader, &r.dateReason, &r.hasAttachments}
+}
+
+func (r *summaryRow) summary() *Summary {
+	if !r.present {
+		return nil
+	}
+	return &Summary{
+		SenderName:     stringOrNil(r.senderName),
+		SenderAddress:  stringOrNil(r.senderAddress),
+		MoreSenders:    int(r.moreSenders.Int64),
+		Subject:        stringOrNil(r.subject),
+		DateHeader:     stringOrNil(r.dateHeader),
+		DateReason:     stringOrNil(r.dateReason),
+		HasAttachments: r.hasAttachments.Bool,
+	}
+}
+
+func stringOrNil(s sql.NullString) *string {
+	if !s.Valid {
+		return nil
+	}
+	return &s.String
+}
+
+// signal wakes whoever waits on c without ever blocking the sender. A
+// waiting signal stands for any number of sends.
+func signal(c chan struct{}) {
+	select {
+	case c <- struct{}{}:
+	default:
+	}
+}
+
+// CaptureSignal fires after a commit that adds a message.
+func (a *Archive) CaptureSignal() <-chan struct{} { return a.captured }
+
+// RestoreSignal fires after a capture that restores a missing or damaged
+// original.
+func (a *Archive) RestoreSignal() <-chan struct{} { return a.restored }
