@@ -319,9 +319,12 @@ func (a *Archive) commit(ctx context.Context, contentHash string, size int64,
 	var rowAtCommit bool
 
 	err := sqlitedb.InTx(ctx, a.db.Writer, func(tx *sql.Tx) error {
+		// A message is dated by its first entry until processing reads it. A
+		// message captured again keeps both times.
 		inserted, err := tx.ExecContext(ctx,
-			"INSERT INTO message (content_hash, size) VALUES (?, ?) ON CONFLICT (content_hash) DO NOTHING",
-			contentHash, size)
+			`INSERT INTO message (content_hash, size, first_archived_at, list_date, processing_state)
+			 VALUES (?, ?, ?, ?, 'not_processed') ON CONFLICT (content_hash) DO NOTHING`,
+			contentHash, size, observedAt, observedAt)
 		if err != nil {
 			return err
 		}
