@@ -30,10 +30,20 @@ var allowedImports = map[string][]string{
 		"internal/identity",
 		"internal/opstatus",
 		"internal/passwordkey",
+		"internal/processing",
+		"internal/search",
 		"internal/sqlitedb",
 		"internal/web",
 	},
-	"internal/web":     {"internal/archive", "internal/collect", "internal/identity", "internal/opstatus", "internal/fault"},
+	"internal/web": {
+		"internal/archive",
+		"internal/collect",
+		"internal/identity",
+		"internal/opstatus",
+		"internal/fault",
+		"internal/processing",
+		"internal/search",
+	},
 	"internal/archive": {"internal/opstatus", "internal/sqlitedb", "internal/fault"},
 	"internal/collect": {
 		"internal/archive",
@@ -42,6 +52,16 @@ var allowedImports = map[string][]string{
 		"internal/fault",
 		"internal/passwordkey",
 	},
+	"internal/processing": {"internal/archive", "internal/mailparse", "internal/fault"},
+	"internal/search": {
+		"internal/archive",
+		"internal/processing",
+		"internal/opstatus",
+		"internal/sqlitedb",
+		"internal/fault",
+	},
+	// Reads untrusted bytes, so it imports no other module.
+	"internal/mailparse":   {},
 	"internal/identity":    {"internal/sqlitedb"},
 	"internal/opstatus":    {},
 	"internal/sqlitedb":    {},
@@ -51,6 +71,17 @@ var allowedImports = map[string][]string{
 	// internal/imaptest/cmd/ may import it.
 	"internal/imaptest":                    {},
 	"internal/imaptest/cmd/imaptestserver": {"internal/imaptest"},
+	// The image host double, under the same rule as the IMAP one.
+	"internal/imagetest":               {},
+	"internal/imagetest/cmd/imagehost": {"internal/imagetest"},
+	// The sizing tool, which nothing imports.
+	"internal/sizing/cmd/sizing": {
+		"internal/archive",
+		"internal/processing",
+		"internal/search",
+		"internal/opstatus",
+		"internal/sqlitedb",
+	},
 }
 
 // Each table has one owning module; only that module may write to it.
@@ -65,6 +96,11 @@ var tableOwners = map[string]string{
 	"imap_source":             "internal/collect",
 	"imap_folder":             "internal/collect",
 	"imap_message_problem":    "internal/collect",
+	"message_summary":         "internal/archive",
+	"message_problem":         "internal/archive",
+	"search_generation":       "internal/search",
+	"search_rebuild":          "internal/search",
+	"search_needs_rebuild":    "internal/search",
 }
 
 // tableWrite finds the table a SQL write names. It ignores case, so a stray
@@ -156,7 +192,7 @@ func TestModuleRules(t *testing.T) {
 	for _, module := range []string{
 		"cmd/mailarkiv", "internal/web", "internal/sqlitedb", "internal/opstatus",
 		"internal/collect", "internal/passwordkey", "internal/imaptest",
-		"internal/imaptest/cmd/imaptestserver",
+		"internal/imaptest/cmd/imaptestserver", "internal/processing",
 	} {
 		if !visited[module] {
 			t.Errorf("the walk didn't reach %s, only %v", module, visited)
@@ -221,6 +257,35 @@ func TestCheckerCatchesEachImportRule(t *testing.T) {
 		{"internal/imaptest", "internal/collect"},
 		{"internal/imaptest", "internal/archive"},
 		{"internal/imaptest", "internal/passwordkey"},
+		{"internal/mailparse", "internal/archive"},
+		{"internal/mailparse", "internal/fault"},
+		{"internal/mailparse", "internal/processing"},
+		{"internal/mailparse", "internal/sqlitedb"},
+		{"internal/processing", "internal/search"},
+		{"internal/processing", "internal/sqlitedb"},
+		{"internal/processing", "internal/opstatus"},
+		{"internal/processing", "internal/web"},
+		{"internal/search", "internal/web"},
+		{"internal/search", "internal/mailparse"},
+		{"internal/search", "internal/collect"},
+		{"internal/search", "internal/identity"},
+		{"internal/archive", "internal/processing"},
+		{"internal/archive", "internal/search"},
+		{"internal/archive", "internal/mailparse"},
+		{"internal/collect", "internal/processing"},
+		{"internal/collect", "internal/search"},
+		{"internal/web", "internal/mailparse"},
+		{"internal/web", "internal/imagetest"},
+		{"internal/web", "internal/sizing/cmd/sizing"},
+		{"cmd/mailarkiv", "internal/mailparse"},
+		{"cmd/mailarkiv", "internal/imagetest"},
+		{"cmd/mailarkiv", "internal/sizing/cmd/sizing"},
+		{"internal/imagetest", "internal/archive"},
+		{"internal/imagetest", "internal/web"},
+		{"internal/imagetest/cmd/imagehost", "internal/archive"},
+		{"internal/sizing/cmd/sizing", "internal/web"},
+		{"internal/sizing/cmd/sizing", "internal/mailparse"},
+		{"internal/sizing/cmd/sizing", "internal/imagetest"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.module+" imports "+tt.target, func(t *testing.T) {
@@ -269,6 +334,24 @@ func TestCheckerAllowsTheDeclaredImports(t *testing.T) {
 		{"internal/collect", "internal/fault"},
 		{"internal/collect", "internal/passwordkey"},
 		{"internal/imaptest/cmd/imaptestserver", "internal/imaptest"},
+		{"cmd/mailarkiv", "internal/processing"},
+		{"cmd/mailarkiv", "internal/search"},
+		{"internal/web", "internal/processing"},
+		{"internal/web", "internal/search"},
+		{"internal/processing", "internal/archive"},
+		{"internal/processing", "internal/mailparse"},
+		{"internal/processing", "internal/fault"},
+		{"internal/search", "internal/archive"},
+		{"internal/search", "internal/processing"},
+		{"internal/search", "internal/opstatus"},
+		{"internal/search", "internal/sqlitedb"},
+		{"internal/search", "internal/fault"},
+		{"internal/imagetest/cmd/imagehost", "internal/imagetest"},
+		{"internal/sizing/cmd/sizing", "internal/archive"},
+		{"internal/sizing/cmd/sizing", "internal/processing"},
+		{"internal/sizing/cmd/sizing", "internal/search"},
+		{"internal/sizing/cmd/sizing", "internal/opstatus"},
+		{"internal/sizing/cmd/sizing", "internal/sqlitedb"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.module+" imports "+tt.target, func(t *testing.T) {
@@ -325,11 +408,23 @@ func otherOwners(owner string) []string {
 	return others
 }
 
-// The rule table itself must keep the test double out of what ships.
-func TestOnlyTheTestServerMayImportTheDouble(t *testing.T) {
+// The rule table itself must keep the test doubles and the sizing tool out
+// of what ships.
+func TestOnlyTheirCommandsMayImportTheDoubles(t *testing.T) {
+	doubles := map[string]string{
+		"internal/imaptest":  "internal/imaptest/cmd/",
+		"internal/imagetest": "internal/imagetest/cmd/",
+	}
 	for module, allowed := range allowedImports {
-		if slices.Contains(allowed, "internal/imaptest") && !strings.HasPrefix(module, "internal/imaptest/cmd/") {
-			t.Errorf("%s may import internal/imaptest", module)
+		for double, commands := range doubles {
+			if slices.Contains(allowed, double) && !strings.HasPrefix(module, commands) {
+				t.Errorf("%s may import %s", module, double)
+			}
+		}
+		for _, target := range allowed {
+			if strings.HasPrefix(target, "internal/sizing/") {
+				t.Errorf("%s may import %s", module, target)
+			}
 		}
 	}
 }
