@@ -1,5 +1,9 @@
 <script lang="ts">
-  import { displayText, type TextPart } from "#lib/format/untrusted.js";
+  import {
+    displayText,
+    type DisplayText,
+    type TextPart,
+  } from "#lib/format/untrusted.js";
 
   // Text from outside is plain text, always. This component never uses
   // {@html}, and it adds no whitespace between parts, so the visible text is
@@ -7,14 +11,21 @@
 
   let {
     value,
+    split,
     full = false,
-  }: {
-    value: string;
+  }: (
+    | { value: string; split?: never }
+    | {
+        value?: never;
+        /** Cut where the caller chose, such as an address before its @. */
+        split: DisplayText;
+      }
+  ) & {
     /** Wrap the whole text instead of cutting its middle, as in the history. */
     full?: boolean;
   } = $props();
 
-  const display = $derived(displayText(value));
+  const display = $derived(split ?? displayText(value ?? ""));
 </script>
 
 {#snippet parts(

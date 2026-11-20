@@ -188,7 +188,8 @@ test("an administrator adds a source and follows its first sync", async ({
   const facts = page.getByRole("region", { name: "Source" });
   await expect(facts).toContainText("5 new");
 
-  // The list names each message by its source and folder.
+  // Until processing reads a message, its row names it by its source and
+  // folder, and then by its subject, which names the folder's number.
   await tabTo(
     page,
     page
@@ -202,11 +203,15 @@ test("an administrator adds a source and follows its first sync", async ({
   await expect(rows).toHaveCount(5);
   await expect(
     rows.filter({
-      has: page.getByRole("link", { name: "History of Anna, INBOX" }),
+      has: page.getByRole("link", {
+        name: /^History of (Anna, INBOX|Synthetic message \d in folder 1)$/,
+      }),
     }),
   ).toHaveCount(3);
   const sent = rows.filter({
-    has: page.getByRole("link", { name: "History of Anna, Gesendete Objekte" }),
+    has: page.getByRole("link", {
+      name: /^History of (Anna, Gesendete Objekte|Synthetic message \d in folder 2)$/,
+    }),
   });
   await expect(sent).toHaveCount(2);
   await expectNoSidewaysScroll(page, "the list of collected messages");

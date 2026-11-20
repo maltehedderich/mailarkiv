@@ -4,7 +4,14 @@
   import { beforeNavigate, goto, refreshAll } from "$app/navigation";
   import { page } from "$app/state";
 
-  import { getSession, type ApiResult, type MessagePage } from "#lib/api.js";
+  import {
+    getSession,
+    searchMessages,
+    type ApiResult,
+    type Message,
+    type MessagePage,
+    type SearchResult,
+  } from "#lib/api.js";
   import FailedLoad from "#lib/components/FailedLoad.svelte";
   import HistoryDrawer from "#lib/components/HistoryDrawer.svelte";
   import ImportBox from "#lib/components/ImportBox.svelte";
@@ -14,7 +21,9 @@
   import { choose } from "#lib/import/choose.js";
   import { isBusy, type ImportStep } from "#lib/import/step.js";
   import { upload } from "#lib/import/upload.js";
+  import { wordsSearch } from "#lib/search/form.js";
   import { signInPath } from "#lib/session.js";
+  import { CATEGORIES } from "#lib/status/categories.js";
   import {
     dismissToast,
     IMPORT_KEY,
@@ -83,6 +92,73 @@
     };
   });
 
+  // A search shows in place of the list. It lives only in this page's state,
+  // never in its address, so the words stay out of the browser's history and
+  // any proxy's log.
+  let words = $state("");
+  type Search = { result: SearchResult | null };
+  let search = $state<Search | null>(null);
+  /** Counts searches, so only the last one's answer shows. */
+  let searches = 0;
+
+  async function runSearch(event: SubmitEvent) {
+    event.preventDefault();
+    const run = ++searches;
+    const wanted = words.trim();
+    if (wanted === "") {
+      search = null;
+      return;
+    }
+    search = { result: null };
+    const result = await searchMessages(wordsSearch(wanted));
+    if (run !== searches || !mounted) return;
+    if (result.kind === "session_ended") {
+      await goto(signInPath(page.url));
+      return;
+    }
+    search = { result };
+  }
+
+  function clearSearch() {
+    searches++;
+    words = "";
+    search = null;
+  }
+
+  const counts = new Intl.NumberFormat("en-US");
+
+  function plural(count: number, one: string, many: string): string {
+    return `${counts.format(count)} ${count === 1 ? one : many}`;
+  }
+
+  /** The line that says how the search went, read out as it changes. */
+  const outcome = $derived.by(() => {
+    const result = search?.result;
+    if (result === undefined || result === null) return "";
+    switch (result.kind) {
+      case "ok": {
+        const { total, notIncluded, fullList } = result.value;
+        const found = fullList
+          ? "These words have nothing to search for, so this is the whole list."
+          : total === 0
+            ? "No messages match."
+            : `${plural(total, "message matches", "messages match")}.`;
+        if (notIncluded === 0) return found;
+        return `${found} ${plural(notIncluded, "message isn't", "messages aren't")} included yet, because processing or indexing hasn't reached them.`;
+      }
+      case "search_took_too_long":
+        return "This search took too long. Add words or filters.";
+      case "search_unavailable":
+        return `Search is unavailable: ${CATEGORIES[result.cause].name}. The list and downloads still work.`;
+      case "search_did_not_answer":
+        return "Search didn't answer. Try again.";
+      case "invalid_fields":
+        return "Search words can be at most 1,000 characters.";
+      default:
+        return "Search didn't finish. Try again.";
+    }
+  });
+
   // The list streams, so the load settles before the list arrives. Try again
   // waits for the list too, or a second press would send a second request.
   async function retryList() {
@@ -126,7 +202,11 @@
   // and on a slow archive the arrows stay put for the next one. A page past
   // the end has no range, and moves back once its answer arrives.
   const pager = $derived.by(() => {
-    if (data.session.kind !== "ok" || settled?.result.kind !== "ok") {
+    if (
+      search !== null ||
+      data.session.kind !== "ok" ||
+      settled?.result.kind !== "ok"
+    ) {
       return null;
     }
     if (list?.kind === "ok") {
@@ -249,47 +329,85 @@
   </header>
 
   <div class="body">
+    <!-- The input has no name, so a submit before the page has loaded its
+         script sends no words in the address. -->
+    <form class="search" role="search" onsubmit={runSearch}>
+      <label class="field words">
+        <span>Words</span>
+        <input type="search" bind:value={words} maxlength="1000" />
+      </label>
+      <button class="button large" type="submit">Search</button>
+      {#if search !== null}
+        <button class="button large ghost" type="button" onclick={clearSearch}
+          >Clear</button
+        >
+      {/if}
+    </form>
+
     <ImportBox {step} onchoose={chooseFiles} onimport={startImport} />
 
-    {#if data.session.kind !== "ok" || list?.kind === "unavailable"}
+    {#if search !== null}
+      <p
+        class="outcome"
+        class:problem={search.result !== null && search.result.kind !== "ok"}
+        role="status"
+      >
+        {outcome}
+      </p>
+      {#if search.result === null}
+        {@render table(null, "Search results")}
+      {:else if search.result.kind === "ok" && search.result.value.items.length > 0}
+        {@render table(search.result.value.items, "Search results")}
+      {/if}
+    {:else if data.session.kind !== "ok" || list?.kind === "unavailable"}
       <FailedLoad retry={retryList} />
     {:else if list?.kind === "ok" && list.value.total === 0}
       <p class="empty">No mail yet</p>
     {:else}
-      <div class="table">
-        <p class="heads" aria-hidden="true">
-          <span>File name</span>
-          <span>Imported</span>
-          <span class="right">Size</span>
-          <span>Hash</span>
-        </p>
-        {#if list?.kind === "ok" && list.value.items.length > 0}
-          <ul aria-label="Messages">
-            {#each list.value.items as message (message.id)}
-              <MessageRow
-                {message}
-                historyHref={historyHref(page.url, message.id)}
-              />
-            {/each}
-          </ul>
-        {:else}
-          <!-- Loading, or moving back from past the end. Still, so a slow
-               archive doesn't look busy. -->
-          <ul class="skeleton" aria-hidden="true">
-            {#each { length: 6 }, index (index)}
-              <li>
-                <span class="bone name"></span>
-                <span class="bone time"></span>
-                <span class="bone size"></span>
-                <span class="bone hash"></span>
-              </li>
-            {/each}
-          </ul>
-        {/if}
-      </div>
+      {@render table(
+        list?.kind === "ok" && list.value.items.length > 0
+          ? list.value.items
+          : null,
+        "Messages",
+      )}
     {/if}
   </div>
 </main>
+
+<!-- Rows, or skeleton rows while they load. -->
+{#snippet table(items: Message[] | null, label: string)}
+  <div class="table">
+    <p class="heads" aria-hidden="true">
+      <span>Sender</span>
+      <span>Subject</span>
+      <span>Date</span>
+      <span class="right">Size</span>
+    </p>
+    {#if items !== null}
+      <ul aria-label={label}>
+        {#each items as message (message.id)}
+          <MessageRow
+            {message}
+            historyHref={historyHref(page.url, message.id)}
+          />
+        {/each}
+      </ul>
+    {:else}
+      <!-- Loading, or moving back from past the end. Still, so a slow
+           archive doesn't look busy. -->
+      <ul class="skeleton" aria-hidden="true">
+        {#each { length: 6 }, index (index)}
+          <li>
+            <span class="bone sender"></span>
+            <span class="bone subject"></span>
+            <span class="bone date"></span>
+            <span class="bone size"></span>
+          </li>
+        {/each}
+      </ul>
+    {/if}
+  </div>
+{/snippet}
 
 <HistoryDrawer history={data.history} onclose={closeHistory} />
 
@@ -335,18 +453,43 @@
     padding: var(--space-24);
   }
 
-  .empty {
+  .empty,
+  .outcome {
     color: var(--text-3);
   }
 
+  .outcome.problem {
+    color: var(--state-bad-text);
+  }
+
+  .search {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--space-8);
+  }
+
+  /* An input keeps its default width unless told otherwise, which pushed
+     Clear off a 360 px screen. */
+  .words {
+    flex: auto;
+    min-width: 0;
+  }
+
+  .words > input {
+    min-width: 0;
+  }
+
   /* The columns from DESIGN.md. 185 px fits the widest time, such as
-     "22 May 2026, 09:14:55 +05:30", in Inter at 12 px with tabular numerals.
-     A subgrid's padding doesn't shrink a fixed column, so an edge column
-     includes the rows' padding: 4 px after the download. */
+     "22 May 2026, 09:14:55 +05:30", in Inter at 12 px with tabular numerals,
+     and the archive time mark comes before it. A subgrid's padding doesn't
+     shrink a fixed column, so an edge column includes the rows' padding: 4 px
+     after the download. */
   .table {
+    --date-width: calc(185px + var(--icon-size-small) + var(--space-4));
+
     display: grid;
     grid-template-columns:
-      minmax(0, 1fr) 185px 62px 72px 40px
+      minmax(0, 1fr) minmax(0, 1fr) var(--date-width) 62px
       calc(var(--control-height) + var(--space-4));
     column-gap: var(--space-12);
     /* The rows' side padding reaches into the gutter, so names start on the
@@ -393,21 +536,20 @@
     background: var(--fill-2);
   }
 
-  .bone.name {
+  .bone.sender,
+  .bone.subject {
     width: 60%;
   }
 
-  /* DESIGN.md: beside the sidebar, one line would leave the name no room: at
-     721 px the table is 441 px wide and the fixed columns take 451. So rows
-     take two lines. The name spans the first three columns, and time, size,
-     and hash keep their order below it. Time comes first here, so its column
-     includes the rows' 10 px left padding. The hash, 58 px wide, takes the
-     flexible column, which is 64 px at 721 px. MessageRow places its cells,
-     and the skeleton matches its height. */
+  /* DESIGN.md: beside the sidebar, one line would leave the sender and
+     subject no room: at 721 px the table is 441 px wide and the fixed
+     columns take 330. So rows take two lines: the sender and date, then the
+     subject and size. MessageRow places its cells, and the skeleton matches
+     its height. */
   @media (720px < width <= 1040px) {
     .table {
       grid-template-columns:
-        calc(185px + var(--space-10)) 62px minmax(0, 1fr) 40px
+        minmax(0, 1fr) var(--date-width)
         calc(var(--control-height) + var(--space-4));
     }
 
@@ -416,25 +558,39 @@
     }
 
     .skeleton li {
-      grid-template-rows: var(--leading-body) var(--leading-label);
+      grid-template-rows: var(--leading-body) var(--leading-body);
       row-gap: var(--space-2);
       height: auto;
       padding-block: var(--space-8);
     }
 
-    .bone.name {
+    .bone.sender,
+    .bone.date {
       grid-row: 1;
-      grid-column: 1 / 4;
     }
 
-    .bone.time,
-    .bone.size,
-    .bone.hash {
+    .bone.subject,
+    .bone.size {
       grid-row: 2;
     }
 
-    .bone.hash {
-      width: 56px;
+    .bone.sender,
+    .bone.subject {
+      grid-column: 1;
+    }
+
+    .bone.date,
+    .bone.size {
+      grid-column: 2;
+      justify-self: end;
+    }
+
+    .bone.date {
+      width: 140px;
+    }
+
+    .bone.size {
+      width: 40px;
     }
   }
 
@@ -470,9 +626,9 @@
         var(--leading-body)
         repeat(2, calc((var(--control-height-touch) - var(--space-2)) / 2));
       grid-template-areas:
-        "name name name"
-        "time size ."
-        "hash . .";
+        "sender sender sender"
+        "subject . ."
+        "date size .";
       gap: var(--space-2) var(--space-12);
       height: auto;
       padding: var(--space-8) var(--space-4) var(--space-8) var(--space-8);
@@ -482,23 +638,22 @@
       border-bottom: 1px solid var(--line);
     }
 
-    .bone.name {
-      grid-area: name;
+    .bone.sender {
+      grid-area: sender;
     }
 
-    .bone.time {
-      grid-area: time;
+    .bone.subject {
+      grid-area: subject;
+    }
+
+    .bone.date {
+      grid-area: date;
       width: 50%;
     }
 
     .bone.size {
       grid-area: size;
       width: 40px;
-    }
-
-    .bone.hash {
-      grid-area: hash;
-      width: 64px;
     }
   }
 </style>

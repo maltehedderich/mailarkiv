@@ -43,6 +43,15 @@ function pages(page: Page) {
   return page.getByRole("navigation", { name: "Pages" });
 }
 
+/**
+ * A row's link names its message by the file name until processing reads it,
+ * then by its subject. Either names message `index` from importMany.
+ */
+function named(index: number): RegExp {
+  const padded = String(index).padStart(2, "0");
+  return new RegExp(`^History of (message-${padded}\\.eml|Message ${index})$`);
+}
+
 function rows(page: Page) {
   return page.getByRole("list", { name: "Messages" }).getByRole("listitem");
 }
@@ -54,7 +63,11 @@ test("51 messages take two pages, newest first", async ({ page }) => {
 
   await expect(pages(page)).toContainText("1–50 of 51");
   await expect(rows(page)).toHaveCount(50);
-  await expect(rows(page).first()).toContainText("message-51.eml");
+  await expect(
+    rows(page)
+      .first()
+      .getByRole("link", { name: named(51) }),
+  ).toBeVisible();
   // Screen readers may skip the dash, so they get the range in words.
   await expect(pages(page)).toContainText("Messages 1 to 50 of 51");
   // The first page has nothing before it.
@@ -70,7 +83,7 @@ test("51 messages take two pages, newest first", async ({ page }) => {
   await expect(page).toHaveTitle("Messages, page 2 · MailArkiv");
   await expect(pages(page)).toContainText("51–51 of 51");
   await expect(rows(page)).toHaveCount(1);
-  await expect(rows(page)).toContainText("message-01.eml");
+  await expect(rows(page).getByRole("link", { name: named(1) })).toBeVisible();
   await expect(
     pages(page).getByRole("link", { name: "Next page" }),
   ).toHaveAttribute("aria-disabled", "true");
@@ -157,7 +170,7 @@ test("a turn shows its range before the rows arrive", async ({ page }) => {
   ).not.toHaveAttribute("aria-disabled");
   release();
   await expect(rows(page)).toHaveCount(1);
-  await expect(rows(page)).toContainText("message-01.eml");
+  await expect(rows(page).getByRole("link", { name: named(1) })).toBeVisible();
 });
 
 // Page 1 has no parameter, as in the pager's links.
@@ -202,6 +215,10 @@ test("an import from a later page shows the newest message on page 1", async ({
     page.getByRole("region", { name: "Notifications" }),
   ).toContainText("Archived");
   await expect(page).toHaveURL(`${server.origin}/`);
-  await expect(rows(page).first()).toContainText("newest.eml");
+  await expect(
+    rows(page)
+      .first()
+      .getByRole("link", { name: /^History of (newest\.eml|Newest)$/ }),
+  ).toBeVisible();
   await expect(pages(page)).toContainText("1–50 of 52");
 });

@@ -61,6 +61,28 @@ export const CATEGORIES: Record<FailureCategory, CategoryWords> = {
       "A message waiting for retry was removed from the mailbox. MailArkiv doesn't retry it.",
     nextStep: "None. The archive doesn't have this message.",
   },
+  search_process_stopped: {
+    name: "Search process stopped",
+    meaning: "The search process exited or crashed.",
+    nextStep: "None if it passes. If it repeats, check the server log.",
+  },
+  search_process_did_not_start: {
+    name: "Search process didn't start",
+    meaning:
+      "The search process couldn't be started, such as when its program is missing.",
+    nextStep: "Check the installation and the server log.",
+  },
+  search_process_did_not_answer: {
+    name: "Search process didn't answer",
+    meaning: "A call passed its time limit.",
+    nextStep: "If it repeats, check the server log and the host's free memory.",
+  },
+  index_write_failed: {
+    name: "Index write failed",
+    meaning:
+      "A batch couldn't be saved to the index, such as through a denied write.",
+    nextStep: "Fix the index location, such as its permissions.",
+  },
 };
 
 export const UNREFERENCED_MEANING =

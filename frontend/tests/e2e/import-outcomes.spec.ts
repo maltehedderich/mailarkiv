@@ -22,6 +22,12 @@ const STUB_MESSAGE = {
   id: 17,
   content_hash: HASH,
   size: 31,
+  processing: "not_processed",
+  list_date: "2026-11-06T15:50:52.123Z",
+  list_date_is_archive_time: true,
+  sender: null,
+  subject: null,
+  has_attachments: false,
   observation_count: 1,
   latest: {
     source_type: "manual_import",
@@ -269,7 +275,7 @@ test("on the real server, Archived is listed and Failed isn't", async ({
 
   await importFile(page, { ...FILE, name: "archived.eml" });
   await expectOnly(page, "Archived");
-  await expect(list).toContainText("archived.eml");
+  await expect(list.getByRole("listitem")).toHaveCount(1);
 
   await result(page).getByRole("link", { name: "Open import history" }).click();
   const drawer = page.getByRole("dialog", { name: "History" });
@@ -290,10 +296,12 @@ test("on the real server, Archived is listed and Failed isn't", async ({
   await expectOnly(page, "Failed");
   await expect(result(page)).toContainText(NOT_ARCHIVED);
 
+  // Once processed, a row shows its subject, so its history names the file.
   await page.reload();
   await expect(list.getByRole("listitem")).toHaveCount(1);
-  await expect(list).toContainText("archived.eml");
-  await expect(list).not.toContainText("failed.eml");
+  await list.getByRole("link", { name: /^History of/ }).click();
+  await expect(drawer).toContainText("archived.eml");
+  await expect(drawer).not.toContainText("failed.eml");
 });
 
 // The refresh after the import fails too, and the result has to survive that,

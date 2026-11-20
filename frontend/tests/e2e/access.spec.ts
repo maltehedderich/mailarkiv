@@ -18,6 +18,14 @@ const CONTENT = Buffer.from(
 
 let server: TestServer;
 
+// A row names its message by the file name until processing reads it, then
+// by its subject, so the tests find rows by their history links.
+function rowLinks(page: Page) {
+  return page
+    .getByRole("list", { name: "Messages" })
+    .getByRole("link", { name: /^History of/ });
+}
+
 test.beforeEach(async () => {
   server = await startServer();
 });
@@ -239,15 +247,13 @@ test("a page left open opens sign-in when the session runs out", async ({
   await page.clock.install();
   await signInFromStart(page);
   await importFile(page);
-  await expect(page.getByRole("list", { name: "Messages" })).toContainText(
-    "synthetic.eml",
-  );
+  await expect(rowLinks(page)).toHaveCount(1);
 
   await page.clock.fastForward("12:00:00");
 
   await expect(page).toHaveURL(`${server.origin}/sign-in?ended=1`);
   await expect(page.getByText(ENDED)).toBeVisible();
-  await expect(page.getByText("synthetic.eml")).toHaveCount(0);
+  await expect(rowLinks(page)).toHaveCount(0);
 });
 
 test("a failed session read during navigation keeps the expiry deadline", async ({
@@ -335,7 +341,7 @@ test("sign-out opens sign-in, and Back shows no list", async ({ page }) => {
   await signInFromStart(page);
   await importFile(page);
   const list = page.getByRole("list", { name: "Messages" });
-  await expect(list).toContainText("synthetic.eml");
+  await expect(rowLinks(page)).toHaveCount(1);
 
   await page.getByRole("button", { name: "Sign out" }).click();
 
@@ -361,11 +367,11 @@ test("sign-out opens sign-in, and Back shows no list", async ({ page }) => {
   // address bar can still read /, so assert against the rendered screen.
   await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
   await expect(list).toHaveCount(0);
-  await expect(page.getByText("synthetic.eml")).toHaveCount(0);
+  await expect(rowLinks(page)).toHaveCount(0);
   await expect(page.getByText(/session ended/i)).toHaveCount(0);
 
   // Signing in from there still opens the list.
   await submitSignIn(page, EMAIL, PASSWORD);
   await expect(page).toHaveURL(`${server.origin}/`);
-  await expect(list).toContainText("synthetic.eml");
+  await expect(rowLinks(page)).toHaveCount(1);
 });
