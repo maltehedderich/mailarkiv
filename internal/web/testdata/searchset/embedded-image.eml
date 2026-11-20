@@ -1,0 +1,19 @@
+From: Ina Berg <ina@example.test>
+To: team@example.test
+Subject: Signatur
+Date: Sat, 28 Mar 2026 23:30:00 +0100
+MIME-Version: 1.0
+Content-Type: multipart/related; boundary="related-boundary"
+
+--related-boundary
+Content-Type: text/html; charset=utf-8
+
+<p>Viele Gruesse</p><img src="cid:logo@example.test" alt="Logo">
+--related-boundary
+Content-Type: image/png
+Content-ID: <logo@example.test>
+Content-Disposition: inline; filename="logo.png"
+Content-Transfer-Encoding: base64
+
+iVBORw0KGgpzeW50aGV0aWMgbG9nbw==
+--related-boundary--

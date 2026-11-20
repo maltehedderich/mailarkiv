@@ -1,4 +1,6 @@
 <script lang="ts">
+  import type { ComponentProps } from "svelte";
+
   import Pager from "./Pager.svelte";
 
   // A list's header: its heading, and the pager once there is a page to show.
@@ -9,7 +11,9 @@
     heading = $bindable(),
   }: {
     title: string;
-    pager: { page: number; pageSize: number; total: number } | null;
+    /** Without a label, the spoken range starts with the title. */
+    pager:
+      (Omit<ComponentProps<typeof Pager>, "label"> & { label?: string }) | null;
     /** Focused only when the content it heads was replaced. */
     heading?: HTMLHeadingElement;
   } = $props();
@@ -21,12 +25,7 @@
 <header class="list-header">
   <h1 bind:this={heading} tabindex="-1">{title}</h1>
   {#if pager !== null}
-    <Pager
-      page={pager.page}
-      pageSize={pager.pageSize}
-      total={pager.total}
-      label={title}
-    />
+    <Pager {...pager} label={pager.label ?? title} />
   {/if}
 </header>
 

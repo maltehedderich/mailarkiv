@@ -73,6 +73,18 @@ func testWorkerCommand() *exec.Cmd {
 // searchProgram finds bin/mailarkiv-search from the repository root.
 func searchProgram(t *testing.T) string {
 	t.Helper()
+	return builtProgram(t, filepath.Join("bin", "mailarkiv-search"), "search:build")
+}
+
+// faultsSearchProgram finds the search program's build with fault points.
+func faultsSearchProgram(t *testing.T) string {
+	t.Helper()
+	return builtProgram(t, filepath.Join("bin", "faults", "mailarkiv-search"), "search:build:faults")
+}
+
+// builtProgram finds path from the repository root, which task builds.
+func builtProgram(t *testing.T, path, task string) string {
+	t.Helper()
 	dir, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
@@ -87,9 +99,9 @@ func searchProgram(t *testing.T) string {
 		}
 		dir = parent
 	}
-	program := filepath.Join(dir, "bin", "mailarkiv-search")
+	program := filepath.Join(dir, path)
 	if _, err := os.Stat(program); err != nil {
-		t.Fatalf("%s is missing: run mise run search:build", program)
+		t.Fatalf("%s is missing: run mise run %s", program, task)
 	}
 	return program
 }

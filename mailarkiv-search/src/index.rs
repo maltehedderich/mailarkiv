@@ -17,6 +17,7 @@ use tantivy::{
 
 use crate::analysis;
 use crate::directory::RecordingDirectory;
+use crate::faults::{self, Point};
 use crate::protocol::{Address, Answer, Cause, Document, Done, ErrorCode, Failure};
 use crate::schema::{self, Fields, SCHEMA_VERSION};
 
@@ -62,6 +63,9 @@ fn directory(generation: u64) -> PathBuf {
 /// Opens `index/<generation>/`, or creates it when create is true, and
 /// starts its writer thread, which sends its answers to answers.
 pub fn open(generation: u64, create: bool, answers: Sender<Answer>) -> Result<OpenIndex, Failure> {
+    if faults::at(Point::OnOpen) {
+        return Err(Failure::code(ErrorCode::IndexDamaged));
+    }
     let dir = directory(generation);
     let (index, directory) = if dir.join("meta.json").is_file() {
         open_existing(&dir)?
@@ -194,6 +198,9 @@ impl Writer {
             }
             Ok(())
         });
+        if result.is_ok() && commit && faults::at(Point::AfterCommit) {
+            return Err(Cause::Other);
+        }
         if let Err(err) = result {
             let cause = cause_of(&err, Some(&self.directory));
             // Uncommitted documents are discarded.

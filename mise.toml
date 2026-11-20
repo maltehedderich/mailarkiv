@@ -152,7 +152,7 @@ run = "bunx vitest run"
 
 [tasks."test:e2e"]
 description = "Run the browser tests against the built binary and the test IMAP server"
-depends = ["build"]
+depends = ["build", "search:build:faults"]
 run = [
   "go build -o bin/imaptestserver ./internal/imaptest/cmd/imaptestserver",
   "cd frontend && bunx playwright test",

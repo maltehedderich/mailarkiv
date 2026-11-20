@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { copyFile, mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,6 +7,9 @@ import { fileURLToPath } from "node:url";
 
 const BINARY = fileURLToPath(
   new URL("../../../../bin/mailarkiv", import.meta.url),
+);
+const FAULTS_SEARCH = fileURLToPath(
+  new URL("../../../../bin/faults/mailarkiv-search", import.meta.url),
 );
 const START_TIMEOUT_MS = 10_000;
 const POLL_INTERVAL_MS = 50;
@@ -17,6 +20,13 @@ export interface ServerOptions {
    * and makes the server trust only the CA in this file.
    */
   collection?: { caFile: string };
+  /**
+   * Runs a copy of the server from its own directory, because the server
+   * runs the search program it finds beside itself. There the program is
+   * missing, or is the build with fault points, given this
+   * `MAILARKIV_SEARCH_FAULTS` list.
+   */
+  search?: "missing" | { faults: string };
 }
 
 export interface TestServer {
@@ -45,24 +55,37 @@ export async function startServer(
     options.collection === undefined
       ? null
       : await mkdtemp(join(tmpdir(), "mailarkiv-e2e-key-"));
+  const binDir =
+    options.search === undefined
+      ? null
+      : await mkdtemp(join(tmpdir(), "mailarkiv-e2e-bin-"));
   const port = await freePort();
   const origin = `http://localhost:${port}`;
   const removeDirs = () =>
     Promise.all(
-      [dataDir, keyDir]
+      [dataDir, keyDir, binDir]
         .filter((dir) => dir !== null)
         .map((dir) => rm(dir, { recursive: true, force: true })),
     );
 
   let collection: Collection | null = null;
+  let program: Program = { binary: BINARY, env: {} };
   let child: ChildProcess;
   try {
+    if (options.search !== undefined && binDir !== null) {
+      program = { binary: join(binDir, "mailarkiv"), env: {} };
+      await copyFile(BINARY, program.binary);
+      if (options.search !== "missing") {
+        await copyFile(FAULTS_SEARCH, join(binDir, "mailarkiv-search"));
+        program.env.MAILARKIV_SEARCH_FAULTS = options.search.faults;
+      }
+    }
     if (options.collection !== undefined && keyDir !== null) {
       const keyFile = join(keyDir, "key");
       await runCommand(["key", "create", "--data-dir", dataDir, keyFile]);
       collection = { keyFile, caFile: options.collection.caFile };
     }
-    child = await launch(dataDir, port, origin, collection);
+    child = await launch(program, dataDir, port, origin, collection);
   } catch (error) {
     await removeDirs();
     throw error;
@@ -77,13 +100,19 @@ export async function startServer(
       runAccountCommand("set-password", dataDir, email, password),
     restart: async () => {
       await stopProcess(child);
-      child = await launch(dataDir, port, origin, collection);
+      child = await launch(program, dataDir, port, origin, collection);
     },
     stop: async () => {
       await stopProcess(child);
       await removeDirs();
     },
   };
+}
+
+/** The server binary to run, and what it adds to the environment. */
+interface Program {
+  binary: string;
+  env: Record<string, string>;
 }
 
 /** What the server needs to collect mail. */
@@ -94,6 +123,7 @@ interface Collection {
 
 /** Runs the server and returns once it answers. */
 async function launch(
+  program: Program,
   dataDir: string,
   port: number,
   origin: string,
@@ -108,12 +138,12 @@ async function launch(
   ];
   // The server reads SSL_CERT_FILE in place of the host's trusted
   // certificates, so it trusts the test mail server and nothing else.
-  let env = process.env;
+  let env = { ...process.env, ...program.env };
   if (collection !== null) {
     args.push("--key-file", collection.keyFile);
-    env = { ...process.env, SSL_CERT_FILE: collection.caFile };
+    env = { ...env, SSL_CERT_FILE: collection.caFile };
   }
-  const child = spawn(BINARY, args, {
+  const child = spawn(program.binary, args, {
     env,
     stdio: ["ignore", "ignore", "pipe"],
   });

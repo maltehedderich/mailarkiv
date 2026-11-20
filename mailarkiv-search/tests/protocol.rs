@@ -6,7 +6,7 @@ mod support;
 use std::time::Instant;
 
 use serde_json::json;
-use support::{DataDir, Search, frame};
+use support::{DataDir, Search, frame, search_request};
 
 #[test]
 fn hello_comes_first() {
@@ -86,8 +86,7 @@ fn frame_cut_short_exits_3() {
 fn frame_of_exactly_64_mib_is_read() {
     let dir = DataDir::new();
     let mut search = Search::start(&dir);
-    let request =
-        json!({"id": 9, "op": "search", "generation": 4, "words": "w", "offset": 0, "limit": 50});
+    let request = search_request(9, 4, "w");
     let mut body = serde_json::to_vec(&request).unwrap();
     // JSON allows spaces after the object.
     body.resize(64 * 1024 * 1024, b' ');
@@ -108,7 +107,7 @@ fn answers_carry_their_request_id() {
     search.send(&json!({"id": 41, "op": "open", "generation": 1, "create": true}));
     let created = search.frame();
     search.send(&json!({"id": 7, "op": "open", "generation": 2, "create": false}));
-    search.send(&json!({"id": 1000, "op": "search", "generation": 3, "words": "w", "offset": 0, "limit": 50}));
+    search.send(&search_request(1000, 3, "w"));
     let mut later = [search.frame(), search.frame()];
     later.sort_by_key(|answer| answer["id"].as_u64());
     assert_eq!(created, json!({"id": 41, "ok": {}}));

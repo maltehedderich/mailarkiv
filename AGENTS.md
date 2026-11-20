@@ -20,11 +20,11 @@ Read [the design guide](frontend/DESIGN.md) before you build or change a screen.
 | `mise run search:test` | `cargo test --locked`, then `cargo test --locked --features faults`, in `mailarkiv-search/` | Unit, integration |
 | `mise run server:test` | Builds `bin/mailarkiv-search` and `bin/faults/mailarkiv-search` first, then `go test -race ./...`, including process-level crash, syscall, and marker tests, then `go test -run '^$' -fuzz FuzzBoundaryScanner -fuzztime 10s ./internal/mailparse`. Needs `strace` | Unit, integration, process, fuzz |
 | `mise run frontend:test` | `vitest run` | Unit |
-| `mise run test:e2e` | Builds `bin/mailarkiv` and `bin/mailarkiv-search`, and `go build` of `bin/imaptestserver`, the test IMAP server, then `playwright test` against the built binaries and that server | End to end |
+| `mise run test:e2e` | Builds `bin/mailarkiv`, `bin/mailarkiv-search`, and `bin/faults/mailarkiv-search`, and `go build` of `bin/imaptestserver`, the test IMAP server, then `playwright test` against the built binaries and that server. Search tests run a copy of `bin/mailarkiv` beside the fault build, or with no search program | End to end |
 | `mise run test` | The four test tasks above | |
 | `mise run check` | `lint`, `typecheck`, `test`, `audit`. CI gates on this | |
 
-Other tasks are `setup`, `dev`, `dev:account`, `build`, `frontend:build`, `server:build`, `search:build`, `search:build:faults`, `format`, and `clean`. `search:build` builds the search program as a static musl binary at `bin/mailarkiv-search`, beside the server. `search:build:faults` builds it with test fault points at `bin/faults/mailarkiv-search`. `.github/workflows/check.yml` installs `strace` and `musl-tools`, caches Go and cargo builds, and runs `mise run setup` and `mise run check`.
+Other tasks are `setup`, `dev`, `dev:account`, `build`, `frontend:build`, `server:build`, `search:build`, `search:build:faults`, `format`, and `clean`. `search:build` builds the search program as a static musl binary at `bin/mailarkiv-search`, beside the server. `search:build:faults` builds it with test fault points at `bin/faults/mailarkiv-search`, for the process and browser tests. `.github/workflows/check.yml` installs `strace` and `musl-tools`, caches Go and cargo builds, and runs `mise run setup` and `mise run check`.
 
 - For documentation-only changes, review affected text against the constitution, check local links, and verify that scope and acceptance behavior agree across documents. These checks are sufficient while runtime behavior is unchanged.
 - When adding tooling, document its exact required check commands here in the same change. Feature plans must identify the checks that apply and the layer each runs at.
