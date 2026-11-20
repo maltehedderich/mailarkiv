@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"os"
 	"syscall"
+
+	"github.com/maltehedderich/mailarkiv/internal/processing"
+	"golang.org/x/term"
 )
 
 const (
@@ -44,6 +47,13 @@ func run(args []string) int {
 		return account(args[1:])
 	case "key":
 		return key(args[1:])
+	case "parse-worker":
+		// Internal, so the usage text doesn't name it. The server starts it
+		// with pipes; someone typing it at a terminal gets the usage text.
+		if len(args) != 1 || term.IsTerminal(int(os.Stdin.Fd())) {
+			return badArgs()
+		}
+		return processing.RunWorker(os.Stdin, os.Stdout)
 	default:
 		return badArgs()
 	}

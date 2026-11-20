@@ -27,7 +27,9 @@ import (
 const processTimeout = 30 * time.Second
 
 // serverBinary is the real binary, built once by TestMain. faultsBinary is the
-// same program built with -tags faults, which obeys MAILARKIV_FAULTS.
+// same program built with -tags faults, which obeys MAILARKIV_FAULTS. Each
+// sits in its own directory beside the matching search program, the way a
+// build ships them.
 var (
 	serverBinary string
 	faultsBinary string
@@ -49,21 +51,43 @@ func buildAndRun(m *testing.M) int {
 	}
 	defer os.RemoveAll(dir)
 
-	serverBinary = filepath.Join(dir, "mailarkiv")
-	faultsBinary = filepath.Join(dir, "mailarkiv-faults")
-	for _, args := range [][]string{
-		{"build", "-o", serverBinary, "."},
-		{"build", "-tags", "faults", "-o", faultsBinary, "."},
+	serverBinary = filepath.Join(dir, "default", "mailarkiv")
+	faultsBinary = filepath.Join(dir, "faults", "mailarkiv")
+	for _, build := range []struct {
+		output string
+		tags   []string
+		search string
+	}{
+		{serverBinary, nil, filepath.Join("..", "..", "bin", "mailarkiv-search")},
+		{faultsBinary, []string{"-tags", "faults"}, filepath.Join("..", "..", "bin", "faults", "mailarkiv-search")},
 	} {
-		build := exec.Command("go", args...)
+		if err := os.Mkdir(filepath.Dir(build.output), 0o700); err != nil {
+			fmt.Fprintf(os.Stderr, "create the binary directory: %v\n", err)
+			return 1
+		}
+		args := append(append([]string{"build"}, build.tags...), "-o", build.output, ".")
+		cmd := exec.Command("go", args...)
 		// The same settings as `mise run server:build`, so tests run what ships.
-		build.Env = append(os.Environ(), "CGO_ENABLED=0")
-		if output, err := build.CombinedOutput(); err != nil {
+		cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+		if output, err := cmd.CombinedOutput(); err != nil {
 			fmt.Fprintf(os.Stderr, "go %v: %v\n%s", args, err, output)
+			return 1
+		}
+		if err := copyFile(build.search, filepath.Join(filepath.Dir(build.output), "mailarkiv-search"), 0o755); err != nil {
+			fmt.Fprintf(os.Stderr, "%v; mise run server:test builds the search programs first\n", err)
 			return 1
 		}
 	}
 	return m.Run()
+}
+
+// copyFile copies the file at from to a new file at to with mode perm.
+func copyFile(from, to string, perm os.FileMode) error {
+	content, err := os.ReadFile(from)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(to, content, perm)
 }
 
 // serverProcess is a running binary and the stderr it has written so far.

@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
@@ -21,6 +22,8 @@ import (
 	"github.com/maltehedderich/mailarkiv/internal/identity"
 	"github.com/maltehedderich/mailarkiv/internal/opstatus"
 	"github.com/maltehedderich/mailarkiv/internal/passwordkey"
+	"github.com/maltehedderich/mailarkiv/internal/processing"
+	"github.com/maltehedderich/mailarkiv/internal/search"
 	"github.com/maltehedderich/mailarkiv/internal/sqlitedb"
 	"github.com/maltehedderich/mailarkiv/internal/web"
 )
@@ -34,6 +37,12 @@ const (
 
 	// shutdownGrace is how long requests in progress get after SIGTERM.
 	shutdownGrace = 5 * time.Second
+
+	// backgroundWorkers is the size of the pool that processing and indexing
+	// share.
+	backgroundWorkers = 2
+	// searchProgram is found in the server binary's directory.
+	searchProgram = "mailarkiv-search"
 )
 
 // Startup causes, logged in the "cause" field when the server refuses to
@@ -44,6 +53,7 @@ const (
 	causeCatalog = "catalog"
 	causePort    = "port"
 	causeKey     = "key"
+	causeWorkers = "workers"
 )
 
 // serveOptions are serve's settings besides the data directory.
@@ -151,6 +161,9 @@ func serveCatalog(logger *slog.Logger, dataDir string, db *sqlitedb.DB, options 
 		return startupFailed(logger, causeStorage, err)
 	}
 
+	// A failure here leaves search unavailable but doesn't stop the server.
+	prepareErr := search.Prepare(context.Background(), dataDir, db)
+
 	if options.key == nil {
 		logger.Info("collection unavailable", "reason", "no key file given")
 	}
@@ -167,6 +180,36 @@ func serveCatalog(logger *slog.Logger, dataDir string, db *sqlitedb.DB, options 
 	if err != nil {
 		return startupFailed(logger, causeCatalog, err)
 	}
+
+	// Workers run this binary, and the search program sits beside it.
+	executable, err := os.Executable()
+	if err != nil {
+		return startupFailed(logger, causeWorkers, err)
+	}
+	pool, err := processing.NewPool(backgroundWorkers, processing.WorkerCommand(executable), logger)
+	if err != nil {
+		return startupFailed(logger, causeWorkers, err)
+	}
+	// After listenAndServe, so nothing still sends work.
+	defer pool.Close()
+	processor := processing.New(originals, pool, logger)
+	searcher := search.New(search.Config{
+		DataDir:   dataDir,
+		Program:   filepath.Join(filepath.Dir(executable), searchProgram),
+		DB:        db,
+		Archive:   originals,
+		Processor: processor,
+		Status:    status,
+		Logger:    logger,
+		Now:       time.Now,
+	})
+	tasks := []func(context.Context){processor.Run}
+	if prepareErr != nil {
+		searcher.PrepareFailed(prepareErr)
+	} else {
+		tasks = append(tasks, searcher.Run)
+	}
+
 	return listenAndServe(logger, options.listen, web.New(web.Deps{
 		Files:    files,
 		Logger:   logger,
@@ -175,18 +218,43 @@ func serveCatalog(logger *slog.Logger, dataDir string, db *sqlitedb.DB, options 
 		Status:   status,
 		Labels:   collect.NewLabeler(db),
 		Collect:  collector,
-	}), collector)
+		Search:   searcher,
+	}), collector, tasks)
+}
+
+// background runs tasks, each on its own goroutine, until stop.
+type background struct {
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
+}
+
+func startBackground(tasks []func(context.Context)) *background {
+	ctx, cancel := context.WithCancel(context.Background())
+	b := &background{cancel: cancel}
+	for _, task := range tasks {
+		b.wg.Go(func() { task(ctx) })
+	}
+	return b
+}
+
+// stop ends the tasks and waits for them. The search module returns within
+// its own 5 s wait for the search process.
+func (b *background) stop() {
+	b.cancel()
+	b.wg.Wait()
 }
 
 // listenAndServe serves until SIGTERM or SIGINT, then gives requests in
-// progress the grace period. The collector starts once the port is
-// bound and stops during the grace period.
-func listenAndServe(logger *slog.Logger, listen string, handler http.Handler, collector *collect.Collector) int {
+// progress the grace period. The collector and then the background tasks
+// start once the port is bound, so a slow search process doesn't delay
+// serving. All of them stop during the grace period.
+func listenAndServe(logger *slog.Logger, listen string, handler http.Handler, collector *collect.Collector, tasks []func(context.Context)) int {
 	listener, err := net.Listen("tcp", listen)
 	if err != nil {
 		return startupFailed(logger, causePort, err)
 	}
 	collector.Start()
+	running := startBackground(tasks)
 
 	server := &http.Server{
 		Handler:           handler,
@@ -209,6 +277,7 @@ func listenAndServe(logger *slog.Logger, listen string, handler http.Handler, co
 	case err := <-served:
 		logger.Error("the server stopped by itself", "error", err.Error())
 		collector.Stop()
+		running.stop()
 		return exitFailed
 	case <-signals.Done():
 	}
@@ -217,10 +286,15 @@ func listenAndServe(logger *slog.Logger, listen string, handler http.Handler, co
 	logger.Info("shutting down")
 
 	// Stopping a sync closes its connection, so it ends well inside the grace.
-	collecting := make(chan struct{})
+	// Stopping the background tasks closes the search process's standard
+	// input and kills it if it hasn't exited after 5 s.
+	stopping := make(chan struct{})
 	go func() {
-		defer close(collecting)
-		collector.Stop()
+		defer close(stopping)
+		var wg sync.WaitGroup
+		wg.Go(collector.Stop)
+		wg.Go(running.stop)
+		wg.Wait()
 	}()
 
 	grace, cancel := context.WithTimeout(context.Background(), shutdownGrace)
@@ -231,7 +305,7 @@ func listenAndServe(logger *slog.Logger, listen string, handler http.Handler, co
 			logger.Error("close the listener", "error", err.Error())
 		}
 	}
-	<-collecting
+	<-stopping
 	if err := <-served; !errors.Is(err, http.ErrServerClosed) {
 		logger.Error("the server stopped", "error", err.Error())
 		return exitFailed

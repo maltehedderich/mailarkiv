@@ -210,7 +210,11 @@ func TestNoMarkersInLogOrStatus(t *testing.T) {
 }
 
 // forceStoredOriginalFailures imports two marker messages, deletes the first's
-// stored original and edits the second's, then downloads both.
+// stored original and edits the second's, then downloads both. It breaks
+// them only once both are processed and indexed, with the index's cursor
+// saved. Otherwise processing or indexing reads a broken original too, now
+// or after the next start, and records its own event. The search word is a
+// marker, so the log is checked for it as well.
 func forceStoredOriginalFailures(t *testing.T, server *serverProcess, token, dataDir string) {
 	t.Helper()
 	cases := []struct {
@@ -222,17 +226,20 @@ func forceStoredOriginalFailures(t *testing.T, server *serverProcess, token, dat
 			return os.WriteFile(path, []byte("Subject: not the original\r\n\r\n"), 0o600)
 		}, status: http.StatusInternalServerError},
 	}
-	for n, tc := range cases {
-		content := markerMail(n + 1)
-		attempt := importNamed(t, server.baseURL, token, content)
+	ids := make([]int64, len(cases))
+	for n := range cases {
+		attempt := importNamed(t, server.baseURL, token, markerMail(n+1))
 		if attempt.err != nil || attempt.status != http.StatusCreated {
 			t.Fatalf("the import = %d %s %v, want 201", attempt.status, attempt.body, attempt.err)
 		}
-		id := parseImportAnswer(t, attempt.body).Message.ID
-		if err := tc.change(blobPath(dataDir, contentHash(content))); err != nil {
+		ids[n] = parseImportAnswer(t, attempt.body).Message.ID
+	}
+	server.waitForAllIndexed(token, markerSubject, len(cases))
+	for n, tc := range cases {
+		if err := tc.change(blobPath(dataDir, contentHash(markerMail(n+1)))); err != nil {
 			t.Fatal(err)
 		}
-		response, _ := server.request(http.MethodGet, fmt.Sprintf("/api/messages/%d/original", id), "", token)
+		response, _ := server.request(http.MethodGet, fmt.Sprintf("/api/messages/%d/original", ids[n]), "", token)
 		if response.StatusCode != tc.status {
 			t.Fatalf("the download = %d, want %d", response.StatusCode, tc.status)
 		}
