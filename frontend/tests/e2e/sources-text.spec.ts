@@ -107,31 +107,43 @@ test("hostile and long folder names show as text on every screen", async ({
   await expectCut(source);
   await expectNoSidewaysScroll(page, "the sources list");
 
-  // The message rows, then the history, which shows the whole name.
+  // A message row names its folder only until processing reads the message,
+  // so each folder is checked in a history: whole in its entry, and cut in
+  // its title.
   await page.goto(server.origin);
   const list = page.getByRole("list", { name: "Messages" });
-  await expect(list.getByRole("listitem")).toHaveCount(3);
-  await expectPlainText(list);
-  await expectCut(list);
+  const rows = list.getByRole("listitem");
+  await expect(rows).toHaveCount(3);
+  await expect(list.locator("img, script")).toHaveCount(0);
   await expectNoSidewaysScroll(page, "the message list");
 
-  for (const name of FOLDERS) {
-    const row = list
-      .getByRole("listitem")
-      .filter({ hasText: name.slice(0, 10) });
-    await row.getByRole("link", { name: /^History of/ }).click();
+  const shown = new Map([
+    [MARKUP, MARKUP],
+    [OVERRIDE, "RechnungenU+202Efdp.exe"],
+    [LONG, LONG],
+  ]);
+  const found: string[] = [];
+  for (let index = 0; index < FOLDERS.length; index++) {
+    await rows
+      .nth(index)
+      .getByRole("link", { name: /^History of/ })
+      .click();
     const drawer = page.getByRole("dialog", { name: /^History/ });
     const entry = drawer.getByRole("listitem");
-    if (name === OVERRIDE) {
-      await expect(entry).toContainText("RechnungenU+202Efdp.exe");
-    } else {
-      await expect(entry).toContainText(name);
+    await expect(entry).toHaveCount(1);
+    const text = (await entry.textContent()) ?? "";
+    const name = FOLDERS.find((folder) => text.includes(shown.get(folder)!));
+    expect(name, `row ${index} names a folder`).toBeDefined();
+    found.push(name!);
+    if (name === LONG) {
+      await expectCut(drawer.getByRole("heading", { level: 2 }));
     }
     expect(await drawer.textContent()).not.toContain("‮");
     await expect(drawer.locator("img, script")).toHaveCount(0);
     await drawer.getByRole("button", { name: "Close" }).click();
     await expect(drawer).toBeHidden();
   }
+  expect(found.toSorted()).toEqual(FOLDERS.toSorted());
 
   await expectNothingRan(page);
 });

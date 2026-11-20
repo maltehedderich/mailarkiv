@@ -13,15 +13,44 @@ export type Fetch = (
   init?: RequestInit,
 ) => Promise<Response>;
 
+/** How far processing has read a message, in the server's words. */
+export const PROCESSING_STATES = [
+  "not_processed",
+  "processed",
+  "processed_with_problems",
+  "unreadable",
+] as const;
+
+export type Processing = (typeof PROCESSING_STATES)[number];
+
 export interface Message {
   id: number;
   contentHash: string;
   size: number;
-  /** The latest entry's time, RFC 3339 in UTC. */
-  observedAt: string;
+  processing: Processing;
+  /** The date the list orders by, RFC 3339 in UTC. */
+  listDate: string;
+  /** The list date is the first archive time, not the Date header's. */
+  listDateIsArchiveTime: boolean;
+  /** Null when the message has no summary or no From header. */
+  sender: Sender | null;
+  /** Untrusted. Null when the message has no summary or no Subject header. */
+  subject: string | null;
+  /** False when the message has no summary. */
+  hasAttachments: boolean;
   /** Counts every entry, imports and collections alike. */
   observationCount: number;
   latest: Observation;
+}
+
+/** The first From address. Both parts are untrusted text. */
+export interface Sender {
+  /** Null when the sender gave none, or it equals the address. */
+  name: string | null;
+  /** Null when From wasn't a list of addresses. The name then holds its text. */
+  address: string | null;
+  /** Further From addresses. */
+  more: number;
 }
 
 export interface MessagePage {
@@ -30,6 +59,67 @@ export interface MessagePage {
   pageSize: number;
   total: number;
 }
+
+/** A search as the form holds it. Empty text is no filter. */
+export interface SearchQuery {
+  words: string;
+  from: string;
+  to: string;
+  subject: string;
+  attachment: string;
+  /** RFC 3339 instants, or null for no bound. */
+  listDateFrom: string | null;
+  listDateBefore: string | null;
+  /** True keeps only messages with attachments. */
+  hasAttachments: boolean;
+  page: number;
+}
+
+export interface SearchPage extends MessagePage {
+  /** Messages the search couldn't look at yet. */
+  notIncluded: number;
+  /** The words had nothing to search for, so this is the list's page. */
+  fullList: boolean;
+  /** Search needs a rebuild and answered anyway. */
+  mayBeIncomplete: boolean;
+}
+
+/** The fields a search request names when it breaks a rule. */
+export const SEARCH_FIELDS = [
+  "words",
+  "from",
+  "to",
+  "subject",
+  "attachment",
+  "list_date_from",
+  "list_date_before",
+  "has_attachments",
+  "page",
+] as const;
+
+export type SearchField = (typeof SEARCH_FIELDS)[number];
+
+/** Why search can't run: the category of its last failure. */
+export const SEARCH_CAUSES = [
+  "search_process_stopped",
+  "search_process_did_not_start",
+  "index_write_failed",
+] as const;
+
+export type SearchCause = (typeof SEARCH_CAUSES)[number];
+
+export type SearchResult =
+  | ApiResult<SearchPage>
+  | { kind: "invalid_fields"; fields: SearchField[] }
+  | { kind: "page_too_deep" }
+  | { kind: "search_took_too_long" }
+  | {
+      kind: "search_unavailable";
+      cause: SearchCause;
+      /** RFC 3339 in UTC, or null while a start is under way. */
+      nextStartAt: string | null;
+    }
+  | { kind: "search_did_not_answer" };
 
 /** The source column's CHECK constraint enforces the same set on the server. */
 export type SourceType = "manual_import" | "imap_collection";
@@ -91,6 +181,10 @@ export const FAILURE_CATEGORIES = [
   "temp_file_not_removed",
   "message_too_large",
   "message_removed",
+  "search_process_stopped",
+  "search_process_did_not_start",
+  "search_process_did_not_answer",
+  "index_write_failed",
 ] as const;
 
 export type FailureCategory = (typeof FAILURE_CATEGORIES)[number];
@@ -440,6 +534,38 @@ export async function getMessage(
     fetch,
     `/api/messages/${encodeURIComponent(id)}`,
     parseHistory,
+  );
+}
+
+/**
+ * Searches. The query goes in the body, so search words stay out of
+ * addresses, which proxies and browser history record.
+ */
+export async function searchMessages(
+  query: SearchQuery,
+  fetch: Fetch = globalThis.fetch,
+): Promise<SearchResult> {
+  const reply = await send(fetch, "POST", "/api/search", {
+    body: {
+      words: query.words,
+      from: query.from,
+      to: query.to,
+      subject: query.subject,
+      attachment: query.attachment,
+      list_date_from: query.listDateFrom,
+      list_date_before: query.listDateBefore,
+      has_attachments: query.hasAttachments,
+      page: query.page,
+    },
+  });
+  if (reply.kind === "timed_out") return { kind: "unavailable" };
+  if (reply.kind !== "answer") return reply;
+  if (reply.status === 200) {
+    const value = parseSearchPage(reply.body);
+    return value === null ? { kind: "unavailable" } : { kind: "ok", value };
+  }
+  return (
+    parseSearchRefusal(reply.status, reply.body) ?? { kind: "unavailable" }
   );
 }
 
@@ -852,6 +978,56 @@ function parseMessagePage(body: unknown): MessagePage | null {
   return { items: messages as Message[], page, pageSize, total };
 }
 
+function parseSearchPage(body: unknown): SearchPage | null {
+  const page = parseMessagePage(body);
+  const notIncluded = field(body, "not_included");
+  const fullList = field(body, "full_list");
+  const mayBeIncomplete = field(body, "may_be_incomplete");
+  if (
+    page === null ||
+    !isCount(notIncluded) ||
+    typeof fullList !== "boolean" ||
+    typeof mayBeIncomplete !== "boolean"
+  ) {
+    return null;
+  }
+  return { ...page, notIncluded, fullList, mayBeIncomplete };
+}
+
+function parseSearchRefusal(
+  status: number,
+  body: unknown,
+): Exclude<
+  SearchResult,
+  { kind: "ok" | "session_ended" | "unavailable" }
+> | null {
+  const error = field(body, "error");
+  if (status === 400 && error === "invalid_fields") {
+    const fields = field(body, "fields");
+    if (
+      !Array.isArray(fields) ||
+      !fields.every((name) => isOneOf(name, SEARCH_FIELDS))
+    ) {
+      return null;
+    }
+    return { kind: "invalid_fields", fields };
+  }
+  if (status === 400 && error === "page_too_deep") return { kind: error };
+  if (status === 422 && error === "search_took_too_long")
+    return { kind: error };
+  if (status === 503 && error === "search_did_not_answer")
+    return { kind: error };
+  if (status === 503 && error === "search_unavailable") {
+    const cause = field(body, "cause");
+    const nextStartAt = field(body, "next_start_at");
+    if (!isOneOf(cause, SEARCH_CAUSES) || !isTimeOrNull(nextStartAt)) {
+      return null;
+    }
+    return { kind: error, cause, nextStartAt };
+  }
+  return null;
+}
+
 function parseHistory(body: unknown): MessageHistory | null {
   const id = field(body, "id");
   const contentHash = field(body, "content_hash");
@@ -1261,12 +1437,24 @@ export function parseMessage(value: unknown): Message | null {
   const id = field(value, "id");
   const contentHash = field(value, "content_hash");
   const size = field(value, "size");
+  const processing = field(value, "processing");
+  const listDate = field(value, "list_date");
+  const listDateIsArchiveTime = field(value, "list_date_is_archive_time");
+  const sender = parseNullable(field(value, "sender"), parseSender);
+  const subject = field(value, "subject");
+  const hasAttachments = field(value, "has_attachments");
   const observationCount = field(value, "observation_count");
   const latest = parseObservation(field(value, "latest"));
   if (
     !isCount(id) ||
     !isContentHash(contentHash) ||
     !isCount(size) ||
+    !isOneOf(processing, PROCESSING_STATES) ||
+    !isTime(listDate) ||
+    typeof listDateIsArchiveTime !== "boolean" ||
+    sender === undefined ||
+    (subject !== null && typeof subject !== "string") ||
+    typeof hasAttachments !== "boolean" ||
     !isCount(observationCount) ||
     latest === null
   ) {
@@ -1276,10 +1464,29 @@ export function parseMessage(value: unknown): Message | null {
     id,
     contentHash,
     size,
-    observedAt: latest.observedAt,
+    processing,
+    listDate,
+    listDateIsArchiveTime,
+    sender,
+    subject,
+    hasAttachments,
     observationCount,
     latest,
   };
+}
+
+function parseSender(value: unknown): Sender | null {
+  const name = field(value, "name");
+  const address = field(value, "address");
+  const more = field(value, "more");
+  if (
+    (name !== null && typeof name !== "string") ||
+    (address !== null && typeof address !== "string") ||
+    !isCount(more)
+  ) {
+    return null;
+  }
+  return { name, address, more };
 }
 
 /** Reads a field of a JSON object, or undefined when value isn't one. */

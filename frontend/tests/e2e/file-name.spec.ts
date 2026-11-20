@@ -4,7 +4,9 @@ import { startServer, type TestServer } from "./support/server";
 
 // A hostile file name, which only a direct request can send, shows as plain
 // text with its bidi override as a code. No script runs, and the page's
-// policy reports no violation, so nothing even tried to.
+// policy reports no violation, so nothing even tried to. Once processing has
+// read a message, its row shows the sender and subject, so the file name is
+// checked where it always shows: the history.
 
 const EMAIL = "admin@example.test";
 const PASSWORD = "correct horse battery";
@@ -68,18 +70,13 @@ test("a hostile name shows as text with its override as a code", async ({
     .getByRole("list", { name: "Messages" })
     .getByRole("listitem");
   await expect(row).toHaveCount(1);
-  await expect(row).toContainText(MARKUP);
-  await expect(row).toContainText("U+202E");
-  await expect(row).toContainText("lmth.exe");
-  expect(await row.textContent()).not.toContain("\u202E");
   await expect(row.locator("img, script")).toHaveCount(0);
 
-  // The history shows the whole name the same way.
   await row.getByRole("link", { name: /history of/i }).click();
   const drawer = page.getByRole("dialog", { name: "History" });
-  await expect(drawer.getByRole("listitem")).toContainText(
-    `${MARKUP}U+202Elmth.exe`,
-  );
+  const entry = drawer.getByRole("listitem");
+  await expect(entry).toContainText(`${MARKUP}U+202Elmth.exe`);
+  expect(await drawer.textContent()).not.toContain("\u202E");
   await expect(drawer.locator("img, script")).toHaveCount(0);
 
   expect(await page.evaluate(() => window.__ran)).toBeUndefined();
@@ -91,7 +88,8 @@ test("a hostile name shows as text with its override as a code", async ({
 
 // A long name is cut 12 characters from its end, here just after a space. The
 // part before the cut is a flex item, which dropped the space it ended with,
-// so the row read "zum 1.Dezember.eml".
+// so the name read "zum 1.Dezember.eml". The history's title cuts the name as
+// an unprocessed row does.
 test("a space where a long name is cut still shows", async ({ page }) => {
   const name = "Vertrag zum 1. Dezember.eml";
   await signIn(page);
@@ -102,19 +100,25 @@ test("a space where a long name is cut still shows", async ({ page }) => {
   expect(imported.status()).toBe(201);
   await page.reload();
 
-  const width = await page
-    .getByRole("link", { name: `History of ${name}` })
-    .evaluate((link) => {
-      const walker = document.createTreeWalker(link, NodeFilter.SHOW_TEXT);
-      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-        const text = node.textContent ?? "";
-        if (!text.endsWith(" ")) continue;
-        const space = document.createRange();
-        space.setStart(node, text.length - 1);
-        space.setEnd(node, text.length);
-        return space.getBoundingClientRect().width;
-      }
-      return null;
-    });
+  await page
+    .getByRole("list", { name: "Messages" })
+    .getByRole("link", { name: /^History of/ })
+    .click();
+  const title = page
+    .getByRole("dialog", { name: `History of ${name}` })
+    .getByRole("heading", { level: 2 });
+  await expect(title).toBeVisible();
+  const width = await title.locator("bdi").evaluate((shown) => {
+    const walker = document.createTreeWalker(shown, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const text = node.textContent ?? "";
+      if (!text.endsWith(" ")) continue;
+      const space = document.createRange();
+      space.setStart(node, text.length - 1);
+      space.setEnd(node, text.length);
+      return space.getBoundingClientRect().width;
+    }
+    return null;
+  });
   expect(width).toBeGreaterThan(0);
 });

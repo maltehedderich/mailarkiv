@@ -56,6 +56,13 @@ async function signInWithOneMessage(page: Page) {
   await expect(rowLink(page)).toBeVisible();
 }
 
+/** Import turns off once the import has ended, until the next file. */
+async function importEnded(page: Page) {
+  await expect(
+    page.getByRole("button", { name: "Import", exact: true }),
+  ).toBeDisabled();
+}
+
 function rowLink(page: Page) {
   return page.getByRole("link", { name: /history of/i });
 }
@@ -80,9 +87,9 @@ test("a repeat import adds history and no copy", async ({ page }) => {
   await importFile(page, "first.eml");
   await expect(rowLink(page)).toBeVisible();
   await importFile(page, "second.eml");
-  await expect(messages).toContainText("2×");
+  await importEnded(page);
   await importFile(page, "second.eml");
-  await expect(messages).toContainText("3×");
+  await importEnded(page);
 
   await expect(messages.getByRole("listitem")).toHaveCount(1);
   const stored = await readdir(join(server.dataDir, "blobs"), {
@@ -94,8 +101,8 @@ test("a repeat import adds history and no copy", async ({ page }) => {
   await rowLink(page).click();
   await expect(drawer(page)).toBeVisible();
 
-  // It names the message as its row does, by the newest entry's name, and
-  // counts the entries as the row's 3× does.
+  // It names the message by the newest entry's name, and counts every
+  // entry.
   await expect(
     page.getByRole("dialog", { name: "History of second.eml" }),
   ).toBeVisible();
@@ -471,15 +478,15 @@ test("at 360 px a long name fits, and Download stays in view", async ({
   await signIn(page);
   await importFile(page, longName);
   await expect(rowLink(page)).toBeVisible();
-  for (const count of [2, 3, 4, 5, 6]) {
+  for (let count = 2; count <= 6; count++) {
     await importFile(page, longName);
-    await expect(page.getByRole("list", { name: "Messages" })).toContainText(
-      `${count}×`,
-    );
+    await importEnded(page);
   }
 
   await rowLink(page).click();
-  await expect(drawer(page)).toBeVisible();
+  await expect(
+    drawer(page).getByRole("heading", { name: "Entries 6" }),
+  ).toBeVisible();
   await page.setViewportSize({ width: 360, height: 480 });
 
   await expect(drawer(page).getByRole("listitem").first()).toContainText(
