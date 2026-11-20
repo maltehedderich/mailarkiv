@@ -98,3 +98,43 @@ func TestShutdownDuringSync(t *testing.T) {
 		t.Errorf("after a restart the list holds %v, want the message once", got)
 	}
 }
+
+// SIGTERM ends the search process and the parse workers inside the grace
+// period, and the server leaves no child process behind.
+func TestShutdownWithSearchRunning(t *testing.T) {
+	dataDir := t.TempDir()
+	createAdmin(t, dataDir)
+	server := startServer(t, dataDir)
+	token := signInOverHTTP(t, server.baseURL, adminAddress)
+	importFixture(t, server, token, plainFixture(t, "html-only.eml"))
+	server.waitForSearch(token, "quartals")
+
+	children := childProcesses(t, server.cmd.Process.Pid)
+	workers, searchProcesses := 0, 0
+	for _, child := range children {
+		switch {
+		case len(child.args) == 2 && filepath.Base(child.args[0]) == "mailarkiv" && child.args[1] == "parse-worker":
+			workers++
+		case len(child.args) == 1 && filepath.Base(child.args[0]) == "mailarkiv-search":
+			searchProcesses++
+		}
+	}
+	if len(children) != 3 || workers != 2 || searchProcesses != 1 {
+		t.Fatalf("the server's children are %+v, want two parse workers and one search process", children)
+	}
+
+	started := time.Now()
+	code := server.stop(syscall.SIGTERM)
+	elapsed := time.Since(started)
+	if code != 0 {
+		t.Errorf("exit code = %d, want 0:\n%s", code, server.stderr())
+	}
+	if elapsed > shutdownLimit {
+		t.Errorf("the server took %s to exit, want at most %s", elapsed, shutdownLimit)
+	}
+	for _, child := range children {
+		if isAlive(child.pid) {
+			t.Errorf("child %d %v still runs after the server exited", child.pid, child.args)
+		}
+	}
+}
