@@ -75,6 +75,9 @@ export interface SearchQuery {
   page: number;
 }
 
+/** The last page a search can ask for. A later one answers page_too_deep. */
+export const SEARCH_MAX_PAGE = 2_000;
+
 export interface SearchPage extends MessagePage {
   /** Messages the search couldn't look at yet. */
   notIncluded: number;

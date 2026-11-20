@@ -6,7 +6,9 @@
 //! open index.
 
 mod analysis;
+mod collector;
 mod directory;
+mod faults;
 mod frame;
 mod index;
 mod protocol;
@@ -19,6 +21,7 @@ use std::process::ExitCode;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
+use std::time::{Duration, Instant};
 
 use index::OpenIndex;
 use protocol::{Answer, Done, ErrorCode, Hello, PROTOCOL, Request, Search};
@@ -37,6 +40,10 @@ type Indexes = Arc<RwLock<HashMap<u64, Arc<OpenIndex>>>>;
 fn main() -> ExitCode {
     if std::env::args_os().len() > 1 {
         eprintln!("usage: mailarkiv-search (started by the MailArkiv server, takes no arguments)");
+        return ExitCode::from(2);
+    }
+    if faults::init().is_err() {
+        eprintln!("mailarkiv-search: MAILARKIV_SEARCH_FAULTS isn't a list of point=action");
         return ExitCode::from(2);
     }
 
@@ -93,7 +100,13 @@ fn main() -> ExitCode {
             },
             Request::Search(search) => match open_index(search.generation) {
                 Some(index) => {
-                    let _ = searches.send((search, index));
+                    // Time waiting for a search thread counts.
+                    let deadline = Instant::now() + Duration::from_millis(search.deadline_ms);
+                    let _ = searches.send(SearchJob {
+                        search,
+                        index,
+                        deadline,
+                    });
                 }
                 None => {
                     let _ = answers.send(unknown());
@@ -133,12 +146,22 @@ fn tantivy_version() -> String {
         .to_string()
 }
 
-fn run_searches(jobs: &Mutex<Receiver<(Search, Arc<OpenIndex>)>>, answers: &Sender<Answer>) {
+struct SearchJob {
+    search: Search,
+    index: Arc<OpenIndex>,
+    deadline: Instant,
+}
+
+fn run_searches(jobs: &Mutex<Receiver<SearchJob>>, answers: &Sender<Answer>) {
     loop {
         let job = jobs.lock().unwrap().recv();
-        let Ok((search, index)) = job else { return };
-        let done: Done = query::search(&index, &search);
-        if answers.send(Answer::ok(search.id, done)).is_err() {
+        let Ok(job) = job else { return };
+        let id = job.search.id;
+        let answer = match query::search(&job.index, &job.search, job.deadline) {
+            Ok(done) => Answer::ok(id, done),
+            Err(error) => Answer::error(id, error),
+        };
+        if answers.send(answer).is_err() {
             return;
         }
     }

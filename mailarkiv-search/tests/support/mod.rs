@@ -79,9 +79,26 @@ impl Search {
         search
     }
 
+    /// Starts the program with MAILARKIV_SEARCH_FAULTS set to faults, and
+    /// checks its hello.
+    pub fn start_with_faults(dir: &DataDir, faults: &str) -> Search {
+        let mut search = Search::spawn(dir, Some(faults));
+        let hello = search.frame();
+        assert_eq!(hello["type"], "hello", "first frame {hello}");
+        search
+    }
+
     pub fn start_without_hello(dir: &DataDir) -> Search {
-        let mut child = Command::new(PROGRAM)
-            .env_clear()
+        Search::spawn(dir, None)
+    }
+
+    fn spawn(dir: &DataDir, faults: Option<&str>) -> Search {
+        let mut command = Command::new(PROGRAM);
+        command.env_clear();
+        if let Some(faults) = faults {
+            command.env("MAILARKIV_SEARCH_FAULTS", faults);
+        }
+        let mut child = command
             .current_dir(dir.path())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -169,31 +186,33 @@ impl Search {
 
     /// Searches generation for words and returns the answer.
     pub fn search(&mut self, generation: u64, words: &str, offset: u64, limit: u64) -> Value {
-        self.call(json!({
-            "op": "search",
-            "generation": generation,
-            "words": words,
-            "from": "",
-            "to": "",
-            "subject": "",
-            "attachment": "",
-            "list_date_from": null,
-            "list_date_before": null,
-            "has_attachments": false,
-            "offset": offset,
-            "limit": limit,
-            "deadline_ms": 10000,
-        }))
+        self.query(
+            generation,
+            json!({"words": words, "offset": offset, "limit": limit}),
+        )
+    }
+
+    /// Sends a search on generation with every field empty, its first page of
+    /// 50, and a 10 s deadline, except for the fields in changes.
+    pub fn query(&mut self, generation: u64, changes: Value) -> Value {
+        let mut request = search_request(0, generation, "");
+        for (field, value) in changes.as_object().expect("changes is an object") {
+            request[field] = value.clone();
+        }
+        self.call(request)
     }
 
     /// The IDs a search for words finds on its first page of 50.
     pub fn ids(&mut self, generation: u64, words: &str) -> Vec<u64> {
-        let answer = self.search(generation, words, 0, 50);
-        let ok = &answer["ok"];
-        assert!(ok.is_object(), "search {words:?} answered {answer}");
-        ok["ids"]
+        self.found(generation, json!({"words": words}))
+    }
+
+    /// The IDs a search with changes finds, as query sends it.
+    pub fn found(&mut self, generation: u64, changes: Value) -> Vec<u64> {
+        let answer = self.query(generation, changes.clone());
+        answer["ok"]["ids"]
             .as_array()
-            .unwrap_or_else(|| panic!("search {words:?} answered {answer}"))
+            .unwrap_or_else(|| panic!("search {changes} answered {answer}"))
             .iter()
             .map(|id| id.as_u64().unwrap())
             .collect()
@@ -209,10 +228,24 @@ impl Drop for Search {
 
 /// Starts the program with args and returns how it exited.
 pub fn run_with_args(args: &[&str]) -> ExitStatus {
+    let mut command = Command::new(PROGRAM);
+    command.args(args).env_clear();
+    run(command)
+}
+
+/// Starts the program with MAILARKIV_SEARCH_FAULTS set to faults and returns
+/// how it exited.
+pub fn run_with_faults(faults: &str) -> ExitStatus {
+    let mut command = Command::new(PROGRAM);
+    command.env_clear().env("MAILARKIV_SEARCH_FAULTS", faults);
+    run(command)
+}
+
+/// Runs command in a new data directory, with standard input open, until it
+/// exits.
+fn run(mut command: Command) -> ExitStatus {
     let dir = DataDir::new();
-    let mut child = Command::new(PROGRAM)
-        .args(args)
-        .env_clear()
+    let mut child = command
         .current_dir(dir.path())
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
@@ -230,6 +263,27 @@ pub fn run_with_args(args: &[&str]) -> ExitStatus {
         }
         thread::sleep(Duration::from_millis(10));
     }
+}
+
+/// A complete search request for words, with every filter empty, the first
+/// page of 50, and a 10 s deadline.
+pub fn search_request(id: u64, generation: u64, words: &str) -> Value {
+    json!({
+        "id": id,
+        "op": "search",
+        "generation": generation,
+        "words": words,
+        "from": "",
+        "to": "",
+        "subject": "",
+        "attachment": "",
+        "list_date_from": null,
+        "list_date_before": null,
+        "has_attachments": false,
+        "offset": 0,
+        "limit": 50,
+        "deadline_ms": 10000,
+    })
 }
 
 /// Encodes value as a frame: a 4-byte big-endian length, then the JSON.
@@ -274,4 +328,15 @@ pub fn document(id: u64, subject: &str) -> Value {
         "attachment_names": [],
         "text": [],
     })
+}
+
+/// A document whose subject is "Gemeinsam", from one address to others.
+pub fn addressed(id: u64, from: &str, to: &[&str]) -> Value {
+    let mut document = document(id, "Gemeinsam");
+    document["from"] = json!([{ "name": null, "address": from }]);
+    document["to"] = to
+        .iter()
+        .map(|address| json!({ "address": address }))
+        .collect();
+    document
 }

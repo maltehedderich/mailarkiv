@@ -27,6 +27,18 @@ func testWorkerCommand() *exec.Cmd {
 // searchProgram finds bin/mailarkiv-search from the repository root.
 func searchProgram(t *testing.T) string {
 	t.Helper()
+	return builtProgram(t, filepath.Join("bin", "mailarkiv-search"), "search:build")
+}
+
+// faultsSearchProgram finds the search program's build with fault points.
+func faultsSearchProgram(t *testing.T) string {
+	t.Helper()
+	return builtProgram(t, filepath.Join("bin", "faults", "mailarkiv-search"), "search:build:faults")
+}
+
+// builtProgram finds path from the repository root, which task builds.
+func builtProgram(t *testing.T, path, task string) string {
+	t.Helper()
 	dir, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
@@ -41,23 +53,26 @@ func searchProgram(t *testing.T) string {
 		}
 		dir = parent
 	}
-	program := filepath.Join(dir, "bin", "mailarkiv-search")
+	program := filepath.Join(dir, path)
 	if _, err := os.Stat(program); err != nil {
-		t.Fatalf("%s is missing; run mise run search:build", program)
+		t.Fatalf("%s is missing; run mise run %s", program, task)
 	}
 	return program
 }
 
 // background runs fn until the test ends.
-func background(t *testing.T, fn func(context.Context)) {
+// It returns a function that stops fn early and waits for it.
+func background(t *testing.T, fn func(context.Context)) func() {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		fn(ctx)
 	}()
-	t.Cleanup(func() {
+	stop := func() {
 		cancel()
 		<-done
-	})
+	}
+	t.Cleanup(stop)
+	return stop
 }

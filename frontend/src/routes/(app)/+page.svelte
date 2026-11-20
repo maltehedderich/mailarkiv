@@ -1,14 +1,17 @@
 <script lang="ts">
   import { onDestroy, tick } from "svelte";
 
-  import { beforeNavigate, goto, refreshAll } from "$app/navigation";
+  import { beforeNavigate, goto, refreshAll, snapshot } from "$app/navigation";
   import { page } from "$app/state";
 
   import {
     getSession,
+    SEARCH_MAX_PAGE,
     searchMessages,
     type ApiResult,
     type MessagePage,
+    type SearchPage,
+    type SearchQuery,
     type SearchResult,
   } from "#lib/api.js";
   import FailedLoad from "#lib/components/FailedLoad.svelte";
@@ -16,13 +19,19 @@
   import ImportBox from "#lib/components/ImportBox.svelte";
   import ListHeader from "#lib/components/ListHeader.svelte";
   import MessageTable from "#lib/components/MessageTable.svelte";
+  import ResultsHeader from "#lib/components/ResultsHeader.svelte";
+  import SearchForm from "#lib/components/SearchForm.svelte";
   import { choose } from "#lib/import/choose.js";
   import { isBusy, type ImportStep } from "#lib/import/step.js";
   import { upload } from "#lib/import/upload.js";
   import { pastTheEndHref, wantedPage } from "#lib/list/pages.js";
-  import { wordsSearch } from "#lib/search/form.js";
+  import {
+    emptyForm,
+    filterCount,
+    readForm,
+    type SearchForm as Form,
+  } from "#lib/search/form.js";
   import { signInPath } from "#lib/session.js";
-  import { CATEGORIES } from "#lib/status/categories.js";
   import {
     dismissToast,
     IMPORT_KEY,
@@ -94,68 +103,91 @@
   // A search shows in place of the list. It lives only in this page's state,
   // never in its address, so the words stay out of the browser's history and
   // any proxy's log.
-  let words = $state("");
-  type Search = { result: SearchResult | null };
+  let form = $state<Form>(emptyForm());
+  let filtersOpen = $state(false);
+  /** Why the days can't be searched, from the last submit. */
+  let dayProblem = $state<string | null>(null);
+  type Search = {
+    /** What was submitted, at the page asked for. */
+    query: SearchQuery;
+    /** The answer for that page, or null while it loads. */
+    result: SearchResult | null;
+    /** The last page this search answered, kept while another loads. */
+    shown: SearchPage | null;
+  };
   let search = $state<Search | null>(null);
   /** Counts searches, so only the last one's answer shows. */
   let searches = 0;
 
-  async function runSearch(event: SubmitEvent) {
-    event.preventDefault();
+  async function runSearch(query: SearchQuery, shown: SearchPage | null) {
     const run = ++searches;
-    const wanted = words.trim();
-    if (wanted === "") {
-      search = null;
-      return;
-    }
-    search = { result: null };
-    const result = await searchMessages(wordsSearch(wanted));
+    search = { query, result: null, shown };
+    const result = await searchMessages(query);
     if (run !== searches || !mounted) return;
     if (result.kind === "session_ended") {
       await goto(signInPath(page.url));
       return;
     }
-    search = { result };
+    search = {
+      query,
+      result,
+      shown: result.kind === "ok" ? result.value : shown,
+    };
+  }
+
+  function submitSearch() {
+    const reading = readForm(form);
+    dayProblem = reading.kind === "invalid" ? reading.problem : null;
+    if (reading.kind === "invalid") return;
+    if (reading.kind === "list") {
+      searches++;
+      search = null;
+      return;
+    }
+    void runSearch(reading.query, null);
+  }
+
+  // A turn keeps what was submitted, not what the form holds now.
+  function turnSearch(to: number) {
+    if (search === null) return;
+    window.scrollTo({ top: 0 });
+    void runSearch({ ...search.query, page: to }, search.shown);
   }
 
   function clearSearch() {
     searches++;
-    words = "";
+    form = emptyForm();
+    dayProblem = null;
     search = null;
   }
 
-  const counts = new Intl.NumberFormat("en-US");
+  const canClear = $derived(
+    search !== null ||
+      dayProblem !== null ||
+      form.words !== "" ||
+      filterCount(form) > 0,
+  );
 
-  function plural(count: number, one: string, many: string): string {
-    return `${counts.format(count)} ${count === 1 ? one : many}`;
-  }
-
-  /** The line that says how the search went, read out as it changes. */
-  const outcome = $derived.by(() => {
-    const result = search?.result;
-    if (result === undefined || result === null) return "";
-    switch (result.kind) {
-      case "ok": {
-        const { total, notIncluded, fullList } = result.value;
-        const found = fullList
-          ? "These words have nothing to search for, so this is the whole list."
-          : total === 0
-            ? "No messages match."
-            : `${plural(total, "message matches", "messages match")}.`;
-        if (notIncluded === 0) return found;
-        return `${found} ${plural(notIncluded, "message isn't", "messages aren't")} included yet, because processing or indexing hasn't reached them.`;
+  // Back to this page, from another page or a message's history, shows the
+  // same search without asking again. SvelteKit keeps this in the tab's
+  // session storage.
+  snapshot({
+    capture: () => ({
+      form: $state.snapshot(form),
+      filtersOpen,
+      search: $state.snapshot(search),
+    }),
+    restore: (value) => {
+      searches++;
+      form = value.form;
+      filtersOpen = value.filtersOpen;
+      dayProblem = null;
+      search = value.search;
+      // Left before the answer came, so ask again.
+      if (value.search !== null && value.search.result === null) {
+        void runSearch(value.search.query, value.search.shown);
       }
-      case "search_took_too_long":
-        return "This search took too long. Add words or filters.";
-      case "search_unavailable":
-        return `Search is unavailable: ${CATEGORIES[result.cause].name}. The list and downloads still work.`;
-      case "search_did_not_answer":
-        return "Search didn't answer. Try again.";
-      case "invalid_fields":
-        return "Search words can be at most 1,000 characters.";
-      default:
-        return "Search didn't finish. Try again.";
-    }
+    },
   });
 
   // The list streams, so the load settles before the list arrives. Try again
@@ -175,26 +207,44 @@
   // SvelteKit announces the title after each navigation, and only when it
   // changes, so the page number makes Previous and Next heard. It comes from
   // the address, because the list may still be loading when the title is read.
-  const title = $derived(
-    wanted !== null && wanted > 1
+  const title = $derived.by(() => {
+    if (search !== null) {
+      return search.query.page > 1
+        ? `Search results, page ${search.query.page}`
+        : "Search results";
+    }
+    return wanted !== null && wanted > 1
       ? `Messages, page ${data.pageParam}`
-      : "Messages",
-  );
+      : "Messages";
+  });
+
+  // A search pages in this page's state, so its page stays out of the
+  // address. The range shows the page asked for at once, from the last total.
+  const searchPager = $derived.by(() => {
+    if (search === null || search.shown === null) return null;
+    const { pageSize, total } = search.shown;
+    if (total === 0) return null;
+    return {
+      page: search.query.page,
+      pageSize,
+      total,
+      label: "Search results",
+      maxPage: SEARCH_MAX_PAGE,
+      onturn: turnSearch,
+    };
+  });
 
   // While another page loads, the pager shows it at once, from the address
   // and the last total. The turn shows where it went before the rows arrive,
   // and on a slow archive the arrows stay put for the next one. A page past
   // the end has no range, and moves back once its answer arrives.
   const pager = $derived.by(() => {
-    if (
-      search !== null ||
-      data.session.kind !== "ok" ||
-      settled?.result.kind !== "ok"
-    ) {
+    if (data.session.kind !== "ok" || settled?.result.kind !== "ok") {
       return null;
     }
     if (list?.kind === "ok") {
-      return list.value.items.length > 0 ? list.value : null;
+      const { page, pageSize, total, items } = list.value;
+      return items.length > 0 ? { page, pageSize, total } : null;
     }
     if (list !== null || wanted === null) return null;
     const { pageSize, total } = settled.result.value;
@@ -302,34 +352,30 @@
 <svelte:window onbeforeunload={warnBeforeUnload} />
 
 <main>
-  <ListHeader title="Messages" {pager} bind:heading />
+  <ListHeader
+    title="Messages"
+    pager={search === null ? pager : searchPager}
+    bind:heading
+  />
 
   <div class="body">
-    <!-- The input has no name, so a submit before the page has loaded its
-         script sends no words in the address. -->
-    <form class="search" role="search" onsubmit={runSearch}>
-      <label class="field words">
-        <span>Words</span>
-        <input type="search" bind:value={words} maxlength="1000" />
-      </label>
-      <button class="button large" type="submit">Search</button>
-      {#if search !== null}
-        <button class="button large ghost" type="button" onclick={clearSearch}
-          >Clear</button
-        >
-      {/if}
-    </form>
+    <SearchForm
+      bind:form
+      bind:open={filtersOpen}
+      {dayProblem}
+      {canClear}
+      onsearch={submitSearch}
+      onclear={clearSearch}
+    />
 
     <ImportBox {step} onchoose={chooseFiles} onimport={startImport} />
 
     {#if search !== null}
-      <p
-        class="outcome"
-        class:problem={search.result !== null && search.result.kind !== "ok"}
-        role="status"
-      >
-        {outcome}
-      </p>
+      <ResultsHeader
+        result={search.result}
+        shown={search.shown}
+        maxResults={SEARCH_MAX_PAGE * (search.shown?.pageSize ?? 0)}
+      />
       {#if search.result === null}
         <MessageTable items={null} label="Search results" />
       {:else if search.result.kind === "ok" && search.result.value.items.length > 0}
@@ -364,30 +410,8 @@
     padding: var(--space-24);
   }
 
-  .empty,
-  .outcome {
+  .empty {
     color: var(--text-3);
-  }
-
-  .outcome.problem {
-    color: var(--state-bad-text);
-  }
-
-  .search {
-    display: flex;
-    align-items: flex-end;
-    gap: var(--space-8);
-  }
-
-  /* An input keeps its default width unless told otherwise, which pushed
-     Clear off a 360 px screen. */
-  .words {
-    flex: auto;
-    min-width: 0;
-  }
-
-  .words > input {
-    min-width: 0;
   }
 
   @media (max-width: 720px) {
