@@ -1,0 +1,7 @@
+From: Jan Moll <jan@example.com>
+To: anna@example.com
+Subject: <b>Fett</b><script>alert(1)</script>
+Date: Mon, 09 Nov 2026 17:00:00 +0000
+Content-Type: text/plain; charset=utf-8
+
+HTML im Betreff.

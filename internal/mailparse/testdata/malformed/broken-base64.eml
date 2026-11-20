@@ -1,0 +1,24 @@
+From: Erik Lang <erik@example.com>
+To: anna@example.com
+Subject: Bericht mit kaputtem Anhang
+Date: Mon, 09 Nov 2026 10:00:00 +0000
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="mixed"
+
+--mixed
+Content-Type: text/plain; charset=utf-8
+
+Der Bericht steht, der Anhang ist kaputt.
+--mixed
+Content-Type: application/pdf; name="kaputt.pdf"
+Content-Disposition: attachment; filename="kaputt.pdf"
+Content-Transfer-Encoding: base64
+
+!!!!@@@@ das ist kein base64 ####
+--mixed
+Content-Type: application/octet-stream
+Content-Disposition: attachment; filename="heil.bin"
+Content-Transfer-Encoding: base64
+
+SGVpbGVyIEFuaGFuZwo=
+--mixed--

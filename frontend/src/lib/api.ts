@@ -518,8 +518,26 @@ export async function listMessages(
   page: string | null,
   fetch: Fetch = globalThis.fetch,
 ): Promise<ApiResult<MessagePage>> {
-  const query = page === null ? "" : `?${new URLSearchParams({ page })}`;
-  return getJSON(fetch, `/api/messages${query}`, parseMessagePage);
+  return getJSON(fetch, `/api/messages${pageQuery(page)}`, parseMessagePage);
+}
+
+/**
+ * Lists one page of the messages processed with problems or that couldn't be
+ * read, as listMessages lists every message.
+ */
+export async function listProcessingProblems(
+  page: string | null,
+  fetch: Fetch = globalThis.fetch,
+): Promise<ApiResult<MessagePage>> {
+  return getJSON(
+    fetch,
+    `/api/processing-problems${pageQuery(page)}`,
+    parseMessagePage,
+  );
+}
+
+function pageQuery(page: string | null): string {
+  return page === null ? "" : `?${new URLSearchParams({ page })}`;
 }
 
 /**

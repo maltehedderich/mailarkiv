@@ -122,8 +122,9 @@ func (s *Server) BodyFetches(folder string, uid imap.UID) int {
 
 // Renumber recreates a folder with a new UIDVALIDITY and adds its messages
 // again, newest first, so most get a new UID. It returns each old UID's new
-// one. Faults follow their messages. Holds, flags, and body fetch counts
-// don't. The folder must hold only messages AddMessage added.
+// one. Faults and raw bytes follow their messages. Holds, flags, and body
+// fetch counts don't. The folder must hold only messages AddMessage or
+// AddRawMessage added.
 func (s *Server) Renumber(folder string) (map[imap.UID]imap.UID, error) {
 	folder = canonical(folder)
 	view, err := s.open(folder)
@@ -141,6 +142,12 @@ func (s *Server) Renumber(folder string) (map[imap.UID]imap.UID, error) {
 			faults[key.uid] = fault
 		}
 	}
+	raw := map[imap.UID]bool{}
+	for key := range s.raw {
+		if key.folder == folder {
+			raw[key.uid] = true
+		}
+	}
 	s.mu.Unlock()
 	if int(count) != len(messages) {
 		return nil, fmt.Errorf("imaptest: %s holds messages AddMessage didn't add", folder)
@@ -154,7 +161,11 @@ func (s *Server) Renumber(folder string) (map[imap.UID]imap.UID, error) {
 	}
 	renumbered := make(map[imap.UID]imap.UID, len(messages))
 	for _, message := range slices.Backward(messages) {
-		uid, err := s.AddMessage(folder, message.body, message.received)
+		add := s.AddMessage
+		if raw[message.uid] {
+			add = s.AddRawMessage
+		}
+		uid, err := add(folder, message.body, message.received)
 		if err != nil {
 			return nil, err
 		}
@@ -178,7 +189,8 @@ func (s *Server) addedLocked(key messageKey) (addedMessage, bool) {
 	return s.added[key.folder][index], true
 }
 
-// faulted is a message whose FETCH the session answers itself.
+// faulted is a message whose FETCH the session answers itself: one with a
+// fault, or one AddRawMessage added, whose zero fault serves its bytes.
 type faulted struct {
 	fault   Fault
 	message addedMessage
@@ -199,7 +211,7 @@ func (s *Server) fetching(folder string, uids []imap.UID, body bool) (map[imap.U
 				holds = append(holds, hold)
 			}
 		}
-		if fault, ok := s.faults[key]; ok {
+		if fault, ok := s.faults[key]; ok || s.raw[key] {
 			message, _ := s.addedLocked(key)
 			faults[uid] = faulted{fault: fault, message: message}
 		}

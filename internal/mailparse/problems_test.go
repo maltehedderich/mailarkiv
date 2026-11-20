@@ -189,7 +189,8 @@ func TestProblems(t *testing.T) {
 		}
 	})
 
-	t.Run("a structure problem on the whole message", func(t *testing.T) {
+	// The scanner closes the open boundary, so enmime doesn't report it too.
+	t.Run("a message that ends with its boundary open", func(t *testing.T) {
 		got := Read(crlf(
 			"From: anna@example.test",
 			`Content-Type: multipart/mixed; boundary="b"`,
@@ -199,7 +200,30 @@ func TestProblems(t *testing.T) {
 			"",
 			"Never closed",
 		))
-		want := []Problem{{Position: "", DeclaredType: "multipart/mixed", Kind: MalformedStructure}}
+		want := []Problem{{Position: "", DeclaredType: "multipart/mixed", Kind: CutShort}}
+		if !reflect.DeepEqual(got.Problems, want) {
+			t.Errorf("problems %s, want %s", describe(got.Problems), describe(want))
+		}
+		if got.Plain == nil || got.Plain.Content != "Never closed" {
+			t.Errorf("plain body %s, want the text before the end", describe(got.Plain))
+		}
+	})
+
+	// enmime finds no parts and reports nothing, so the text would vanish
+	// without a problem.
+	t.Run("a multipart without a boundary", func(t *testing.T) {
+		got := Read(crlf(
+			"From: anna@example.test",
+			"Content-Type: multipart/mixed",
+			"",
+			"--b",
+			"Content-Type: text/plain",
+			"",
+			"Text",
+			"--b--",
+			"",
+		))
+		want := []Problem{{Position: "1", DeclaredType: "multipart/mixed", Kind: MalformedStructure}}
 		if !reflect.DeepEqual(got.Problems, want) {
 			t.Errorf("problems %s, want %s", describe(got.Problems), describe(want))
 		}

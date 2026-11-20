@@ -8,7 +8,14 @@
     page,
     pageSize,
     total,
-  }: { page: number; pageSize: number; total: number } = $props();
+    label,
+  }: {
+    page: number;
+    pageSize: number;
+    total: number;
+    /** The list's name, which starts the spoken range. */
+    label: string;
+  } = $props();
 
   const numbers = new Intl.NumberFormat("en-US");
 
@@ -34,7 +41,7 @@
        The no-break space keeps "of" with the total when the range wraps. -->
   <p class="range">
     <span aria-hidden="true">{first}–{last} of&nbsp;{all}</span>
-    <span class="visually-hidden">Messages {first} to {last} of {all}</span>
+    <span class="visually-hidden">{label} {first} to {last} of {all}</span>
   </p>
   <div class="arrows">
     {#if page > 1}

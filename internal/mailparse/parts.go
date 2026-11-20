@@ -24,6 +24,10 @@ func walkParts(root *enmime.Part, problems *problemList) []leaf {
 	var visit func(part *enmime.Part, position string)
 	visit = func(part *enmime.Part, position string) {
 		problems.addPart(part, position)
+		if strings.HasPrefix(part.ContentType, "multipart/") && part.Boundary == "" {
+			// enmime finds no parts in it and reports nothing.
+			problems.add(position, declaredType(part), MalformedStructure)
+		}
 		if !isContainer(part) {
 			leaves = append(leaves, leaf{part: part, position: position})
 			return

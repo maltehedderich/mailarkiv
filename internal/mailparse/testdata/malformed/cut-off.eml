@@ -1,0 +1,18 @@
+From: Hans Ruf <hans@example.com>
+To: anna@example.com
+Subject: Abgeschnitten
+Date: Mon, 09 Nov 2026 13:00:00 +0000
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="mixed"
+
+--mixed
+Content-Type: text/plain; charset=utf-8
+
+Der erste Teil ist ganz.
+--mixed
+Content-Type: application/pdf; name="halb.pdf"
+Content-Disposition: attachment; filename="halb.pdf"
+Content-Transfer-Encoding: base64
+
+JVBERi0xLjQKJSBzeW50aGV0aWMgY29udHJhY3QgZm9yIHRlc3RzLCBjdXQgb2ZmIG1pZCBwYXJ0
+JVBERi0x

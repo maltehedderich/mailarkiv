@@ -2,7 +2,10 @@ package processing
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
+	"time"
 
 	"github.com/maltehedderich/mailarkiv/internal/mailparse"
 )
@@ -27,14 +30,10 @@ type Content struct {
 
 // Read parses message id's original in a background worker. An original
 // that is missing or damaged gives archive.ErrOriginalMissing or
-// archive.ErrOriginalDamaged, and its failure event is recorded.
+// archive.ErrOriginalDamaged, and its failure event is recorded. Workers
+// that stop on it give a *WorkerStoppedError.
 func (p *Processor) Read(ctx context.Context, id int64, withText bool) (Content, error) {
-	original, err := p.archive.OpenVerified(ctx, id)
-	if err != nil {
-		return Content{}, fmt.Errorf("read message %d: %w", id, err)
-	}
-	defer original.File.Close()
-	answer, err := p.pool.read(ctx, original.File, original.Size, withText)
+	answer, _, err := p.readOriginal(ctx, id, withText)
 	if err != nil {
 		return Content{}, fmt.Errorf("read message %d: %w", id, err)
 	}
@@ -61,4 +60,30 @@ func addresses(list []mailparse.Address) []Address {
 		out = append(out, Address{Name: address.Name, Address: address.Address})
 	}
 	return out
+}
+
+// readOriginal opens message id's original and parses it in a worker. It
+// also returns the time of the message's first entry. A worker that dies may
+// have met bad luck rather than the message, so a fresh one tries once more.
+// A worker killed at the limit isn't tried again. Each stop is logged.
+func (p *Processor) readOriginal(ctx context.Context, id int64, withText bool) (readAnswer, time.Time, error) {
+	original, err := p.archive.OpenVerified(ctx, id)
+	if err != nil {
+		return readAnswer{}, time.Time{}, err
+	}
+	defer original.File.Close()
+	for attempt := 1; ; attempt++ {
+		answer, err := p.pool.read(ctx, original.File, original.Size, withText)
+		stopped, ok := errors.AsType[*WorkerStoppedError](err)
+		if !ok {
+			return answer, original.FirstArchivedAt, err
+		}
+		p.logger.Error("processing_worker_stopped", "message_id", id, "exit", stopped.Exit)
+		if stopped.TookTooLong || attempt == 2 {
+			return readAnswer{}, original.FirstArchivedAt, stopped
+		}
+		if _, err := original.File.Seek(0, io.SeekStart); err != nil {
+			return readAnswer{}, original.FirstArchivedAt, fmt.Errorf("read the original again: %w", err)
+		}
+	}
 }

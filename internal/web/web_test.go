@@ -177,7 +177,7 @@ func (h *harness) openSearch(t *testing.T, program string) *search.Module {
 		Status: h.status, Logger: logger, Now: h.clock.Now,
 	}
 	if program != "" {
-		pool, err := processing.NewPool(2, testWorkerCommand, logger)
+		pool, err := processing.NewPool(processing.BackgroundWorkers, processing.MessageLimit, testWorkerCommand, logger)
 		if err != nil {
 			t.Fatal(err)
 		}
