@@ -371,3 +371,29 @@ func TestStoreCollectedRestoresAMissingOriginal(t *testing.T) {
 		t.Errorf("event = %+v, want it marked restored", event)
 	}
 }
+
+// A collection dates a new message as an import does. Collecting the bytes
+// in another folder, or importing them, later changes neither time.
+func TestStoreCollectedSetsTheFirstArchiveTime(t *testing.T) {
+	f := newFixture(t)
+	f.addSources(t)
+	body := []byte("From: sender@example.test\r\nSubject: Dated\r\n\r\nBody\r\n")
+
+	stored, ok := f.collectBytes(t, body, CollectedMeta{SourceID: sourceAnna, FolderID: annaInbox}).(Stored)
+	if !ok || stored.Outcome != Archived {
+		t.Fatalf("collection = %#v, want Stored with Archived", stored)
+	}
+	f.assertArchiveTimes(t, stored.Message.ID, testNow)
+
+	f.archive.now = func() time.Time { return testNow.Add(time.Hour) }
+	if again, ok := f.collectBytes(t, body, CollectedMeta{SourceID: sourceAnna, FolderID: annaArchive}).(Stored); !ok || again.Message.ID != stored.Message.ID {
+		t.Fatalf("collection in another folder = %#v, want Stored for message %d", again, stored.Message.ID)
+	}
+	f.assertArchiveTimes(t, stored.Message.ID, testNow)
+
+	f.archive.now = func() time.Time { return testNow.Add(2 * time.Hour) }
+	if imported, ok := f.importBytes(t, body, nil).(Stored); !ok || imported.Message.ID != stored.Message.ID {
+		t.Fatalf("import = %#v, want Stored for message %d", imported, stored.Message.ID)
+	}
+	f.assertArchiveTimes(t, stored.Message.ID, testNow)
+}

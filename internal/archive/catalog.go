@@ -31,12 +31,13 @@ const messageColumns = `m.id, m.content_hash, m.size,
        (SELECT COUNT(*) FROM source_observation c WHERE c.message_id = m.id),
        ` + entryColumns
 
-// Order messages by their most recent entry.
+// The list's order, newest first, which message_list_order serves. The ID
+// makes it total, so pages never repeat or skip a message.
 const listQuery = `
 SELECT ` + messageColumns + `
 FROM message m
 JOIN source_observation o ON o.id = m.latest_observation_id
-ORDER BY m.latest_observation_id DESC
+ORDER BY m.list_date DESC, m.first_archived_at DESC, m.id DESC
 LIMIT ? OFFSET ?`
 
 // List returns page number page, counting from 1. A page past the end has no

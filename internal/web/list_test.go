@@ -13,7 +13,8 @@ import (
 )
 
 // With 10,000 messages, every page answers in under 2 seconds, and walking
-// the pages reaches every message once, most recent import first.
+// the pages reaches every message once, newest first. Each seeded message's
+// list date is its one import's time, so import times fall from row to row.
 func TestListAtTenThousand(t *testing.T) {
 	const messages = 10_000
 	const budget = 2 * time.Second
@@ -87,9 +88,10 @@ func TestListAtTenThousand(t *testing.T) {
 }
 
 // seedMessages writes count messages straight to the catalog in one
-// transaction, each with one import a second after the last. Real imports
-// would take minutes, and archtest ignores test files. Three statements
-// instead of three per message, because the race detector slows each one.
+// transaction, each with one import a second after the last, dated by that
+// import as capture dates it. Real imports would take minutes, and archtest
+// ignores test files. Three statements instead of three per message, because
+// the race detector slows each one.
 func seedMessages(t *testing.T, h *harness, count int) {
 	t.Helper()
 	first := testNow.Add(-time.Duration(count) * time.Second).UnixMilli()
@@ -99,8 +101,8 @@ func seedMessages(t *testing.T, h *harness, count int) {
 			args  []any
 		}{
 			{`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ?)
-			  INSERT INTO message (id, content_hash, size)
-			  SELECT i, printf('%064x', i), 100 + i FROM n`, []any{count}},
+			  INSERT INTO message (id, content_hash, size, first_archived_at, list_date, processing_state)
+			  SELECT i, printf('%064x', i), 100 + i, ? + i * 1000, ? + i * 1000, 'not_processed' FROM n`, []any{count, first, first}},
 			{`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ?)
 			  INSERT INTO source_observation (id, message_id, source_type, observed_at, account_email, file_name)
 			  SELECT i, i, 'manual_import', ? + i * 1000, 'admin@example.test', printf('seed-%05d.eml', i) FROM n`, []any{count, first}},
