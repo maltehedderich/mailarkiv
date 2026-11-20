@@ -9,12 +9,17 @@ bun = "1.4"
 node = "26"
 "go:honnef.co/go/tools/cmd/staticcheck" = "2026.2.2"
 "go:golang.org/x/vuln/cmd/govulncheck" = "1.9.0"
+rust = { version = "1.100.0", targets = "x86_64-unknown-linux-musl", profile = "minimal", components = "rustfmt,clippy" }
+"cargo:cargo-audit" = "0.23.0"
 
 [tasks.setup]
 description = "Install project dependencies from the lockfiles"
 run = [
+  # mimalloc's C code in the search program builds with musl-gcc.
+  "command -v musl-gcc >/dev/null || { echo 'Install musl-gcc: sudo apt-get install musl-tools' >&2; exit 1; }",
   "cd frontend && bun install --frozen-lockfile && bunx playwright install chromium",
   "go mod download",
+  "cd mailarkiv-search && cargo fetch --locked",
 ]
 
 [tasks."frontend:build"]
@@ -29,26 +34,45 @@ depends = ["frontend:build"]
 env = { CGO_ENABLED = "0" }
 run = "go build -o bin/mailarkiv ./cmd/mailarkiv"
 
+# The server looks for the search program beside its own executable.
+[tasks."search:build"]
+description = "Build the search program as a static binary"
+dir = "mailarkiv-search"
+run = [
+  "cargo build --release --locked --target x86_64-unknown-linux-musl",
+  "mkdir -p ../bin && cp target/x86_64-unknown-linux-musl/release/mailarkiv-search ../bin/mailarkiv-search",
+]
+
+[tasks."search:build:faults"]
+description = "Build the search program with fault points for the process tests"
+dir = "mailarkiv-search"
+run = [
+  "cargo build --locked --features faults --target x86_64-unknown-linux-musl",
+  "mkdir -p ../bin/faults && cp target/x86_64-unknown-linux-musl/debug/mailarkiv-search ../bin/faults/mailarkiv-search",
+]
+
 [tasks.build]
-description = "Build the web interface and the server binary"
-depends = ["frontend:build", "server:build"]
+description = "Build the web interface, the server binary, and the search program"
+depends = ["frontend:build", "server:build", "search:build"]
 
 [tasks.dev]
 description = "Run the server and the frontend dev server with reload"
 depends = ["frontend:build"]
 run = [{ tasks = ["dev:server", "dev:frontend"] }]
 
+# A built binary instead of `go run`, so the search program sits beside it.
 [tasks."dev:server"]
 description = "Run the server against the local development data"
 hide = true
+depends = ["server:build", "search:build"]
 run = [
   "mkdir -p .data",
-  "if [ ! -e .data/mailarkiv.key ]; then go run ./cmd/mailarkiv key create --data-dir .data/dev .data/mailarkiv.key; fi",
+  "if [ ! -e .data/mailarkiv.key ]; then bin/mailarkiv key create --data-dir .data/dev .data/mailarkiv.key; fi",
   '''
   if [ -z "${SSL_CERT_FILE:-}" ] && [ -f .data/ca.pem ]; then
     export SSL_CERT_FILE="$PWD/.data/ca.pem"
   fi
-  exec go run ./cmd/mailarkiv serve --data-dir .data/dev --key-file .data/mailarkiv.key
+  exec bin/mailarkiv serve --data-dir .data/dev --key-file .data/mailarkiv.key
   ''',
 ]
 
@@ -75,13 +99,17 @@ run = [
   "go vet ./...",
   "staticcheck ./...",
   "cd frontend && bunx prettier --check .",
+  "cd mailarkiv-search && cargo fmt --check",
+  "cd mailarkiv-search && cargo clippy --locked --all-targets -- -D warnings",
+  "cd mailarkiv-search && cargo clippy --locked --all-targets --features faults -- -D warnings",
 ]
 
 [tasks.format]
-description = "Format Go and frontend files"
+description = "Format Go, frontend, and Rust files"
 run = [
   "gofmt -w cmd internal frontend/embed.go",
   "cd frontend && bunx prettier --write .",
+  "cd mailarkiv-search && cargo fmt",
 ]
 
 [tasks.typecheck]
@@ -91,19 +119,26 @@ dir = "frontend"
 run = ["bunx svelte-kit sync", "bunx svelte-check --fail-on-warnings"]
 
 [tasks.audit]
-description = "Scan Go and frontend dependencies for known vulnerabilities"
+description = "Scan Go, frontend, and Rust dependencies for known vulnerabilities"
 depends = ["frontend:build"]
 run = [
   "govulncheck ./...",
   # deepmerge only merges trusted Vite options at build time and isn't bundled.
   # Remove this exception when a fixed version ships or the plugin drops it.
   "cd frontend && bun audit --ignore=GHSA-gcqx-w48m-w2h4",
+  "cd mailarkiv-search && cargo audit",
 ]
 
+# Go tests start the search program from bin/ and bin/faults/.
 [tasks."server:test"]
 description = "Run the Go tests with the race detector"
-depends = ["frontend:build"]
+depends = ["frontend:build", "search:build", "search:build:faults"]
 run = "go test -race ./..."
+
+[tasks."search:test"]
+description = "Run the search program's tests, with and without fault points"
+dir = "mailarkiv-search"
+run = ["cargo test --locked", "cargo test --locked --features faults"]
 
 [tasks."frontend:test"]
 description = "Run the frontend unit tests"
@@ -122,7 +157,7 @@ run = [
 
 [tasks.test]
 description = "Run the full test suite"
-depends = ["server:test", "frontend:test", "test:e2e"]
+depends = ["search:test", "server:test", "frontend:test", "test:e2e"]
 
 [tasks.check]
 description = "Run everything CI gates on"
@@ -130,4 +165,4 @@ depends = ["lint", "typecheck", "test", "audit"]
 
 [tasks.clean]
 description = "Delete generated files, and never the data in .data/"
-run = "rm -rf bin frontend/build frontend/.svelte-kit"
+run = "rm -rf bin frontend/build frontend/.svelte-kit mailarkiv-search/target"

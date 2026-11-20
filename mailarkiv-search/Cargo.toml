@@ -1,0 +1,26 @@
+[package]
+name = "mailarkiv-search"
+edition = "2024"
+rust-version = "1.100"
+license-file = "../LICENSE"
+publish = false
+
+[dependencies]
+tantivy = { version = "=0.27.0", default-features = false, features = ["mmap", "lz4-compression"] }
+mimalloc = "=0.1.52"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+log = "0.4"
+
+[features]
+# Fault points for tests, read from MAILARKIV_SEARCH_FAULTS. Release builds leave it off.
+faults = []
+
+# A panic must end the process, so the server sees a crash and restarts it.
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+lto = true
+codegen-units = 1

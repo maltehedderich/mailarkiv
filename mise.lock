@@ -51,6 +51,11 @@ url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.4/bun-windows-x
 checksum = "sha256:0f20ce6674d4f2dbcc8c5d59fdf99f7ba45f8c3b367e0f5781cbfa30a1c78d99"
 url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.4/bun-windows-x64-baseline.zip"
 
+[[tools."cargo:cargo-audit"]]
+version = "0.23.0"
+backend = "cargo:cargo-audit"
+specifiers = ["0.23.0"]
+
 [[tools.go]]
 version = "1.27.4"
 backend = "core:go"
@@ -158,3 +163,13 @@ url = "https://nodejs.org/dist/v26.13.0/node-v26.13.0-win-x64.zip"
 [tools.node."platforms.windows-x64-baseline"]
 checksum = "sha256:dcc60d59a0746999f99064a01c020445d54d84228c691cdbf25b49ac3b59150a"
 url = "https://nodejs.org/dist/v26.13.0/node-v26.13.0-win-x64.zip"
+
+[[tools.rust]]
+version = "1.100.0"
+backend = "core:rust"
+specifiers = ["1.100.0"]
+
+[tools.rust.options]
+components = "clippy,rustfmt"
+profile = "minimal"
+targets = "x86_64-unknown-linux-musl"
