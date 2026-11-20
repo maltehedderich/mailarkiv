@@ -1,0 +1,9 @@
+From: anna@example.test
+To: Team <team@example.test>, bob@example.test
+Cc: "Carla Braun" <carla@example.test>
+Bcc: geheim@example.test
+Subject: Empfaenger
+Date: Sun, 08 Nov 2026 10:00:00 +0000
+Content-Type: text/plain; charset=utf-8
+
+Body.
