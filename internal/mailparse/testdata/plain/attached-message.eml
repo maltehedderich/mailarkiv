@@ -1,0 +1,24 @@
+From: Frieda Lang <frieda@example.test>
+To: anna@example.test
+Subject: Weitergeleitet
+Date: Sun, 08 Nov 2026 09:00:00 +0000
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="outer-boundary"
+
+--outer-boundary
+Content-Type: text/plain; charset=utf-8
+
+Siehe unten.
+--outer-boundary
+Content-Type: message/rfc822
+
+From: someone@example.test
+Subject: Innen
+Content-Type: multipart/mixed; boundary="inner-boundary"
+
+--inner-boundary
+Content-Type: text/plain
+
+Innere Nachricht.
+--inner-boundary--
+--outer-boundary--

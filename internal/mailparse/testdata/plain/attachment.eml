@@ -1,0 +1,18 @@
+From: Dora Klein <dora@example.test>
+To: anna@example.test
+Subject: Vertrag
+Date: Sat, 07 Nov 2026 14:00:00 +0000
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="mixed-boundary"
+
+--mixed-boundary
+Content-Type: text/plain; charset=utf-8
+
+Anbei der Vertrag.
+--mixed-boundary
+Content-Type: application/pdf; name="ignored-type-name.pdf"
+Content-Disposition: attachment; filename="Vertrag_2026.pdf"
+Content-Transfer-Encoding: base64
+
+JVBERi0xLjQKJSBzeW50aGV0aWMgY29udHJhY3QgZm9yIHRlc3RzCiUlRU9GCg==
+--mixed-boundary--
