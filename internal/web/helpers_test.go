@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"net/http"
@@ -143,6 +144,23 @@ func assertJSONResponse(t *testing.T, response *http.Response, body string, stat
 func hashOf(b []byte) string {
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
+}
+
+// notProcessedRow is a list row for a message processing hasn't read: no
+// sender or subject, and the first archive time as its list date. latest is
+// the row's latest entry as JSON.
+func notProcessedRow(id int64, content []byte, listDate string, observationCount int, latest string) string {
+	return fmt.Sprintf(`{"id":%d,"content_hash":%q,"size":%d,"processing":"not_processed",`+
+		`"list_date":%q,"list_date_is_archive_time":true,"sender":null,"subject":null,"has_attachments":false,`+
+		`"observation_count":%d,"latest":%s}`,
+		id, hashOf(content), len(content), listDate, observationCount, latest)
+}
+
+// importEntry is a manual import's entry as JSON. fileName is JSON: a quoted
+// name or null.
+func importEntry(observedAt, account, fileName string) string {
+	return fmt.Sprintf(`{"source_type":"manual_import","observed_at":%q,"account_email":%q,"file_name":%s}`,
+		observedAt, account, fileName)
 }
 
 // mail is a small synthetic message.

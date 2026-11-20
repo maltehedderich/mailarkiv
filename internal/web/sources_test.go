@@ -208,8 +208,7 @@ func TestAddSource(t *testing.T) {
 			ids[item.ContentHash] = item.ID
 		}
 		item := func(content []byte, latest string) string {
-			return fmt.Sprintf(`{"id":%d,"content_hash":%q,"size":%d,"observation_count":1,"latest":%s}`,
-				ids[hashOf(content)], hashOf(content), len(content), latest)
+			return notProcessedRow(ids[hashOf(content)], content, testTime, 1, latest)
 		}
 		// Every entry has the same time, so the most recent is the one
 		// recorded last. The sync took INBOX before Archiv.

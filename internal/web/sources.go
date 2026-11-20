@@ -52,7 +52,7 @@ type changeRequest struct {
 // addSource answers POST /api/sources. It signs in before saving, so a
 // source is saved only if its mailbox accepts the password.
 func addSource(s *server, w http.ResponseWriter, r *http.Request) {
-	request, ok := decodeBody[sourceRequest](w, r)
+	request, ok := decodeBody[sourceRequest](w, r, maxSourceBody)
 	if !ok || !s.allowSignIn(w, r) {
 		return
 	}
@@ -75,7 +75,7 @@ func addSource(s *server, w http.ResponseWriter, r *http.Request) {
 // checkMailbox answers POST /api/sources/check: it signs in with new details
 // and lists the server's folders.
 func checkMailbox(s *server, w http.ResponseWriter, r *http.Request) {
-	request, ok := decodeBody[checkRequest](w, r)
+	request, ok := decodeBody[checkRequest](w, r, maxSourceBody)
 	if !ok || !s.allowSignIn(w, r) {
 		return
 	}
@@ -100,7 +100,7 @@ func checkStoredSource(s *server, w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	request, ok := decodeBody[changeRequest](w, r)
+	request, ok := decodeBody[changeRequest](w, r, maxSourceBody)
 	if !ok || !s.allowSignIn(w, r) {
 		return
 	}
@@ -123,7 +123,7 @@ func editSource(s *server, w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	request, ok := decodeBody[sourceRequest](w, r)
+	request, ok := decodeBody[sourceRequest](w, r, maxSourceBody)
 	if !ok || !s.allowSignIn(w, r) {
 		return
 	}
@@ -251,10 +251,10 @@ func writeServerFolders(w http.ResponseWriter, folders []collect.ServerFolder) {
 	}{entries})
 }
 
-// decodeBody reads one JSON object of known fields, at most maxSourceBody
-// bytes long. Otherwise it answers 400 naming no field.
-func decodeBody[T any](w http.ResponseWriter, r *http.Request) (T, bool) {
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxSourceBody))
+// decodeBody reads one JSON object of known fields, at most limit bytes
+// long. Otherwise it answers 400 naming no field.
+func decodeBody[T any](w http.ResponseWriter, r *http.Request, limit int64) (T, bool) {
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, limit))
 	decoder.DisallowUnknownFields()
 	var request, zero T
 	if err := decoder.Decode(&request); err != nil {

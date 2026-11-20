@@ -94,10 +94,11 @@ func TestRepeatImports(t *testing.T) {
 
 	latest := imports[len(imports)-1]
 	response, body := h.do(t, http.MethodGet, "/api/messages", admin)
-	assertJSONResponse(t, response, body, http.StatusOK, fmt.Sprintf(
-		`{"items":[{"id":%d,"content_hash":%q,"size":%d,"observation_count":10,`+
-			`"latest":{"source_type":"manual_import","observed_at":%q,"account_email":%q,"file_name":%q}}],"page":1,"page_size":50,"total":1}`,
-		id, hashOf(content), len(content), formatTime(latest.at), latest.account, latest.name))
+	// The list date is the first import's time until processing reads the
+	// message.
+	assertJSONResponse(t, response, body, http.StatusOK, `{"items":[`+
+		notProcessedRow(id, content, formatTime(imports[0].at), 10, importEntry(formatTime(latest.at), latest.account, quote(latest.name)))+
+		`],"page":1,"page_size":50,"total":1}`)
 
 	history := h.history(t, admin, id)
 	if history.ID != id || history.ContentHash != hashOf(content) || history.Size != int64(len(content)) {
