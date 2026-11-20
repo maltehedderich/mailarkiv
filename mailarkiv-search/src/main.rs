@@ -1,12 +1,38 @@
 //! `mailarkiv-search` holds MailArkiv's search indexes. Only the server starts
-//! it, and the two talk over its standard input and output.
+//! it, and the two talk over its standard input and output in frames.
+//!
+//! One thread reads frames and dispatches them, one writes answers in any
+//! order, two run searches, one opens indexes, and one writer thread runs per
+//! open index.
 
-use std::io;
+mod analysis;
+mod directory;
+mod frame;
+mod index;
+mod protocol;
+mod query;
+mod schema;
+
+use std::collections::HashMap;
+use std::io::{self, BufWriter};
 use std::process::ExitCode;
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, Mutex, RwLock};
+use std::thread;
+
+use index::OpenIndex;
+use protocol::{Answer, Done, ErrorCode, Hello, PROTOCOL, Request, Search};
 
 // musl's own allocator built the index 2.4 times slower.
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
+const SEARCH_THREADS: usize = 2;
+
+/// Exit status for a frame that broke the protocol's rules.
+const BROKEN_FRAME: u8 = 3;
+
+type Indexes = Arc<RwLock<HashMap<u64, Arc<OpenIndex>>>>;
 
 fn main() -> ExitCode {
     if std::env::args_os().len() > 1 {
@@ -14,9 +40,133 @@ fn main() -> ExitCode {
         return ExitCode::from(2);
     }
 
-    // Standard input closes when the server is gone, and then this process ends.
-    match io::copy(&mut io::stdin().lock(), &mut io::sink()) {
-        Ok(_) => ExitCode::SUCCESS,
-        Err(_) => ExitCode::FAILURE,
+    let (answers, outgoing) = mpsc::channel();
+    thread::spawn(move || write_answers(outgoing));
+
+    let indexes = Indexes::default();
+    let (searches, search_jobs) = mpsc::channel();
+    let search_jobs = Arc::new(Mutex::new(search_jobs));
+    for _ in 0..SEARCH_THREADS {
+        let jobs = Arc::clone(&search_jobs);
+        let answers = answers.clone();
+        thread::spawn(move || run_searches(&jobs, &answers));
+    }
+    let (opens, open_jobs) = mpsc::channel();
+    {
+        let indexes = Arc::clone(&indexes);
+        let answers = answers.clone();
+        thread::spawn(move || run_opens(open_jobs, &indexes, &answers));
+    }
+
+    let mut input = io::stdin().lock();
+    loop {
+        let request: Request = match frame::read(&mut input) {
+            Ok(request) => request,
+            // Standard input closes when the server is gone or stopping.
+            // Committed batches are safe on disk, and the server sends again
+            // whatever it didn't see answered.
+            Err(frame::ReadError::Closed) => return ExitCode::SUCCESS,
+            Err(frame::ReadError::Broken) => return ExitCode::from(BROKEN_FRAME),
+        };
+        if !request.is_valid() {
+            return ExitCode::from(BROKEN_FRAME);
+        }
+        let id = request.id();
+        let open_index = |generation| indexes.read().unwrap().get(&generation).cloned();
+        let unknown = || Answer::error(id, ErrorCode::UnknownGeneration);
+        match request {
+            Request::Open {
+                generation, create, ..
+            } => {
+                let _ = opens.send((id, generation, create));
+            }
+            Request::Index {
+                generation,
+                documents,
+                commit,
+                ..
+            } => match open_index(generation) {
+                Some(index) => index.write(id, documents, commit),
+                None => {
+                    let _ = answers.send(unknown());
+                }
+            },
+            Request::Search(search) => match open_index(search.generation) {
+                Some(index) => {
+                    let _ = searches.send((search, index));
+                }
+                None => {
+                    let _ = answers.send(unknown());
+                }
+            },
+        }
+    }
+}
+
+/// Sends the hello, then every answer as it comes.
+fn write_answers(answers: Receiver<Answer>) {
+    let mut output = BufWriter::new(io::stdout().lock());
+    let hello = Hello {
+        kind: "hello",
+        protocol: PROTOCOL,
+        tantivy: tantivy_version(),
+        schema_version: schema::SCHEMA_VERSION,
+    };
+    if frame::write(&mut output, &hello).is_err() {
+        return;
+    }
+    for answer in answers {
+        // A failed write means the server is gone, and standard input
+        // closes next.
+        if frame::write(&mut output, &answer).is_err() {
+            return;
+        }
+    }
+}
+
+/// The version of the Tantivy built in, from "tantivy v0.27.0, index_format v7".
+fn tantivy_version() -> String {
+    let full = tantivy::version_string();
+    full.strip_prefix("tantivy v")
+        .and_then(|rest| rest.split(',').next())
+        .unwrap_or(full)
+        .to_string()
+}
+
+fn run_searches(jobs: &Mutex<Receiver<(Search, Arc<OpenIndex>)>>, answers: &Sender<Answer>) {
+    loop {
+        let job = jobs.lock().unwrap().recv();
+        let Ok((search, index)) = job else { return };
+        let done: Done = query::search(&index, &search);
+        if answers.send(Answer::ok(search.id, done)).is_err() {
+            return;
+        }
+    }
+}
+
+fn run_opens(jobs: Receiver<(u64, u64, bool)>, indexes: &Indexes, answers: &Sender<Answer>) {
+    for (id, generation, create) in jobs {
+        let answer = if indexes.read().unwrap().contains_key(&generation) {
+            Answer::ok(id, Done::Opened {})
+        } else {
+            match index::open(generation, create, answers.clone()) {
+                Ok(index) => {
+                    indexes.write().unwrap().insert(generation, Arc::new(index));
+                    Answer::ok(id, Done::Opened {})
+                }
+                Err(failure) => Answer::failed(id, failure),
+            }
+        };
+        if answers.send(answer).is_err() {
+            return;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn tantivy_version_reads_the_version_string() {
+        assert_eq!(super::tantivy_version(), "0.27.0");
     }
 }
