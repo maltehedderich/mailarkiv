@@ -159,25 +159,6 @@ func (m *Module) StartRebuild(ctx context.Context, accountID int64) (Rebuild, er
 	return r.Rebuild, nil
 }
 
-// Progress is the building generation's cursor out of the highest
-// processed_seq, or zero when nothing builds.
-func (m *Module) Progress(ctx context.Context) (Progress, error) {
-	var done int64
-	err := m.config.DB.Reader.QueryRowContext(ctx,
-		"SELECT cursor FROM search_generation WHERE role = ?", roleBuilding).Scan(&done)
-	if errors.Is(err, sql.ErrNoRows) {
-		return Progress{}, nil
-	}
-	if err != nil {
-		return Progress{}, fmt.Errorf("read the build's cursor: %w", err)
-	}
-	highest, err := m.config.Archive.HighestProcessedSeq(ctx)
-	if err != nil {
-		return Progress{}, err
-	}
-	return Progress{Done: done, ToDo: highest}, nil
-}
-
 // openRebuild opens a rebuild's generation that started after the others
 // were opened, and adds its feed. A generation that can't be created fails
 // the rebuild.

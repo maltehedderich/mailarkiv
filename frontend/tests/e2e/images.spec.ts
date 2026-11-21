@@ -105,6 +105,9 @@ function attachmentRow(page: Page, name: string) {
 test("each allowed embedded image shows in its place, and no other", async ({
   page,
 }) => {
+  // Each message waits SETTLE_MS for late requests, so the test takes about
+  // 20 s alone and passes 30 s when the other suites run beside it.
+  test.slow();
   const files = await Promise.all(
     EMBEDDED.map((name) => readMail(IMAGES, name)),
   );

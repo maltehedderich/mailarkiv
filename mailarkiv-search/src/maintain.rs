@@ -12,7 +12,7 @@ use tantivy::indexer::{LogMergePolicy, MergePolicy};
 use tantivy::{FutureResult, Index, IndexWriter, SegmentMeta};
 
 use crate::index::Job;
-use crate::protocol::{Answer, Done};
+use crate::protocol::{Answer, Done, Outgoing};
 
 /// A maintenance run whose merges have started.
 pub struct Run {
@@ -60,7 +60,7 @@ pub fn start(
 
 /// The maintenance thread: waits for each run's merges, then sends the run
 /// back to its writer thread.
-pub fn run(runs: Receiver<Run>, answers: &Sender<Answer>) {
+pub fn run(runs: Receiver<Run>, answers: &Sender<Outgoing>) {
     for run in runs {
         let merges = run.merges.len() as u64;
         let failed = run
@@ -80,7 +80,7 @@ pub fn run(runs: Receiver<Run>, answers: &Sender<Answer>) {
                 unreachable!("only CollectGarbage was sent")
             };
             if answers
-                .send(answer(merged.id, merged.merges, merged.failed))
+                .send(answer(merged.id, merged.merges, merged.failed).into())
                 .is_err()
             {
                 return;

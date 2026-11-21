@@ -108,7 +108,7 @@ func TestNeedsRebuildAfterMaintenanceFailures(t *testing.T) {
 
 	failedRuns := func(n int) {
 		t.Helper()
-		f.waitFor("failed maintenance runs", func() bool { return len(f.failures(opstatus.IndexMaintenanceFailed)) == n })
+		f.waitFor("failed maintenance runs", func() bool { return f.failureCount(opstatus.IndexMaintenanceFailed) == n })
 	}
 	f.importNote(1)
 	failedRuns(1)

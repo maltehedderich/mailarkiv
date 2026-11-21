@@ -12,6 +12,7 @@ mod faults;
 mod frame;
 mod index;
 mod maintain;
+mod output;
 mod protocol;
 mod query;
 mod schema;
@@ -25,7 +26,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use index::{OpenIndex, Searching};
-use protocol::{Answer, Done, ErrorCode, Hello, PROTOCOL, Request, Search};
+use protocol::{Answer, Done, ErrorCode, Hello, Outgoing, PROTOCOL, Request, Search};
 
 // musl's own allocator built the index 2.4 times slower.
 #[global_allocator]
@@ -39,6 +40,7 @@ const BROKEN_FRAME: u8 = 3;
 type Indexes = Arc<RwLock<HashMap<u64, Arc<OpenIndex>>>>;
 
 fn main() -> ExitCode {
+    output::catch_panics();
     if std::env::args_os().len() > 1 {
         eprintln!("usage: mailarkiv-search (started by the MailArkiv server, takes no arguments)");
         return ExitCode::from(2);
@@ -50,6 +52,7 @@ fn main() -> ExitCode {
 
     let (answers, outgoing) = mpsc::channel();
     thread::spawn(move || write_answers(outgoing));
+    output::forward_logs(answers.clone());
 
     let indexes = Indexes::default();
     let (searches, search_jobs) = mpsc::channel();
@@ -112,7 +115,7 @@ fn main() -> ExitCode {
             Request::Maintain { generation, .. } => match open_index(generation) {
                 Some(index) => index.maintain(id),
                 None => {
-                    let _ = answers.send(unknown());
+                    let _ = answers.send(unknown().into());
                 }
             },
             Request::Index {
@@ -123,7 +126,7 @@ fn main() -> ExitCode {
             } => match open_index(generation) {
                 Some(index) => index.write(id, documents, commit),
                 None => {
-                    let _ = answers.send(unknown());
+                    let _ = answers.send(unknown().into());
                 }
             },
             Request::Search(search) => match open_index(search.generation) {
@@ -137,15 +140,15 @@ fn main() -> ExitCode {
                     });
                 }
                 None => {
-                    let _ = answers.send(unknown());
+                    let _ = answers.send(unknown().into());
                 }
             },
         }
     }
 }
 
-/// Sends the hello, then every answer as it comes.
-fn write_answers(answers: Receiver<Answer>) {
+/// Sends the hello, then every answer and log frame as it comes.
+fn write_answers(answers: Receiver<Outgoing>) {
     let mut output = BufWriter::new(io::stdout().lock());
     let hello = Hello {
         kind: "hello",
@@ -181,7 +184,7 @@ struct SearchJob {
     deadline: Instant,
 }
 
-fn run_searches(jobs: &Mutex<Receiver<SearchJob>>, answers: &Sender<Answer>) {
+fn run_searches(jobs: &Mutex<Receiver<SearchJob>>, answers: &Sender<Outgoing>) {
     loop {
         let job = jobs.lock().unwrap().recv();
         let Ok(job) = job else { return };
@@ -190,7 +193,7 @@ fn run_searches(jobs: &Mutex<Receiver<SearchJob>>, answers: &Sender<Answer>) {
             Ok(done) => Answer::ok(id, done),
             Err(error) => Answer::error(id, error),
         };
-        if answers.send(answer).is_err() {
+        if answers.send(answer.into()).is_err() {
             return;
         }
     }
@@ -218,7 +221,7 @@ enum Control {
 fn run_control(
     jobs: Receiver<Control>,
     indexes: &Indexes,
-    answers: &Sender<Answer>,
+    answers: &Sender<Outgoing>,
     maintenance: &Sender<maintain::Run>,
 ) {
     for job in jobs {
@@ -260,7 +263,7 @@ fn run_control(
                 Err(failure) => Answer::failed(id, failure),
             },
         };
-        if answers.send(answer).is_err() {
+        if answers.send(answer.into()).is_err() {
             return;
         }
     }

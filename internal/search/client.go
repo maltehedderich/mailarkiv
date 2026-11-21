@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"regexp"
 	"sync"
 	"time"
 
@@ -67,6 +68,20 @@ type incoming struct {
 	Target string          `json:"target"`
 }
 
+// logLevel and logTarget are the words a log frame may hold: a level, and
+// a Rust module path. Anything else could be text, so it's logged as unknown.
+var (
+	logLevel  = regexp.MustCompile(`^(warn|error)$`)
+	logTarget = regexp.MustCompile(`^[A-Za-z0-9_:]{1,128}$`)
+)
+
+func logWord(word string, allowed *regexp.Regexp) string {
+	if allowed.MatchString(word) {
+		return word
+	}
+	return "unknown"
+}
+
 // client sends numbered requests and matches answers to them, which may
 // arrive in any order. It is safe for concurrent use.
 type client struct {
@@ -104,7 +119,7 @@ func (c *client) read(stdout *bufio.Reader) {
 			break
 		}
 		if frame.Type == "log" {
-			c.logger.Warn("search process log", "level", frame.Level, "target", frame.Target)
+			c.logger.Warn("search process log", "log_level", logWord(frame.Level, logLevel), "target", logWord(frame.Target, logTarget))
 			continue
 		}
 		c.mu.Lock()
@@ -173,6 +188,7 @@ func (c *client) callSent(ctx context.Context, op opstatus.Operation, build func
 		if !ok {
 			return errStopped
 		}
+		c.status.RecordSuccess(opstatus.SearchProcessDidNotAnswer)
 		if frame.Error != "" {
 			return &answerError{code: frame.Error, cause: frame.Cause}
 		}

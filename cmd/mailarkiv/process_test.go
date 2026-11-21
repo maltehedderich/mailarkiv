@@ -627,11 +627,28 @@ type unreferencedEntry struct {
 }
 
 type failureEntry struct {
-	At          string  `json:"at"`
-	Category    string  `json:"category"`
-	MessageID   *int64  `json:"message_id"`
-	ContentHash *string `json:"content_hash"`
-	Restored    bool    `json:"restored"`
+	At          string         `json:"at"`
+	Category    string         `json:"category"`
+	MessageID   *int64         `json:"message_id"`
+	ContentHash *string        `json:"content_hash"`
+	Restored    bool           `json:"restored"`
+	Repeats     int            `json:"repeats"`
+	LastAt      string         `json:"last_at"`
+	Detail      map[string]any `json:"detail"`
+}
+
+type searchEntry struct {
+	State        string `json:"state"`
+	NeedsRebuild *struct {
+		Cause string `json:"cause"`
+		Since string `json:"since"`
+	} `json:"needs_rebuild"`
+	Indexing struct {
+		State string `json:"state"`
+	} `json:"indexing"`
+	Rebuild *struct {
+		ID int64 `json:"id"`
+	} `json:"rebuild"`
 }
 
 type recoveryEntry struct {
@@ -642,10 +659,30 @@ type recoveryEntry struct {
 }
 
 type statusAnswer struct {
-	StartedAt    string              `json:"started_at"`
-	Recovery     recoveryEntry       `json:"recovery"`
-	Unreferenced []unreferencedEntry `json:"unreferenced"`
-	Failures     []failureEntry      `json:"failures"`
+	StartedAt    string                `json:"started_at"`
+	Search       searchEntry           `json:"search"`
+	Recovery     recoveryEntry         `json:"recovery"`
+	Sources      []problemSourceAnswer `json:"sources"`
+	Unreferenced []unreferencedEntry   `json:"unreferenced"`
+	Failures     []failureEntry        `json:"failures"`
+}
+
+// problems is the problem count the status implies: every failure with its
+// repeats, the unreferenced originals, and the problem sources, plus one
+// while search is Unavailable or Needs rebuild and one while indexing is
+// Paused.
+func (s statusAnswer) problems() int {
+	n := len(s.Unreferenced) + len(s.Sources)
+	for _, failure := range s.Failures {
+		n += failure.Repeats
+	}
+	if s.Search.State != "available" {
+		n++
+	}
+	if s.Search.Indexing.State == "paused" {
+		n++
+	}
+	return n
 }
 
 // status reads GET /api/status.
@@ -683,6 +720,18 @@ func (p *serverProcess) problemCount(token string) int {
 		p.t.Errorf("expires_in = %d, want 1 to 43200 seconds", *answer.ExpiresIn)
 	}
 	return *answer.ProblemCount
+}
+
+// assertProblemCount checks the problem count against the count status
+// implies. Search can start or fail again between the reads, so the status
+// is read once more after the count, and the count must lie between the two.
+func (p *serverProcess) assertProblemCount(token string, status statusAnswer) {
+	p.t.Helper()
+	got := p.problemCount(token)
+	before, after := status.problems(), p.status(token).problems()
+	if got < min(before, after) || got > max(before, after) {
+		p.t.Errorf("problem count = %d, want %d from the status before it and %d after", got, before, after)
+	}
 }
 
 // assertLogged stops the server, which guarantees all of its stderr has been

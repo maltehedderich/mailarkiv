@@ -158,7 +158,7 @@ Besides answers, it may send one kind of unsolicited frame:
 { "type": "log", "level": "warn", "target": "tantivy::directory::managed_directory" }
 ```
 
-`level` is `warn` or `error`. `target` is the Rust module path of the record. The record's text is dropped. The server logs these at warn level and doesn't record failure events for them.
+`level` is `warn` or `error`. `target` is the Rust module path of the record, or `unknown` when the record's target isn't one: at most 128 characters of letters, digits, `_`, and `:`. The record's text is dropped. The server logs these at warn level and doesn't record failure events for them.
 
 On standard error, the only line the search process writes is its panic line, after which it aborts:
 
@@ -196,3 +196,4 @@ Builds with the cargo feature `faults` read `MAILARKIV_SEARCH_FAULTS`, a comma-s
 | `exit` | `std::process::abort()` |
 | `fail` | The operation answers its failure code: `write_failed` with cause `other`, `timed_out`, a failed merge, or `index_damaged` |
 | `hang` | Sleeps forever, so the server's time limit fires |
+| `panic` | Panics, so the panic line goes to standard error before the abort. Tests use it to check that the line holds only the location |

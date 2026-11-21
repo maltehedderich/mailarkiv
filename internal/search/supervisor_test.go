@@ -3,8 +3,10 @@ package search
 import (
 	"context"
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -122,6 +124,66 @@ func TestKilledProcessIsStartedAgain(t *testing.T) {
 	if len(started) != 2 || started[1]["restarts"] != float64(1) {
 		t.Errorf("start log %v, want a second start with restarts 1", started)
 	}
+	f.waitFor("search available again", func() bool { return f.module.State().Search == SearchAvailable })
+	var states []any
+	for _, entry := range f.logged("search state") {
+		if len(states) == 0 || states[len(states)-1] != entry["state"] {
+			states = append(states, entry["state"])
+		}
+	}
+	if want := []any{"available", "unavailable", "available"}; !slices.Equal(states, want) {
+		t.Errorf("search state lines went %v, want %v", states, want)
+	}
+}
+
+// A real panic line is logged with its location alone, and the panic is a
+// stop like any other.
+func TestPanicLineIsLogged(t *testing.T) {
+	f := newFixture(t, "")
+	setFaults := f.switchableFaults(faultsSearchProgram(t))
+	setFaults("on-open=panic")
+	f.fastRestarts()
+	f.runSearch()
+	f.waitFor("the panic line", func() bool { return len(f.logged("search process panic")) > 0 })
+	setFaults("")
+
+	entry := f.logged("search process panic")[0]
+	location, _ := entry["location"].(string)
+	if !regexp.MustCompile(`^src/faults\.rs:[0-9]+$`).MatchString(location) || entry["level"] != "ERROR" {
+		t.Errorf("log entry %v, want an error with the location in src/faults.rs", entry)
+	}
+	f.waitFor("search_process_stopped", func() bool { return len(f.failures(opstatus.SearchProcessStopped)) > 0 })
+	stopped := f.failures(opstatus.SearchProcessStopped)[0]
+	if stopped.Detail == nil || stopped.Detail.Signal == nil || *stopped.Detail.Signal != int(syscall.SIGABRT) {
+		t.Errorf("stopped event %+v, want signal 6", stopped)
+	}
+	if ignored := f.logged("search process output ignored"); len(ignored) != 0 {
+		t.Errorf("logged ignored output %v after a panic line alone", ignored)
+	}
+}
+
+// A log frame is logged with its level and target. A level or target that
+// isn't a word the program sends is logged as unknown.
+func TestLogFramesAreLogged(t *testing.T) {
+	f := newFixture(t, "")
+	f.module.command = fakeSearchCommand("log")
+	f.runSearch()
+	f.waitFor("two log lines", func() bool { return len(f.logged("search process log")) == 2 })
+
+	entries := f.logged("search process log")
+	want := []map[string]any{
+		{"level": "WARN", "msg": "search process log", "log_level": "warn", "target": "tantivy::postings::postings_writer"},
+		{"level": "WARN", "msg": "search process log", "log_level": "unknown", "target": "unknown"},
+	}
+	for i, entry := range entries {
+		delete(entry, "time")
+		if !maps.Equal(entry, want[i]) {
+			t.Errorf("log line %d = %v, want %v", i, entry, want[i])
+		}
+	}
+	if strings.Contains(f.log.String(), "Quartalsbericht") {
+		t.Error("the log holds text from a log frame")
+	}
 }
 
 func TestStandardErrorLinesAreOnlyCounted(t *testing.T) {
@@ -174,10 +236,10 @@ func TestRunStopsTheProcess(t *testing.T) {
 }
 
 // The wait before each start doubles from 1 s to 60 s, and a process that ran
-// for 10 minutes resets it.
+// for 10 minutes resets it. The failed starts are one event that repeats.
 func TestRestartWait(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		logger, _ := newLogger()
+		logger, log := newLogger()
 		status := opstatus.New(logger, time.Now)
 		m := New(Config{
 			DataDir: t.TempDir(), Program: filepath.Join(t.TempDir(), "missing"),
@@ -195,8 +257,20 @@ func TestRestartWait(t *testing.T) {
 		<-done
 
 		var starts []time.Time
-		for _, event := range status.Snapshot().Failures {
-			starts = append(starts, event.At)
+		for _, entry := range log.entries(t) {
+			if entry["msg"] != "search failure" {
+				continue
+			}
+			at, err := time.Parse(time.RFC3339Nano, entry["time"].(string))
+			if err != nil {
+				t.Fatal(err)
+			}
+			starts = append(starts, at)
+		}
+		failures := status.Snapshot().Failures
+		if len(failures) != 1 || failures[0].Repeats != 9 || len(starts) != 9 ||
+			!failures[0].At.Equal(starts[0]) || !failures[0].LastAt.Equal(starts[8]) {
+			t.Errorf("listed %+v for starts %v, want one event repeated 9 times from the first to the last", failures, starts)
 		}
 		var waits []time.Duration
 		for i := 1; i < len(starts); i++ {

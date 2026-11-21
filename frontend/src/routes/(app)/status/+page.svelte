@@ -1,8 +1,11 @@
 <script lang="ts">
+  import { invalidateAll } from "$app/navigation";
   import { page } from "$app/state";
 
   import FailedLoad from "#lib/components/FailedLoad.svelte";
   import FullHash from "#lib/components/FullHash.svelte";
+  import RebuildConfirm from "#lib/components/RebuildConfirm.svelte";
+  import SearchStatus from "#lib/components/SearchStatus.svelte";
   import UntrustedText from "#lib/components/UntrustedText.svelte";
   import { formatBytes } from "#lib/format/size.js";
   import { formatTime } from "#lib/format/time.js";
@@ -15,14 +18,16 @@
     UNREFERENCED_MEANING,
     UNREFERENCED_NEXT_STEP,
   } from "#lib/status/categories.js";
+  import { detailFacts } from "#lib/status/detail.js";
   import { groupFailures } from "#lib/status/groups.js";
 
   import type { PageProps } from "./$types";
 
   let { data }: PageProps = $props();
 
-  // This screen states what the server recorded and offers no action that
-  // changes the archive. It never sums the facts up as healthy.
+  // This screen states what the server recorded. Its one action, a rebuild,
+  // changes only the search index, never the archive. It never sums the
+  // facts up as healthy.
 
   // Separators, as the Status item's count shows them.
   const numbers = new Intl.NumberFormat("en-US");
@@ -41,6 +46,16 @@
     }
     wasLoaded = loaded;
   });
+
+  let confirm = $state<RebuildConfirm>();
+  let searchHeading = $state<HTMLHeadingElement>();
+
+  // The Rebuild button goes away once the running rebuild shows, so focus
+  // goes to the section that shows it.
+  async function rebuildStarted() {
+    await invalidateAll();
+    searchHeading?.focus();
+  }
 </script>
 
 <svelte:head>
@@ -54,8 +69,15 @@
 
   <div class="body">
     {#if data.session.kind === "ok" && data.status.kind === "ok"}
-      {@const { startedAt, recovery, unreferenced, failures, sources } =
-        data.status.value}
+      {@const {
+        startedAt,
+        processing,
+        search,
+        recovery,
+        unreferenced,
+        failures,
+        sources,
+      } = data.status.value}
       {@const groups = groupFailures(failures)}
       <!-- What the Status item counts comes first, because that count is why
            most people open this screen. -->
@@ -108,9 +130,9 @@
                     <span class="name">
                       {words.name}{group.restored ? ", restored" : ""}
                     </span>
-                    {#if group.events.length > 1}
+                    {#if group.count > 1}
                       <span class="count">
-                        {numbers.format(group.events.length)} times
+                        {numbers.format(group.count)} times
                       </span>
                     {/if}
                   </h3>
@@ -129,6 +151,19 @@
                         <p class="when">
                           <time datetime={event.at}>{formatTime(event.at)}</time
                           >
+                          {#if event.repeats > 1}
+                            <!-- The server keeps a run of one failure as one
+                                 event, from its first time to its last. -->
+                            <span>
+                              {numbers.format(event.repeats)} times, last
+                              <time datetime={event.lastAt}
+                                >{formatTime(event.lastAt)}</time
+                              >
+                            </span>
+                          {/if}
+                          {#each detailFacts(event.detail) as fact (fact)}
+                            <span>{fact}</span>
+                          {/each}
                           {#if event.source !== null}
                             <!-- A message event names its source, never the
                                  folder or the message. -->
@@ -191,6 +226,38 @@
         </div>
       </section>
 
+      <section aria-labelledby="search">
+        <h2 id="search" bind:this={searchHeading} tabindex="-1">Search</h2>
+        <div class="content">
+          <SearchStatus {search} onrebuild={() => confirm?.open()} />
+        </div>
+      </section>
+
+      <!-- Messages processing read in part or couldn't read have their own
+           list, and aren't counted as problems. -->
+      <section aria-labelledby="processing">
+        <h2 id="processing">Processing</h2>
+        <div class="content">
+          <dl class="facts">
+            <div>
+              <dt>Not processed yet</dt>
+              <dd>{numbers.format(processing.notProcessed)}</dd>
+            </div>
+            <div>
+              <dt>Processed with problems</dt>
+              <dd>{numbers.format(processing.processedWithProblems)}</dd>
+            </div>
+            <div>
+              <dt>Couldn't be read</dt>
+              <dd>{numbers.format(processing.unreadable)}</dd>
+            </div>
+          </dl>
+          {#if processing.processedWithProblems > 0 || processing.unreadable > 0}
+            <p><a href="/problems">Processing problems</a></p>
+          {/if}
+        </div>
+      </section>
+
       <section aria-labelledby="recovery">
         <h2 id="recovery">Recovery</h2>
         <div class="content">
@@ -234,6 +301,8 @@
           began before the start.
         {/if}
       </p>
+
+      <RebuildConfirm bind:this={confirm} onstarted={rebuildStarted} />
     {:else}
       <FailedLoad />
     {/if}
@@ -425,6 +494,17 @@
     column-gap: var(--space-16);
   }
 
+  /* Left-aligned, so the values line up with the Search section's. */
+  .facts > div {
+    display: grid;
+    grid-template-columns: 200px minmax(0, 1fr);
+    column-gap: var(--space-16);
+  }
+
+  .facts dd {
+    text-align: left;
+  }
+
   dt {
     color: var(--text-3);
   }
@@ -460,6 +540,14 @@
 
     .counts > div {
       grid-template-columns: minmax(0, 1fr) 40px;
+    }
+
+    .facts > div {
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
+
+    .facts dd {
+      text-align: right;
     }
   }
 </style>

@@ -1,8 +1,11 @@
 package search
 
 import (
+	"context"
+	"fmt"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"syscall"
 	"testing"
@@ -117,6 +120,57 @@ func TestDiskValues(t *testing.T) {
 	for _, path := range disk.paths {
 		if path != filepath.Join(f.dataDir, "index") {
 			t.Errorf("read free space at %s, want the index directory", path)
+		}
+	}
+}
+
+// Low disk space reaches the log and the status with its free bytes, and
+// neither holds anything from the mail or the searches.
+func TestLowDiskSpaceHoldsNoMarkers(t *testing.T) {
+	markers := []string{"subjectmarkerk5d2", "fromnamemarkerk5d2", "frommarkerk5d2", "tomarkerk5d2",
+		"bodymarkerk5d2", "attachmentmarkerk5d2"}
+	f := newFixture(t, searchProgram(t))
+	disk := f.fakeDisk(3 * gib)
+	f.module.diskCheckEvery = 20 * time.Millisecond
+	f.runProcessing()
+	f.runSearch()
+	f.importBytes([]byte("From: Fromnamemarkerk5d2 <frommarkerk5d2@example.test>\r\n" +
+		"To: tomarkerk5d2@example.test\r\nSubject: Subjectmarkerk5d2\r\n" +
+		"Date: Fri, 06 Nov 2026 10:00:00 +0100\r\nMIME-Version: 1.0\r\n" +
+		"Content-Type: multipart/mixed; boundary=b\r\n\r\n" +
+		"--b\r\nContent-Type: text/plain\r\n\r\nBodymarkerk5d2\r\n" +
+		"--b\r\nContent-Type: application/pdf\r\nContent-Disposition: attachment; filename=\"attachmentmarkerk5d2.pdf\"\r\n\r\nJVBERi0=\r\n" +
+		"--b--\r\n"))
+	f.waitForProcessed(1)
+	f.waitForIndexing(IndexingUpToDate)
+
+	low := int64(1536) << 20
+	disk.set(low)
+	f.waitForIndexing(IndexingPaused)
+	f.search("bodymarkerk5d2")
+	if _, err := f.module.Search(context.Background(), Query{
+		From: "frommarkerk5d2@example.test", To: "tomarkerk5d2@example.test", Subject: "subjectmarkerk5d2",
+		Attachment: "attachmentmarkerk5d2", Page: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	logged := slices.ContainsFunc(f.logged("search failure"), func(entry map[string]any) bool {
+		return entry["category"] == "low_disk_space" && entry["free_bytes"] == float64(low)
+	})
+	if !logged {
+		t.Errorf("no low_disk_space line with %d free bytes in the log:\n%s", low, f.log.String())
+	}
+	if events := f.failures(opstatus.LowDiskSpace); len(events) != 1 {
+		t.Errorf("low_disk_space events %+v, want one", events)
+	}
+	status := fmt.Sprintf("%+v", f.status.Snapshot())
+	for _, marker := range markers {
+		if strings.Contains(strings.ToLower(f.log.String()), marker) {
+			t.Errorf("the log holds %s", marker)
+		}
+		if strings.Contains(strings.ToLower(status), marker) {
+			t.Errorf("the status holds %s", marker)
 		}
 	}
 }

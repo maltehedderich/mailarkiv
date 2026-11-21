@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
@@ -32,6 +33,7 @@ const (
 	markerSignIn       = "signinmarkerw8j4@example.test"
 	markerWrongPass    = "passwordmarkerr1n5"
 	markerSubject      = "subjectmarkerx9v3"
+	markerName         = "namemarkers5r2"
 	markerFrom         = "frommarkerh2d6"
 	markerTo           = "tomarkerm7c1"
 	markerBody         = "bodymarkerz4p8"
@@ -41,16 +43,17 @@ const (
 )
 
 var markers = []string{
-	markerAccount, markerSignIn, markerWrongPass, markerSubject, markerFrom,
+	markerAccount, markerSignIn, markerWrongPass, markerSubject, markerName, markerFrom,
 	markerTo, markerBody, markerAttachment, markerFileName,
 }
 
-// markerMail is a synthetic message with a marker in its subject, both
-// addresses, its body, and its attachment's name. n makes the bytes differ, so
-// each import is new to the archive.
+// markerMail is a synthetic message with a marker in its subject, the
+// sender's name, both addresses, its body, and its attachment's name. The
+// name is capitalized, as names are. n makes the bytes differ, so each
+// import is new to the archive.
 func markerMail(n int) []byte {
 	return []byte(strings.Join([]string{
-		"From: Sender <" + markerFrom + "@example.test>",
+		"From: Namemarkers5r2 <" + markerFrom + "@example.test>",
 		"To: " + markerTo + "@example.test",
 		fmt.Sprintf("Subject: %s %d", markerSubject, n),
 		"MIME-Version: 1.0",
@@ -165,15 +168,15 @@ func TestNoMarkersInLogOrStatus(t *testing.T) {
 				if err != nil || at.Before(started) || at.After(finished) {
 					t.Errorf("%s at %q, want a time between %s and %s", failure.Category, failure.At, started, finished)
 				}
+				// These categories never repeat.
+				if failure.Repeats != 1 || failure.LastAt != failure.At || failure.Detail != nil {
+					t.Errorf("%+v, want 1 repeat, last_at equal to at, and no detail", failure)
+				}
 			}
 			if !slices.Equal(categories, run.want) {
 				t.Errorf("status failures = %v, want %v", categories, run.want)
 			}
-
-			// The count is failure events plus unreferenced originals.
-			if got, want := server.problemCount(token), len(run.want)+len(status.Unreferenced); got != want {
-				t.Errorf("problem count = %d, want %d", got, want)
-			}
+			server.assertProblemCount(token, status)
 
 			if code := server.stop(syscall.SIGTERM); code != 0 {
 				t.Fatalf("exit = %d, want 0:\n%s", code, server.stderr())
@@ -207,6 +210,7 @@ func TestNoMarkersInLogOrStatus(t *testing.T) {
 	}
 
 	t.Run("collection", testCollectionMarkers)
+	t.Run("search", testSearchMarkers)
 }
 
 // forceStoredOriginalFailures imports two marker messages, deletes the first's
@@ -263,7 +267,7 @@ const (
 // log only.
 var collectionMarkers = []string{
 	markerIMAPUser, markerIMAPPassword, markerFolder, markerReplyNo, markerReplyBad,
-	markerSubject, markerFrom, markerTo, markerBody, markerAttachment,
+	markerSubject, markerName, markerFrom, markerTo, markerBody, markerAttachment,
 }
 
 // markerMailbox is a data directory with an account and a key, and a double
@@ -553,10 +557,7 @@ func testCollectionMarkers(t *testing.T) {
 			if response.StatusCode != http.StatusOK {
 				t.Fatalf("GET /api/status = %d %s, want 200", response.StatusCode, statusBody)
 			}
-			var status struct {
-				Sources  []problemSourceAnswer `json:"sources"`
-				Failures []failureEntry        `json:"failures"`
-			}
+			var status statusAnswer
 			if err := json.Unmarshal([]byte(statusBody), &status); err != nil {
 				t.Fatalf("the status isn't JSON: %q: %v", statusBody, err)
 			}
@@ -580,9 +581,7 @@ func testCollectionMarkers(t *testing.T) {
 				}
 			}
 
-			if got := server.problemCount(token); got != 1 {
-				t.Errorf("problem count = %d, want 1", got)
-			}
+			server.assertProblemCount(token, status)
 
 			if code := server.stop(syscall.SIGTERM); code != 0 {
 				t.Fatalf("exit = %d, want 0:\n%s", code, server.stderr())
@@ -608,6 +607,355 @@ func testCollectionMarkers(t *testing.T) {
 			for _, marker := range collectionMarkers {
 				if strings.Contains(strings.ToLower(statusBody), marker) {
 					t.Errorf("the status holds %q: %s", marker, statusBody)
+				}
+			}
+		})
+	}
+}
+
+// Markers in the fields of a search.
+const (
+	markerSearchWords      = "wordsmarkerl4h7"
+	markerSearchFrom       = "fromsearchmarkerq3t9"
+	markerSearchTo         = "tosearchmarkere6v1"
+	markerSearchSubject    = "subjectsearchmarkerk2n8"
+	markerSearchAttachment = "attachmentsearchmarkerp5x4"
+)
+
+var searchMarkers = []string{
+	markerSearchWords, markerSearchFrom, markerSearchTo, markerSearchSubject, markerSearchAttachment,
+}
+
+// markerSearch sends a search with a marker in every text field. Searches
+// send their fields in the body, never in the address. The client waits
+// longer than the 12 s a search process gets to answer.
+func (p *serverProcess) markerSearch(token string) (status int, body string) {
+	p.t.Helper()
+	fields := fmt.Sprintf(`{"words":%q,"from":%q,"to":%q,"subject":%q,"attachment":%q,`+
+		`"list_date_from":null,"list_date_before":null,"has_attachments":false,"page":1}`,
+		markerSearchWords, markerSearchFrom, markerSearchTo, markerSearchSubject, markerSearchAttachment)
+	request, err := http.NewRequest(http.MethodPost, p.baseURL+"/api/search", strings.NewReader(fields))
+	if err != nil {
+		p.t.Fatal(err)
+	}
+	request.Header.Set("Cookie", "__Host-mailarkiv_session="+token)
+	response, err := processClient.Do(request)
+	if err != nil {
+		p.t.Fatal(err)
+	}
+	defer response.Body.Close()
+	read, err := io.ReadAll(response.Body)
+	if err != nil {
+		p.t.Fatal(err)
+	}
+	return response.StatusCode, string(read)
+}
+
+// searchFails checks that a marker search answers 503 with code, and with
+// cause unless it's empty.
+func (p *serverProcess) searchFails(token, code, cause string) {
+	p.t.Helper()
+	status, body := p.markerSearch(token)
+	var answer struct {
+		Error string `json:"error"`
+		Cause string `json:"cause"`
+	}
+	if err := json.Unmarshal([]byte(body), &answer); err != nil || status != http.StatusServiceUnavailable ||
+		answer.Error != code || answer.Cause != cause {
+		p.t.Errorf("the marker search = %d %s, want 503 %s with cause %q", status, body, code, cause)
+	}
+}
+
+// waitForStarts waits until the log has n search process starts.
+func (p *serverProcess) waitForStarts(n int) {
+	p.t.Helper()
+	deadline := time.Now().Add(2 * processTimeout)
+	for len(p.logLines("search process started")) < n {
+		if time.Now().After(deadline) {
+			p.t.Fatalf("fewer than %d search process starts within %s:\n%s", n, 2*processTimeout, p.stderr())
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// waitForFailure waits until a search failure line has category.
+func (p *serverProcess) waitForFailure(category string) {
+	p.t.Helper()
+	deadline := time.Now().Add(2 * processTimeout)
+	for !slices.ContainsFunc(p.logLines("search failure"), func(entry map[string]any) bool {
+		return entry["category"] == category
+	}) {
+		if time.Now().After(deadline) {
+			p.t.Fatalf("no %s line within %s:\n%s", category, 2*processTimeout, p.stderr())
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// markerDir is a data directory with the marker account, and the servers
+// started on it, in order.
+type markerDir struct {
+	dataDir string
+	servers []*serverProcess
+}
+
+func newMarkerDir(t *testing.T) *markerDir {
+	t.Helper()
+	d := &markerDir{dataDir: t.TempDir()}
+	if code, _, stderr := runAccount(t, accountPassword+"\n", "account", "create", "--data-dir", d.dataDir, markerAccount); code != 0 {
+		t.Fatalf("account create = %d: %s", code, stderr)
+	}
+	return d
+}
+
+// start runs the faults binary with a search fault list, which may be
+// empty, signs in, and submits a failed sign-in with marker values.
+func (d *markerDir) start(t *testing.T, searchFaults string) (*serverProcess, string) {
+	t.Helper()
+	return d.signIn(t, startFaultsWith(t, d.dataDir, "", searchFaults, nil))
+}
+
+func (d *markerDir) signIn(t *testing.T, server *serverProcess) (*serverProcess, string) {
+	t.Helper()
+	d.servers = append(d.servers, server)
+	token := signInOverHTTP(t, server.baseURL, markerAccount)
+	if status, _ := attemptSignIn(server, markerSignIn, markerWrongPass); status != http.StatusUnauthorized {
+		t.Fatalf("a failed sign-in = %d, want 401", status)
+	}
+	return server, token
+}
+
+// importMarker imports markerMail(n) under the marker file name.
+func importMarker(t *testing.T, server *serverProcess, token string, n int) {
+	t.Helper()
+	attempt := importNamed(t, server.baseURL, token, markerMail(n))
+	if attempt.err != nil || attempt.status != http.StatusCreated {
+		t.Fatalf("the import = %d %s %v, want 201", attempt.status, attempt.body, attempt.err)
+	}
+}
+
+// indexMarker imports one marker message, waits until search finds it, and
+// runs a marker search that answers.
+func indexMarker(t *testing.T, server *serverProcess, token string) {
+	t.Helper()
+	importMarker(t, server, token, 1)
+	server.waitForAllIndexed(token, markerSubject, 1)
+	if status, body := server.markerSearch(token); status != http.StatusOK {
+		t.Fatalf("the marker search = %d %s, want 200", status, body)
+	}
+}
+
+// waitForActiveCursor waits until the active index has saved processed
+// message seq. It reads the catalog, so no search runs.
+func waitForActiveCursor(t *testing.T, dataDir string, seq int64) {
+	t.Helper()
+	deadline := time.Now().Add(processTimeout)
+	for !slices.ContainsFunc(readIndexCatalog(t, dataDir).generations, func(g catalogGeneration) bool {
+		return g.role == "active" && g.cursor >= seq
+	}) {
+		if time.Now().After(deadline) {
+			t.Fatalf("the active index didn't reach %d within %s", seq, processTimeout)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// stopFirst stops a server whose start only prepares the data directory.
+func stopFirst(t *testing.T, server *serverProcess) {
+	t.Helper()
+	if code := server.stop(syscall.SIGTERM); code != 0 {
+		t.Fatalf("exit = %d, want 0:\n%s", code, server.stderr())
+	}
+}
+
+// detailKeys are the keys each search category's detail has, from the data
+// model's failure categories.
+var detailKeys = map[string][]string{
+	"search_process_did_not_start":  {"cause"},
+	"search_process_did_not_answer": {"operation"},
+	"index_write_failed":            {"cause", "first_message_id", "generation_id", "last_message_id"},
+	"index_maintenance_failed":      {"generation_id"},
+	"index_needs_rebuild":           {"cause"},
+	"rebuild_failed":                {"generation_id", "rebuild_id"},
+}
+
+// Each search category reaches the status, the problem count, and the log,
+// with its time. Mail and searches hold markers everywhere they can, and
+// neither the status nor any log line holds one. Each case has its own data
+// directory, so they run in parallel.
+func testSearchMarkers(t *testing.T) {
+	cases := []struct {
+		name string
+		// force makes the categories happen and returns the server and
+		// session to read from.
+		force func(t *testing.T, d *markerDir) (*serverProcess, string)
+		want  []string
+		// detail is the status's whole detail for categories whose
+		// values the test knows.
+		detail map[string]map[string]any
+	}{
+		{
+			name: "a kill",
+			force: func(t *testing.T, d *markerDir) (*serverProcess, string) {
+				server, token := d.start(t, "")
+				indexMarker(t, server, token)
+				server.killSearchProcess()
+				server.waitForStarts(2)
+				server.waitForState("available", "up_to_date")
+				return server, token
+			},
+			want:   []string{"search_process_stopped"},
+			detail: map[string]map[string]any{"search_process_stopped": {"signal": float64(syscall.SIGKILL)}},
+		},
+		{
+			name: "no program",
+			force: func(t *testing.T, d *markerDir) (*serverProcess, string) {
+				server, token := d.signIn(t, startWithoutSearch(t, d.dataDir))
+				importMarker(t, server, token, 1)
+				server.waitForFailure("search_process_did_not_start")
+				server.searchFails(token, "search_unavailable", "search_process_did_not_start")
+				return server, token
+			},
+			want:   []string{"search_process_did_not_start"},
+			detail: map[string]map[string]any{"search_process_did_not_start": {"cause": "missing"}},
+		},
+		{
+			// The call ends, and the process runs on.
+			name: "during-search=hang",
+			force: func(t *testing.T, d *markerDir) (*serverProcess, string) {
+				server, token := d.start(t, "during-search=hang")
+				importMarker(t, server, token, 1)
+				waitForActiveCursor(t, d.dataDir, 1)
+				server.searchFails(token, "search_did_not_answer", "")
+				server.waitForState("available", "up_to_date")
+				return server, token
+			},
+			want:   []string{"search_process_did_not_answer"},
+			detail: map[string]map[string]any{"search_process_did_not_answer": {"operation": "search"}},
+		},
+		{
+			// The active index has nothing to commit, so only the
+			// rebuild's batches fail, until the rebuild gives up.
+			name: "after-commit=fail",
+			force: func(t *testing.T, d *markerDir) (*serverProcess, string) {
+				first, token := d.start(t, "")
+				indexMarker(t, first, token)
+				stopFirst(t, first)
+				server, token := d.start(t, "after-commit=fail")
+				server.waitForState("available", "up_to_date")
+				server.startRebuild(token)
+				server.waitForFailure("rebuild_failed")
+				server.waitForState("available", "up_to_date")
+				return server, token
+			},
+			want: []string{"index_write_failed", "rebuild_failed"},
+		},
+		{
+			// Maintenance runs after 50 commits.
+			name: "during-merge=fail",
+			force: func(t *testing.T, d *markerDir) (*serverProcess, string) {
+				server, token := d.start(t, "during-merge=fail")
+				server.waitForState("available", "up_to_date")
+				for n := 1; n <= 50; n++ {
+					importMarker(t, server, token, n)
+					waitForActiveCursor(t, d.dataDir, int64(n))
+				}
+				server.waitForFailure("index_maintenance_failed")
+				if status, body := server.markerSearch(token); status != http.StatusOK {
+					t.Fatalf("the marker search = %d %s, want 200", status, body)
+				}
+				return server, token
+			},
+			want: []string{"index_maintenance_failed"},
+		},
+		{
+			name: "on-open=fail",
+			force: func(t *testing.T, d *markerDir) (*serverProcess, string) {
+				first, token := d.start(t, "")
+				indexMarker(t, first, token)
+				stopFirst(t, first)
+				server, token := d.start(t, "on-open=fail")
+				server.waitForFailure("index_needs_rebuild")
+				server.waitForState("needs_rebuild", "stopped")
+				server.searchFails(token, "search_unavailable", "index_needs_rebuild")
+				return server, token
+			},
+			want:   []string{"index_needs_rebuild"},
+			detail: map[string]map[string]any{"index_needs_rebuild": {"cause": "index_damaged"}},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			d := newMarkerDir(t)
+			started := time.Now().Truncate(time.Millisecond)
+			server, token := tc.force(t, d)
+
+			response, statusBody := server.request(http.MethodGet, "/api/status", "", token)
+			if response.StatusCode != http.StatusOK {
+				t.Fatalf("GET /api/status = %d %s, want 200", response.StatusCode, statusBody)
+			}
+			var status statusAnswer
+			if err := json.Unmarshal([]byte(statusBody), &status); err != nil {
+				t.Fatalf("the status isn't JSON: %q: %v", statusBody, err)
+			}
+			finished := time.Now()
+
+			var categories []string
+			for _, failure := range status.Failures {
+				categories = append(categories, failure.Category)
+				at, err := time.Parse(time.RFC3339Nano, failure.At)
+				last, lastErr := time.Parse(time.RFC3339Nano, failure.LastAt)
+				if err != nil || lastErr != nil || at.Before(started) || last.Before(at) || last.After(finished) {
+					t.Errorf("%s from %q to %q, want times between %s and %s", failure.Category, failure.At, failure.LastAt, started, finished)
+				}
+				if failure.Repeats < 1 {
+					t.Errorf("%s repeats %d, want at least 1", failure.Category, failure.Repeats)
+				}
+				if want, ok := tc.detail[failure.Category]; ok {
+					if !reflect.DeepEqual(failure.Detail, want) {
+						t.Errorf("%s detail %v, want %v", failure.Category, failure.Detail, want)
+					}
+				} else if keys := slices.Sorted(maps.Keys(failure.Detail)); !slices.Equal(keys, detailKeys[failure.Category]) {
+					t.Errorf("%s detail %v, want the keys %v", failure.Category, failure.Detail, detailKeys[failure.Category])
+				}
+			}
+			if !slices.Equal(categories, tc.want) {
+				t.Errorf("status failures = %v, want %v: %s", categories, tc.want, statusBody)
+			}
+			server.assertProblemCount(token, status)
+
+			if code := server.stop(syscall.SIGTERM); code != 0 {
+				t.Fatalf("exit = %d, want 0:\n%s", code, server.stderr())
+			}
+			var logs []string
+			for _, started := range d.servers {
+				logs = append(logs, started.stderr())
+			}
+			stderr := strings.Join(logs, "\n")
+			var logged []string
+			for _, entry := range logEntries(t, stderr) {
+				category, ok := entry["category"].(string)
+				if !ok {
+					continue
+				}
+				logged = append(logged, category)
+				if at, ok := entry["time"].(string); !ok || at == "" {
+					t.Errorf("the %s log line has no time: %v", category, entry)
+				}
+			}
+			// Each repeat logs a line of its own.
+			if logged = slices.Compact(logged); !slices.Equal(logged, tc.want) {
+				t.Errorf("logged categories = %v, want %v:\n%s", logged, tc.want, stderr)
+			}
+
+			secrets := append(slices.Concat(markers, searchMarkers), accountPassword, token)
+			for _, secret := range secrets {
+				if strings.Contains(strings.ToLower(stderr), strings.ToLower(secret)) {
+					t.Errorf("the log holds %q:\n%s", secret, stderr)
+				}
+				if strings.Contains(strings.ToLower(statusBody), strings.ToLower(secret)) {
+					t.Errorf("the status holds %q: %s", secret, statusBody)
 				}
 			}
 		})

@@ -259,6 +259,7 @@ func (m *Module) commit(ctx context.Context, f *feed) error {
 	}
 	f.uncommitted = 0
 	f.commits++
+	m.config.Status.RecordSuccess(opstatus.IndexWriteFailed)
 	return nil
 }
 

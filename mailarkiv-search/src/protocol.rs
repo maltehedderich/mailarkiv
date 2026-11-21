@@ -134,6 +134,37 @@ pub struct Hello {
     pub schema_version: u32,
 }
 
+/// A frame after the hello: an answer, or a log frame no request asked for.
+#[derive(Serialize)]
+#[serde(untagged)]
+pub enum Outgoing {
+    Answer(Answer),
+    Log(Log),
+}
+
+impl From<Answer> for Outgoing {
+    fn from(answer: Answer) -> Outgoing {
+        Outgoing::Answer(answer)
+    }
+}
+
+/// A warning or error from a library, without its text, which can quote
+/// mail.
+#[derive(Serialize, Debug, PartialEq, Eq)]
+pub struct Log {
+    #[serde(rename = "type")]
+    pub kind: &'static str,
+    pub level: LogLevel,
+    pub target: String,
+}
+
+#[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LogLevel {
+    Warn,
+    Error,
+}
+
 /// The answer to one request: `ok`, or `error` with an optional `cause`.
 #[derive(Serialize)]
 pub struct Answer {

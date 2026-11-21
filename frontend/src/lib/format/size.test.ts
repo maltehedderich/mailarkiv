@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { formatBytes, formatSize } from "./size";
+import { formatBinarySize, formatBytes, formatSize } from "./size";
 
 // Decimal units, as in "31 B", "48 KB", "1.2 MB", and "150 MB", and exact
 // bytes as "150,000,000 bytes".
@@ -37,5 +37,21 @@ describe("formatBytes", () => {
     [1_000, "1,000 bytes"],
   ])("%i is %s", (bytes, expected) => {
     expect(formatBytes(bytes)).toBe(expected);
+  });
+});
+
+// The search thresholds are set in binary units, so the screen shows them as
+// set: 2 GiB, not 2.1 GB.
+describe("formatBinarySize", () => {
+  test.each([
+    [2_147_483_648, "2 GiB"],
+    [3_221_225_472, "3 GiB"],
+    [1_610_612_736, "1.5 GiB"],
+    [41_234_567_890, "38 GiB"],
+    [104_857_600, "100 MiB"],
+    [1_023, "1023 B"],
+    [1_024, "1 KiB"],
+  ])("%i bytes is %s", (bytes, expected) => {
+    expect(formatBinarySize(bytes)).toBe(expected);
   });
 });

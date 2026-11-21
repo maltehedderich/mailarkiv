@@ -40,7 +40,8 @@ func TestSignIn(t *testing.T) {
 	}
 
 	response, read = h.do(t, http.MethodGet, "/api/session", withSession(match[1]))
-	assertJSONResponse(t, response, read, http.StatusOK, `{"problem_count":0,"expires_in":43200}`)
+	// Search never starts in this harness, which counts as one problem.
+	assertJSONResponse(t, response, read, http.StatusOK, `{"problem_count":1,"expires_in":43200}`)
 }
 
 // Contract: expires_in is the whole seconds left, rounded down, so the page
@@ -52,11 +53,12 @@ func TestReadSessionRoundsTheTimeLeftDown(t *testing.T) {
 
 	h.clock.Advance(time.Hour + 500*time.Millisecond)
 	response, read := h.do(t, http.MethodGet, "/api/session", session)
-	assertJSONResponse(t, response, read, http.StatusOK, `{"problem_count":0,"expires_in":39599}`)
+	// Search never starts in this harness, which counts as one problem.
+	assertJSONResponse(t, response, read, http.StatusOK, `{"problem_count":1,"expires_in":39599}`)
 
 	h.clock.Advance(11*time.Hour - time.Second)
 	response, read = h.do(t, http.MethodGet, "/api/session", session)
-	assertJSONResponse(t, response, read, http.StatusOK, `{"problem_count":0,"expires_in":0}`)
+	assertJSONResponse(t, response, read, http.StatusOK, `{"problem_count":1,"expires_in":0}`)
 }
 
 // A wrong password, an unknown address, and a malformed address get the same
@@ -337,5 +339,6 @@ func TestSignOut(t *testing.T) {
 	response, body = h.do(t, http.MethodGet, "/api/session", withSession(token))
 	assertJSONResponse(t, response, body, http.StatusUnauthorized, `{"error":"no_session"}`)
 	response, body = h.do(t, http.MethodGet, "/api/session", other)
-	assertJSONResponse(t, response, body, http.StatusOK, `{"problem_count":0,"expires_in":43200}`)
+	// Search never starts in this harness, which counts as one problem.
+	assertJSONResponse(t, response, body, http.StatusOK, `{"problem_count":1,"expires_in":43200}`)
 }

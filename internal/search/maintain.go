@@ -77,6 +77,7 @@ func (m *Module) maintain(ctx context.Context, s *session, generationID int64) {
 	inARow := m.maintenanceFailures
 	m.mu.Unlock()
 	if !failed {
+		m.config.Status.RecordSuccess(opstatus.IndexMaintenanceFailed)
 		return
 	}
 	m.config.Status.RecordFailure(opstatus.FailureEvent{

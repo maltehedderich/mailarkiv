@@ -50,7 +50,7 @@ All are JSON lines from `log/slog` on stderr, as before. None contains a search 
 | INFO | `search state` | `state`, `indexing` | Each change of the search or indexing state |
 | INFO | `rebuild started` | `rebuild_id`, `generation_id` | An administrator started a rebuild |
 | INFO | `rebuild finished` | `rebuild_id`, `generation_id`, `messages` | The swap committed |
-| WARN | `search process log` | `level`, `target` | A `log` frame from the search process |
+| WARN | `search process log` | `log_level`, `target` | A `log` frame from the search process. `log_level` is the frame's `level`, renamed because `level` holds the line's own level |
 | ERROR | `search process panic` | `location` | Its panic line |
 | WARN | `search process output ignored` | `lines` | Lines on its standard error that weren't a panic line |
 | ERROR | `processing_worker_stopped` | `message_id`, `exit` | A worker died or passed 60 s on a message |

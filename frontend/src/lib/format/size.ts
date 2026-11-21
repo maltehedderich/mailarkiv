@@ -24,3 +24,19 @@ const exact = new Intl.NumberFormat("en-US");
 export function formatBytes(bytes: number): string {
   return `${exact.format(bytes)} ${bytes === 1 ? "byte" : "bytes"}`;
 }
+
+const BINARY_UNITS = ["B", "KiB", "MiB", "GiB", "TiB"];
+
+/**
+ * Formats a size in binary units, as in "2 GiB" and "1.5 GiB", for values
+ * set in binary units, such as the free space thresholds.
+ */
+export function formatBinarySize(bytes: number): string {
+  let unit = 0;
+  let value = bytes;
+  while (unit < BINARY_UNITS.length - 1 && round(value) >= 1024) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${round(value)} ${BINARY_UNITS[unit]}`;
+}

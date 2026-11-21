@@ -53,6 +53,16 @@ func fakeSearchProgram(mode string) int {
 			fmt.Fprintf(os.Stderr, "Quartalsbericht line %d\n", i)
 		}
 		return 0
+	case "log":
+		// One log frame as the real program sends it, and one whose level
+		// and target hold text.
+		_ = processing.WriteFrame(os.Stdout, hello)
+		_ = processing.WriteFrame(os.Stdout, map[string]any{
+			"type": "log", "level": "warn", "target": "tantivy::postings::postings_writer",
+		})
+		_ = processing.WriteFrame(os.Stdout, map[string]any{
+			"type": "log", "level": "Quartalsbericht", "target": "Quartalsbericht Müller",
+		})
 	default:
 		return 1
 	}
@@ -249,11 +259,11 @@ func (f *fixture) switchableFaults(program string) (setFaults func(string)) {
 func (f *fixture) killSearch() {
 	f.t.Helper()
 	f.waitFor("a running search process", func() bool { return f.module.pid() != 0 })
-	before := len(f.failures(opstatus.SearchProcessStopped))
+	before := f.failureCount(opstatus.SearchProcessStopped)
 	if err := syscall.Kill(f.module.pid(), syscall.SIGKILL); err != nil {
 		f.t.Fatal(err)
 	}
-	f.waitFor("the recorded stop", func() bool { return len(f.failures(opstatus.SearchProcessStopped)) == before+1 })
+	f.waitFor("the recorded stop", func() bool { return f.failureCount(opstatus.SearchProcessStopped) == before+1 })
 }
 
 // importNote imports a short synthetic message whose subject is "Notiz" and
@@ -482,7 +492,15 @@ func (f *fixture) failures(category opstatus.Category) []opstatus.FailureEvent {
 	return out
 }
 
-// logged returns the log entries with this msg.
+// failureCount counts the failures of category, with every repeat.
+func (f *fixture) failureCount(category opstatus.Category) int {
+	count := 0
+	for _, event := range f.failures(category) {
+		count += event.Repeats
+	}
+	return count
+}
+
 // maintenanceRun is one maintenance answer the module got.
 type maintenanceRun struct {
 	generation int64
@@ -506,6 +524,7 @@ func (f *fixture) maintenanceRuns() func() []maintenanceRun {
 	}
 }
 
+// logged returns the log entries with this msg.
 func (f *fixture) logged(msg string) []map[string]any {
 	var out []map[string]any
 	for _, entry := range f.log.entries(f.t) {

@@ -334,12 +334,132 @@ export interface FailureEvent {
   source: FailureSource | null;
   /** An import has already replaced the stored original. */
   restored: boolean;
+  /**
+   * How many failures the event stands for, at least 1. The server merges
+   * a run of one search failure into one event.
+   */
+  repeats: number;
+  /** The newest failure's time, RFC 3339 in UTC. Equals at for one. */
+  lastAt: string;
+  /** Set on search failures only. */
+  detail: FailureDetail | null;
+}
+
+/** The closed reasons a search failure's detail can give. */
+export const FAILURE_CAUSES = [
+  "missing",
+  "not_executable",
+  "bad_hello",
+  "no_space",
+  "permission_denied",
+  "other",
+  "search_process_stopped",
+  "index_maintenance_failed",
+  "index_damaged",
+] as const;
+
+export type FailureCause = (typeof FAILURE_CAUSES)[number];
+
+/** The calls to the search process, as a failure names them. */
+export const SEARCH_OPERATIONS = [
+  "open",
+  "index",
+  "search",
+  "maintain",
+  "close",
+  "size",
+] as const;
+
+export type SearchOperation = (typeof SEARCH_OPERATIONS)[number];
+
+/**
+ * A search failure's IDs and closed words. Which keys are set depends on
+ * the category; the others are null. None carries mail or search text.
+ */
+export interface FailureDetail {
+  exitStatus: number | null;
+  signal: number | null;
+  cause: FailureCause | null;
+  operation: SearchOperation | null;
+  generationId: number | null;
+  rebuildId: number | null;
+  firstMessageId: number | null;
+  lastMessageId: number | null;
+  freeBytes: number | null;
+}
+
+/** Messages by how processing went. */
+export interface ProcessingCounts {
+  notProcessed: number;
+  processedWithProblems: number;
+  unreadable: number;
+}
+
+export const SEARCH_STATES = [
+  "available",
+  "unavailable",
+  "needs_rebuild",
+] as const;
+
+export type SearchState = (typeof SEARCH_STATES)[number];
+
+export const INDEXING_STATES = [
+  "up_to_date",
+  "catching_up",
+  "building",
+  "rebuilding",
+  "paused",
+  "stopped",
+] as const;
+
+export type IndexingState = (typeof INDEXING_STATES)[number];
+
+/** What marked the index Needs rebuild. */
+export const NEEDS_REBUILD_CAUSES = [
+  "search_process_stopped",
+  "index_maintenance_failed",
+  "index_damaged",
+] as const;
+
+export type NeedsRebuildCause = (typeof NEEDS_REBUILD_CAUSES)[number];
+
+/** The rebuild an administrator started, while it runs. */
+export interface RunningRebuild {
+  id: number;
+  /** RFC 3339 in UTC. */
+  startedAt: string;
+  /** The account that started it. */
+  startedBy: string;
+}
+
+export interface SearchStatus {
+  state: SearchState;
+  /** Set while Unavailable and waiting to start again. RFC 3339 in UTC. */
+  nextStartAt: string | null;
+  needsRebuild: { cause: NeedsRebuildCause; since: string } | null;
+  /** Starts after the first since the server started. */
+  restarts: number;
+  indexing: {
+    state: IndexingState;
+    /** Processed messages the searched index hasn't saved. */
+    waiting: number;
+    /** Set while a first build or a rebuild runs, even when paused. */
+    done: number | null;
+    toDo: number | null;
+    /** The latest reading where the index lives, null before the first. */
+    freeBytes: number | null;
+    pauseBelowBytes: number;
+    resumeAtBytes: number;
+  };
+  rebuild: RunningRebuild | null;
 }
 
 /** What the server knows since its latest start. */
 export interface ServerStatus {
   /** RFC 3339 in UTC. */
   startedAt: string;
+  processing: ProcessingCounts;
+  search: SearchStatus;
   recovery: RecoveryResult;
   /** In the order recovery found them. */
   unreferenced: UnreferencedOriginal[];
@@ -786,6 +906,48 @@ export async function searchMessages(
   return (
     parseSearchRefusal(reply.status, reply.body) ?? { kind: "unavailable" }
   );
+}
+
+/** Why a rebuild didn't start. */
+export type RebuildResult =
+  | ApiResult<RunningRebuild>
+  | { kind: "rebuild_running" }
+  | { kind: "not_enough_space"; neededBytes: number; freeBytes: number }
+  | { kind: "no_index" }
+  | { kind: "search_unavailable" };
+
+/** Starts a rebuild of the search index. The request has no body. */
+export async function startRebuild(
+  fetch: Fetch = globalThis.fetch,
+): Promise<RebuildResult> {
+  const reply = await send(fetch, "POST", "/api/search/rebuild");
+  if (reply.kind !== "answer") {
+    return reply.kind === "timed_out" ? { kind: "unavailable" } : reply;
+  }
+  const error = field(reply.body, "error");
+  if (reply.status === 202) {
+    const rebuild = parseRunningRebuild(field(reply.body, "rebuild"));
+    return rebuild === null
+      ? { kind: "unavailable" }
+      : { kind: "ok", value: rebuild };
+  }
+  if (reply.status === 409 && error === "not_enough_space") {
+    const neededBytes = field(reply.body, "needed_bytes");
+    const freeBytes = field(reply.body, "free_bytes");
+    return isCount(neededBytes) && isCount(freeBytes)
+      ? { kind: "not_enough_space", neededBytes, freeBytes }
+      : { kind: "unavailable" };
+  }
+  if (
+    reply.status === 409 &&
+    (error === "rebuild_running" || error === "no_index")
+  ) {
+    return { kind: error };
+  }
+  if (reply.status === 503 && error === "search_unavailable") {
+    return { kind: error };
+  }
+  return { kind: "unavailable" };
 }
 
 /** Reads the status screen's data. */
@@ -1450,12 +1612,16 @@ function parseEntrySource(value: unknown): EntrySource | null {
 
 function parseStatus(body: unknown): ServerStatus | null {
   const startedAt = field(body, "started_at");
+  const processing = parseProcessingCounts(field(body, "processing"));
+  const search = parseSearchStatus(field(body, "search"));
   const recovery = parseRecovery(field(body, "recovery"));
   const unreferenced = field(body, "unreferenced");
   const failures = field(body, "failures");
   const sources = parseAll(field(body, "sources"), parseProblemSource);
   if (
     !isTime(startedAt) ||
+    processing === null ||
+    search === null ||
     recovery === null ||
     !Array.isArray(unreferenced) ||
     !Array.isArray(failures) ||
@@ -1469,10 +1635,136 @@ function parseStatus(body: unknown): ServerStatus | null {
   if (events.some((event) => event === null)) return null;
   return {
     startedAt,
+    processing,
+    search,
     recovery,
     unreferenced: originals as UnreferencedOriginal[],
     failures: events as FailureEvent[],
     sources,
+  };
+}
+
+function parseProcessingCounts(value: unknown): ProcessingCounts | null {
+  const notProcessed = field(value, "not_processed");
+  const processedWithProblems = field(value, "processed_with_problems");
+  const unreadable = field(value, "unreadable");
+  if (
+    !isCount(notProcessed) ||
+    !isCount(processedWithProblems) ||
+    !isCount(unreadable)
+  ) {
+    return null;
+  }
+  return { notProcessed, processedWithProblems, unreadable };
+}
+
+/** A state word the interface doesn't know makes the whole status unreadable. */
+function parseSearchStatus(value: unknown): SearchStatus | null {
+  const state = field(value, "state");
+  const nextStartAt = field(value, "next_start_at");
+  const needsRebuild = parseNullable(
+    field(value, "needs_rebuild"),
+    parseNeedsRebuild,
+  );
+  const restarts = field(value, "restarts");
+  const indexing = parseIndexing(field(value, "indexing"));
+  const rebuild = parseNullable(field(value, "rebuild"), parseRunningRebuild);
+  if (
+    !isOneOf(state, SEARCH_STATES) ||
+    !isTimeOrNull(nextStartAt) ||
+    needsRebuild === undefined ||
+    !isCount(restarts) ||
+    indexing === null ||
+    rebuild === undefined
+  ) {
+    return null;
+  }
+  return { state, nextStartAt, needsRebuild, restarts, indexing, rebuild };
+}
+
+function parseNeedsRebuild(
+  value: unknown,
+): SearchStatus["needsRebuild"] | null {
+  const cause = field(value, "cause");
+  const since = field(value, "since");
+  if (!isOneOf(cause, NEEDS_REBUILD_CAUSES) || !isTime(since)) return null;
+  return { cause, since };
+}
+
+function parseIndexing(value: unknown): SearchStatus["indexing"] | null {
+  const state = field(value, "state");
+  const waiting = field(value, "waiting");
+  const done = field(value, "done");
+  const toDo = field(value, "to_do");
+  const freeBytes = field(value, "free_bytes");
+  const pauseBelowBytes = field(value, "pause_below_bytes");
+  const resumeAtBytes = field(value, "resume_at_bytes");
+  if (
+    !isOneOf(state, INDEXING_STATES) ||
+    !isCount(waiting) ||
+    !isCountOrNull(done) ||
+    !isCountOrNull(toDo) ||
+    !isCountOrNull(freeBytes) ||
+    !isCount(pauseBelowBytes) ||
+    !isCount(resumeAtBytes)
+  ) {
+    return null;
+  }
+  return {
+    state,
+    waiting,
+    done,
+    toDo,
+    freeBytes,
+    pauseBelowBytes,
+    resumeAtBytes,
+  };
+}
+
+function parseRunningRebuild(value: unknown): RunningRebuild | null {
+  const id = field(value, "id");
+  const startedAt = field(value, "started_at");
+  const startedBy = field(value, "started_by");
+  if (!isCount(id) || !isTime(startedAt) || typeof startedBy !== "string") {
+    return null;
+  }
+  return { id, startedAt, startedBy };
+}
+
+/**
+ * The contract leaves out keys that don't apply. A word outside the closed
+ * lists makes the detail unreadable.
+ */
+function parseFailureDetail(value: unknown): FailureDetail | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+  const count = (name: string): number | null | undefined => {
+    const n = field(value, name) ?? null;
+    return n === null || isCount(n) ? n : undefined;
+  };
+  const cause = field(value, "cause") ?? null;
+  const operation = field(value, "operation") ?? null;
+  const detail = {
+    exitStatus: count("exit_status"),
+    signal: count("signal"),
+    generationId: count("generation_id"),
+    rebuildId: count("rebuild_id"),
+    firstMessageId: count("first_message_id"),
+    lastMessageId: count("last_message_id"),
+    freeBytes: count("free_bytes"),
+  };
+  if (
+    Object.values(detail).includes(undefined) ||
+    (cause !== null && !isOneOf(cause, FAILURE_CAUSES)) ||
+    (operation !== null && !isOneOf(operation, SEARCH_OPERATIONS))
+  ) {
+    return null;
+  }
+  return {
+    ...(detail as Omit<FailureDetail, "cause" | "operation">),
+    cause,
+    operation,
   };
 }
 
@@ -1758,12 +2050,22 @@ function parseFailure(value: unknown): FailureEvent | null {
   const sourceId = field(value, "source_id") ?? null;
   const sourceName = field(value, "source_name") ?? null;
   const restored = field(value, "restored");
+  const repeats = field(value, "repeats");
+  const lastAt = field(value, "last_at");
+  const detail = parseNullable(
+    field(value, "detail") ?? null,
+    parseFailureDetail,
+  );
   if (
     !isTime(at) ||
     !isFailureCategory(category) ||
     (messageId !== null && !isCount(messageId)) ||
     (contentHash !== null && !isContentHash(contentHash)) ||
-    typeof restored !== "boolean"
+    typeof restored !== "boolean" ||
+    !isCount(repeats) ||
+    repeats < 1 ||
+    !isTime(lastAt) ||
+    detail === undefined
   ) {
     return null;
   }
@@ -1773,7 +2075,17 @@ function parseFailure(value: unknown): FailureEvent | null {
     source = { id: sourceId, name: sourceName };
   }
   if (source === null && MESSAGE_CATEGORIES.has(category)) return null;
-  return { at, category, messageId, contentHash, source, restored };
+  return {
+    at,
+    category,
+    messageId,
+    contentHash,
+    source,
+    restored,
+    repeats,
+    lastAt,
+    detail,
+  };
 }
 
 const MESSAGE_CATEGORIES: ReadonlySet<FailureCategory> = new Set([
@@ -1860,4 +2172,8 @@ function isContentHash(value: unknown): value is string {
 
 function isCount(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function isCountOrNull(value: unknown): value is number | null {
+  return value === null || isCount(value);
 }

@@ -114,6 +114,8 @@ type Module struct {
 	rebuildFailures     int
 	paused              bool
 	freeBytes           int64
+	// diskRead is set once freeBytes holds a reading.
+	diskRead bool
 	// progress is what the indexing loop last saw, or empty before it ran.
 	progress IndexingState
 	state    State
@@ -348,6 +350,7 @@ func (m *Module) supervise(ctx context.Context, p *process) {
 	m.refreshLocked()
 	m.mu.Unlock()
 	m.config.Logger.Info("search process started", "restarts", restarts)
+	m.config.Status.RecordSuccess(opstatus.SearchProcessDidNotStart)
 
 	running, endSession := context.WithCancel(ctx)
 	indexing := make(chan struct{})

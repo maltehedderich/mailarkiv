@@ -137,8 +137,8 @@ func TestRebuild(t *testing.T) {
 	case <-time.After(30 * time.Second):
 		t.Fatal("the rebuild sent no batch")
 	}
-	if progress, err := f.module.Progress(context.Background()); err != nil || progress != (Progress{Done: 1, ToDo: 3}) {
-		t.Errorf("progress %+v, %v; want 1 of 3", progress, err)
+	if report, err := f.module.Report(context.Background()); err != nil || report.Progress == nil || *report.Progress != (Progress{Done: 1, ToDo: 3}) {
+		t.Errorf("progress %+v, %v; want 1 of 3", report.Progress, err)
 	}
 	if state := f.module.State(); state != (State{Search: SearchAvailable, Indexing: IndexingRebuilding}) {
 		t.Errorf("state %+v, want available and rebuilding", state)
@@ -149,8 +149,8 @@ func TestRebuild(t *testing.T) {
 	// A message captured during the rebuild.
 	added := f.importNote(1)
 	f.waitForProcessed(4)
-	if progress, err := f.module.Progress(context.Background()); err != nil || progress != (Progress{Done: 1, ToDo: 4}) {
-		t.Errorf("progress %+v, %v; want 1 of 4", progress, err)
+	if report, err := f.module.Report(context.Background()); err != nil || report.Progress == nil || *report.Progress != (Progress{Done: 1, ToDo: 4}) {
+		t.Errorf("progress %+v, %v; want 1 of 4", report.Progress, err)
 	}
 
 	close(release)
@@ -277,7 +277,7 @@ func TestRebuildFails(t *testing.T) {
 		event.Detail.GenerationID == nil || *event.Detail.GenerationID != building {
 		t.Errorf("detail %+v, want rebuild %d and generation %d", event.Detail, rebuild.ID, building)
 	}
-	if got := len(f.failures(opstatus.IndexWriteFailed)); got != 5 {
+	if got := f.failureCount(opstatus.IndexWriteFailed); got != 5 {
 		t.Errorf("%d failed batches, want 5", got)
 	}
 	if row := f.rebuildRow(rebuild.ID); row.outcome.String != "failed" || !row.endedAt.Valid {
@@ -336,7 +336,7 @@ func TestRebuildSurvivesLowDiskAndRestarts(t *testing.T) {
 	disk.set(3 * gib)
 	f.waitFor("rebuild finished", func() bool { return len(f.logged("rebuild finished")) == 1 })
 
-	if got := len(f.failures(opstatus.SearchProcessStopped)); got != 6 {
+	if got := f.failureCount(opstatus.SearchProcessStopped); got != 6 {
 		t.Errorf("%d stops, want 6", got)
 	}
 	if got := f.failures(opstatus.RebuildFailed); len(got) != 0 {

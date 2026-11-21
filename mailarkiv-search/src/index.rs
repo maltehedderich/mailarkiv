@@ -20,7 +20,7 @@ use crate::analysis;
 use crate::directory::RecordingDirectory;
 use crate::faults::{self, Point};
 use crate::maintain::{self, Merged};
-use crate::protocol::{Address, Answer, Cause, Document, Done, ErrorCode, Failure};
+use crate::protocol::{Address, Answer, Cause, Document, Done, ErrorCode, Failure, Outgoing};
 use crate::schema::{self, Fields, SCHEMA_VERSION};
 
 /// The writer's memory budget, shared by its indexing threads.
@@ -136,7 +136,7 @@ fn directory(generation: u64) -> PathBuf {
 pub fn open(
     generation: u64,
     create: bool,
-    answers: Sender<Answer>,
+    answers: Sender<Outgoing>,
     maintenance: Sender<maintain::Run>,
 ) -> Result<OpenIndex, Failure> {
     if faults::at(Point::OnOpen) {
@@ -274,7 +274,7 @@ impl Writer {
     fn run(
         &mut self,
         jobs: Receiver<Job>,
-        answers: &Sender<Answer>,
+        answers: &Sender<Outgoing>,
         maintenance: &Sender<maintain::Run>,
     ) {
         // The loop ends once the index and every maintenance run holding
@@ -306,7 +306,7 @@ impl Writer {
                 }
             };
             if let Some(answer) = answer
-                && answers.send(answer).is_err()
+                && answers.send(answer.into()).is_err()
             {
                 return;
             }

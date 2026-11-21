@@ -16,7 +16,19 @@ function event(
     contentHash: null,
     source: null,
     restored,
+    repeats: 1,
+    lastAt: at,
+    detail: null,
   };
+}
+
+function repeated(
+  at: string,
+  category: FailureEvent["category"],
+  repeats: number,
+  lastAt: string,
+): FailureEvent {
+  return { ...event(at, category), repeats, lastAt };
 }
 
 function messageEvent(
@@ -44,6 +56,8 @@ describe("groupFailures", () => {
         category: "storage_full",
         restored: false,
         events: [first, second],
+        count: 2,
+        lastAt: "2026-11-06T15:20:00Z",
       },
     ]);
   });
@@ -94,19 +108,82 @@ describe("groupFailures with message events", () => {
         category: "message_too_large",
         restored: false,
         events: [anna, office],
+        count: 2,
+        lastAt: "2026-11-08T09:05:00Z",
       },
       {
         key: "message_removed",
         category: "message_removed",
         restored: false,
         events: [removed],
+        count: 1,
+        lastAt: "2026-11-08T09:10:00Z",
       },
       {
         key: "storage_full",
         category: "storage_full",
         restored: false,
         events: [full],
+        count: 1,
+        lastAt: "2026-11-08T09:12:00Z",
       },
     ]);
+  });
+});
+
+describe("groupFailures with repeats", () => {
+  // The server merges a run of one search failure into one event, which
+  // stays one entry. The group counts every failure it stands for.
+  test("a repeated event is one entry, counted with its repeats", () => {
+    const crashes = repeated(
+      "2026-11-15T09:00:01Z",
+      "search_process_stopped",
+      3,
+      "2026-11-15T09:00:09Z",
+    );
+    expect(groupFailures([crashes])).toEqual([
+      {
+        key: "search_process_stopped",
+        category: "search_process_stopped",
+        restored: false,
+        events: [crashes],
+        count: 3,
+        lastAt: "2026-11-15T09:00:09Z",
+      },
+    ]);
+  });
+
+  // Another category between two runs ends the first, so one category can
+  // have several events. The last time is the newest of any of them.
+  test("runs of one category add up, and the last time is the newest", () => {
+    const first = repeated(
+      "2026-11-15T09:00:01Z",
+      "search_process_stopped",
+      3,
+      "2026-11-15T09:00:09Z",
+    );
+    const between = event("2026-11-15T09:01:00Z", "index_write_failed");
+    const second = repeated(
+      "2026-11-15T09:02:00Z",
+      "search_process_stopped",
+      2,
+      "2026-11-15T09:02:05Z",
+    );
+    const groups = groupFailures([first, between, second]);
+    expect(
+      groups.map(({ key, count, lastAt }) => ({ key, count, lastAt })),
+    ).toEqual([
+      {
+        key: "search_process_stopped",
+        count: 5,
+        lastAt: "2026-11-15T09:02:05Z",
+      },
+      {
+        key: "index_write_failed",
+        count: 1,
+        lastAt: "2026-11-15T09:01:00Z",
+      },
+    ]);
+    expect(groups[0].events).toEqual([first, second]);
   });
 });

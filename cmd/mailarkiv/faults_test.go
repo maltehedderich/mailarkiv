@@ -122,12 +122,11 @@ func TestRowReadFailure(t *testing.T) {
 	if blobs := blobFiles(t, dataDir); len(blobs) != 0 {
 		t.Errorf("blobs/ holds %v, want nothing", blobs)
 	}
-	if failures := server.status(token).Failures; len(failures) != 0 {
-		t.Errorf("failures = %+v, want none", failures)
+	status := server.status(token)
+	if len(status.Failures) != 0 {
+		t.Errorf("failures = %+v, want none", status.Failures)
 	}
-	if got := server.problemCount(token); got != 0 {
-		t.Errorf("problem count = %d, want 0", got)
-	}
+	server.assertProblemCount(token, status)
 
 	if code := server.stop(syscall.SIGTERM); code != 0 {
 		t.Fatalf("exit = %d, want 0:\n%s", code, server.stderr())

@@ -40,7 +40,7 @@ func (m *Module) checkDisk() bool {
 		m.config.Logger.Error("read free space", "error", err.Error())
 		return paused
 	}
-	m.freeBytes = free
+	m.freeBytes, m.diskRead = free, true
 	was := m.paused
 	switch {
 	case !was && free < pauseBelow:
@@ -56,6 +56,9 @@ func (m *Module) checkDisk() bool {
 			Category: opstatus.LowDiskSpace,
 			Detail:   &opstatus.Detail{FreeBytes: &free},
 		})
+	}
+	if free >= resumeAt {
+		m.config.Status.RecordSuccess(opstatus.LowDiskSpace)
 	}
 	return paused
 }
