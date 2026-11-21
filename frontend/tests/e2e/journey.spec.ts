@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import { expect, test, type Page } from "@playwright/test";
 
 import { startServer, type TestServer } from "./support/server";
+import { openHistory } from "./support/view";
 
 // Sign in, import one synthetic file, see it listed, and download the same
 // bytes.
@@ -90,14 +91,17 @@ test("an administrator imports one file and downloads the same bytes", async ({
   await expect(row).toContainText(`${CONTENT.length} B`);
   await expect(row.locator("time")).toHaveText(/[+-]\d\d:\d\d$/);
   await expect(page.getByText("No mail yet")).toHaveCount(0);
-  await row.getByRole("link", { name: /^History of/ }).click();
-  const drawer = page.getByRole("dialog", { name: "History" });
+  const drawer = await openHistory(
+    page,
+    row.getByRole("link", { name: /^Open / }),
+  );
   await expect(drawer.getByRole("listitem")).toContainText("synthetic.eml");
   await expect(drawer.locator("footer")).toContainText(
     `Saves as ${CONTENT_HASH.slice(0, 8)}…${CONTENT_HASH.slice(-4)}.eml`,
   );
   await drawer.getByRole("button", { name: "Close" }).click();
   await expect(drawer).toBeHidden();
+  await page.getByRole("main").getByRole("link", { name: "Messages" }).click();
   await expect(page).toHaveURL(`${server.origin}/`);
 
   // The page fetches the file and saves it, so the page stays where it is.

@@ -14,6 +14,7 @@ import (
 	"github.com/maltehedderich/mailarkiv/internal/collect"
 	"github.com/maltehedderich/mailarkiv/internal/identity"
 	"github.com/maltehedderich/mailarkiv/internal/opstatus"
+	"github.com/maltehedderich/mailarkiv/internal/processing"
 	"github.com/maltehedderich/mailarkiv/internal/search"
 )
 
@@ -62,6 +63,10 @@ func Routes() []Route {
 		{Method: http.MethodGet, Path: "/api/messages/{id}", Access: SignedIn, Handler: readHistory},
 		{Method: http.MethodPost, Path: "/api/search", Access: SignedIn, Handler: searchMessages},
 		{Method: http.MethodGet, Path: "/api/messages/{id}/original", Access: SignedIn, Handler: downloadOriginal, NoSession: redirectToSignIn},
+		{Method: http.MethodGet, Path: "/api/messages/{id}/content", Access: SignedIn, Handler: readContent},
+		{Method: http.MethodGet, Path: "/api/messages/{id}/text", Access: SignedIn, Handler: readText},
+		{Method: http.MethodGet, Path: "/api/messages/{id}/html", Access: SignedIn, Handler: readPreview, NoSession: previewWithoutSession},
+		{Method: http.MethodGet, Path: "/api/messages/{id}/attachments/{position}", Access: SignedIn, Handler: downloadAttachment, NoSession: redirectToSignIn},
 		{Method: http.MethodGet, Path: "/api/status", Access: SignedIn, Handler: readStatus},
 		{Method: http.MethodPost, Path: "/api/sources/check", Access: SignedIn, Handler: checkMailbox},
 		{Method: http.MethodPost, Path: "/api/sources", Access: SignedIn, Handler: addSource},
@@ -91,17 +96,20 @@ type Deps struct {
 	Collect *collect.Collector
 	// Search is required, including when the search process can't start.
 	Search *search.Module
+	// Processing reads originals for the message view.
+	Processing *processing.Viewer
 }
 
 type server struct {
-	logger   *slog.Logger
-	static   http.Handler
-	identity *identity.Identity
-	archive  *archive.Archive
-	status   *opstatus.Status
-	labels   *collect.Labeler
-	collect  *collect.Collector
-	search   *search.Module
+	logger     *slog.Logger
+	static     http.Handler
+	identity   *identity.Identity
+	archive    *archive.Archive
+	status     *opstatus.Status
+	labels     *collect.Labeler
+	collect    *collect.Collector
+	search     *search.Module
+	processing *processing.Viewer
 }
 
 // New returns the server's handler.
@@ -111,14 +119,15 @@ func New(deps Deps) http.Handler {
 
 func newHandler(deps Deps, routes []Route) http.Handler {
 	s := &server{
-		logger:   deps.Logger,
-		static:   Static(deps.Files),
-		identity: deps.Identity,
-		archive:  deps.Archive,
-		status:   deps.Status,
-		labels:   deps.Labels,
-		collect:  deps.Collect,
-		search:   deps.Search,
+		logger:     deps.Logger,
+		static:     Static(deps.Files),
+		identity:   deps.Identity,
+		archive:    deps.Archive,
+		status:     deps.Status,
+		labels:     deps.Labels,
+		collect:    deps.Collect,
+		search:     deps.Search,
+		processing: deps.Processing,
 	}
 
 	mux := http.NewServeMux()

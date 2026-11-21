@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { expect, test, type Page, type Route } from "@playwright/test";
 
 import { startServer, type TestServer } from "./support/server";
+import { openHistory } from "./support/view";
 
 // Every import ends in exactly one of six outcomes. Stubbed answers force
 // each outcome and each kind of proxy answer. The real server then shows that
@@ -299,7 +300,7 @@ test("on the real server, Archived is listed and Failed isn't", async ({
   // Once processed, a row shows its subject, so its history names the file.
   await page.reload();
   await expect(list.getByRole("listitem")).toHaveCount(1);
-  await list.getByRole("link", { name: /^History of/ }).click();
+  await openHistory(page, list.getByRole("link", { name: /^Open / }));
   await expect(drawer).toContainText("archived.eml");
   await expect(drawer).not.toContainText("failed.eml");
 });

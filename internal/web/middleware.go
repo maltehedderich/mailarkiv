@@ -10,7 +10,8 @@ const apiPrefix = "/api/"
 // withHeaders sets the headers every response carries, before anything else
 // runs, so a rejected request carries them too. The marker tells the client
 // the answer came from MailArkiv and not a proxy. frame-ancestors has to be a
-// header, because a <meta> policy can't carry it.
+// header, because a <meta> policy can't carry it. A handler replaces a policy
+// with replacePolicies, so the response still carries one of each.
 func withHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		header := w.Header()
@@ -34,4 +35,16 @@ func withCrossOriginCheck(next http.Handler) http.Handler {
 		writeError(w, http.StatusForbidden, "cross_origin")
 	}))
 	return protection.Handler(next)
+}
+
+// replacePolicies replaces the Content-Security-Policy withHeaders set and,
+// unless referrer is empty, the Referrer-Policy. A browser applies every
+// Content-Security-Policy it gets, so adding one beside the global policy
+// would only narrow it.
+func replacePolicies(w http.ResponseWriter, contentSecurity, referrer string) {
+	header := w.Header()
+	header.Set("Content-Security-Policy", contentSecurity)
+	if referrer != "" {
+		header.Set("Referrer-Policy", referrer)
+	}
 }

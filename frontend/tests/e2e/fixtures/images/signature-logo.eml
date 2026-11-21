@@ -1,0 +1,32 @@
+From: Anna Schmidt <anna@example.test>
+To: admin@example.test
+Subject: Signature logo
+Date: Tue, 10 Nov 2026 09:00:00 +0000
+MIME-Version: 1.0
+Content-Type: multipart/related; boundary="images"
+
+--images
+Content-Type: text/html; charset=utf-8
+
+<p>Best regards,<br>Anna</p><img src="cid:logo@example.test" alt="Shown: logo" width="24" height="12">
+--images
+Content-Type: image/jpeg
+Content-ID: <logo@example.test>
+Content-Disposition: inline; filename="logo.jpg"
+Content-Transfer-Encoding: base64
+
+/9j/2wCEAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYn
+KSopGR8tMC0oMCUoKSgBBwcHCggKEwoKEygaFhooKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgo
+KCgoKCgoKCgoKCgoKCgoKCgoKCgoKP/AABEIAAwAGAMBIgACEQEDEQH/xAGiAAABBQEBAQEBAQAA
+AAAAAAAAAQIDBAUGBwgJCgsQAAIBAwMCBAMFBQQEAAABfQECAwAEEQUSITFBBhNRYQcicRQygZGh
+CCNCscEVUtHwJDNicoIJChYXGBkaJSYnKCkqNDU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hp
+anN0dXZ3eHl6g4SFhoeIiYqSk5SVlpeYmZqio6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV
+1tfY2drh4uPk5ebn6Onq8fLz9PX29/j5+gEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoLEQAC
+AQIEBAMEBwUEBAABAncAAQIDEQQFITEGEkFRB2FxEyIygQgUQpGhscEJIzNS8BVictEKFiQ04SXx
+FxgZGiYnKCkqNTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqCg4SFhoeIiYqS
+k5SVlpeYmZqio6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2dri4+Tl5ufo6ery8/T1
+9vf4+fr/2gAMAwEAAhEDEQA/AOF/dXVv/wAs4dHiT2VZVA/IRAf99f7v3nSOJlF3ehorSMhooWU7
+mbPysy9c5xtTrnBI3YCuf/SdZeCXmG3iimVOzOzOMt642Aj3OeoBBa/6VqV483zfZJRFCvZcxqxb
+/eO8jPYcDGWz88fo9r/N2+6/4K2i/wCHGsxRkvL5GMpO22tlwSpIPHXBcjOTnCjPONzM7+0Ln/oE
+X3/fcH/xyjSv9IM15L803mywr6IiSFcL6Z2gn1PsABo1Mmk7NFwi5LmTav6a+b0P/9k=
+--images--

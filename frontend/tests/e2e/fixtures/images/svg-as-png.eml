@@ -1,0 +1,20 @@
+From: Anna Schmidt <anna@example.test>
+To: admin@example.test
+Subject: SVG declared PNG
+Date: Tue, 10 Nov 2026 09:00:00 +0000
+MIME-Version: 1.0
+Content-Type: multipart/related; boundary="images"
+
+--images
+Content-Type: text/html; charset=utf-8
+
+<p>An SVG that says it is a PNG:</p><img src="cid:fake@example.test" alt="Hidden: SVG as PNG">
+--images
+Content-Type: image/png
+Content-ID: <fake@example.test>
+Content-Disposition: inline; filename="fake.png"
+Content-Transfer-Encoding: base64
+
+PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMCIgaGVpZ2h0
+PSIyMCI+PHJlY3Qgd2lkdGg9IjIwIiBoZWlnaHQ9IjIwIiBmaWxsPSJyZWQiLz48L3N2Zz4=
+--images--

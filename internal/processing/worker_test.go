@@ -3,6 +3,8 @@ package processing
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -10,12 +12,14 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
 
 	"github.com/maltehedderich/mailarkiv/internal/archive"
+	"github.com/maltehedderich/mailarkiv/internal/mailparse"
 )
 
 func readThrough(t *testing.T, pool *Pool, original []byte, withText bool) readAnswer {
@@ -189,5 +193,221 @@ func TestRunWorkerRefuses(t *testing.T) {
 				t.Errorf("RunWorker exited %d, want 3", status)
 			}
 		})
+	}
+}
+
+// runWorkerOnce sends one request with its original straight to RunWorker
+// and returns everything it wrote.
+func runWorkerOnce(t *testing.T, request workerRequest, original []byte) *bytes.Buffer {
+	t.Helper()
+	request.Size = int64(len(original))
+	var input bytes.Buffer
+	if err := WriteFrame(&input, request); err != nil {
+		t.Fatal(err)
+	}
+	input.Write(original)
+	var output bytes.Buffer
+	if status := RunWorker(&input, &output); status != 0 {
+		t.Fatalf("RunWorker exited %d, want 0", status)
+	}
+	return &output
+}
+
+func TestWorkerReadForTheView(t *testing.T) {
+	tests := []struct {
+		fixture string
+		want    *viewAnswer
+	}{
+		{"signature-logo.eml", &viewAnswer{HTML: &htmlFlags{}, Text: &textFlags{}}},
+		{"plain-text.eml", &viewAnswer{Text: &textFlags{}}},
+		{"html-only.eml", &viewAnswer{HTML: &htmlFlags{}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.fixture, func(t *testing.T) {
+			var answer readAnswer
+			output := runWorkerOnce(t, workerRequest{Op: "read", View: true}, plainFixture(t, tt.fixture))
+			if err := ReadFrame(output, &answer); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(answer.View, tt.want) {
+				t.Errorf("view %+v, want %+v", answer.View, tt.want)
+			}
+			if answer.Message.Plain != nil || answer.Message.HTML != nil {
+				t.Error("the answer carries the bodies")
+			}
+		})
+	}
+
+	t.Run("flags", func(t *testing.T) {
+		original := "From: anna@example.test\r\nMIME-Version: 1.0\r\nContent-Type: multipart/alternative; boundary=\"alt\"\r\n\r\n" +
+			"--alt\r\nContent-Type: text/plain\r\n\r\n" + strings.Repeat("a", mailparse.MaxBody+1) + "\r\n" +
+			"--alt\r\nContent-Type: text/html\r\n\r\n<img src=\"https://images.example.org/a.png\">\r\n--alt--\r\n"
+		var answer readAnswer
+		if err := ReadFrame(runWorkerOnce(t, workerRequest{Op: "read", View: true}, []byte(original)), &answer); err != nil {
+			t.Fatal(err)
+		}
+		want := &viewAnswer{HTML: &htmlFlags{RemoteImages: true}, Text: &textFlags{Truncated: true}}
+		if !reflect.DeepEqual(answer.View, want) {
+			t.Errorf("view %+v, want %+v", answer.View, want)
+		}
+	})
+
+	t.Run("not asked", func(t *testing.T) {
+		var answer readAnswer
+		if err := ReadFrame(runWorkerOnce(t, workerRequest{Op: "read"}, plainFixture(t, "signature-logo.eml")), &answer); err != nil {
+			t.Fatal(err)
+		}
+		if answer.View != nil {
+			t.Errorf("view %+v without asking for it", answer.View)
+		}
+	})
+}
+
+func TestWorkerBodies(t *testing.T) {
+	tests := []struct {
+		op, fixture string
+		want        *string
+	}{
+		{"text", "plain-text.eml", typed("Hallo Team,\nder Wochenplan steht.\n")},
+		{"text", "html-only.eml", nil},
+		// The logo's bytes start with the PNG signature, so they show.
+		{"html", "signature-logo.eml", typed(`<html><head></head><body><p>Gruss, Emil</p>` +
+			`<img src="data:image/png;base64,iVBORw0KGgpzeW50aGV0aWMgbG9nbw==" alt="Logo"/></body></html>`)},
+		{"html", "plain-text.eml", nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.op+" of "+tt.fixture, func(t *testing.T) {
+			var answer bodyAnswer
+			if err := ReadFrame(runWorkerOnce(t, workerRequest{Op: tt.op}, plainFixture(t, tt.fixture)), &answer); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(answer.Body, tt.want) {
+				t.Errorf("body %s, want %s", describeText(answer.Body), describeText(tt.want))
+			}
+		})
+	}
+}
+
+func describeText(s *string) string {
+	if s == nil {
+		return "nil"
+	}
+	return fmt.Sprintf("%q", *s)
+}
+
+// attachmentMessage is a message with a text body and one base64 attachment
+// whose encoded form is encoded.
+func attachmentMessage(name, encoded string) []byte {
+	var b strings.Builder
+	b.WriteString("From: anna@example.test\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=\"mix\"\r\n\r\n")
+	b.WriteString("--mix\r\nContent-Type: text/plain\r\n\r\nAnbei.\r\n")
+	b.WriteString("--mix\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; filename=\"" + name + "\"\r\n")
+	b.WriteString("Content-Transfer-Encoding: base64\r\n\r\n")
+	for len(encoded) > 76 {
+		b.WriteString(encoded[:76] + "\r\n")
+		encoded = encoded[76:]
+	}
+	b.WriteString(encoded + "\r\n--mix--\r\n")
+	return []byte(b.String())
+}
+
+func TestWorkerAttachment(t *testing.T) {
+	t.Run("the size, then the bytes", func(t *testing.T) {
+		output := runWorkerOnce(t, workerRequest{Op: "attachment", Position: "2"}, plainFixture(t, "attachment.eml"))
+		var header attachmentAnswer
+		if err := ReadFrame(output, &header); err != nil {
+			t.Fatal(err)
+		}
+		content := "%PDF-1.4\n% synthetic contract for tests\n%%EOF\n"
+		if want := (attachmentAnswer{Found: true, Name: "Vertrag_2026.pdf", Size: int64(len(content))}); header != want {
+			t.Errorf("header %+v, want %+v", header, want)
+		}
+		if got := output.String(); got != content {
+			t.Errorf("after the header %q, want %q", got, content)
+		}
+	})
+
+	t.Run("the cleaned name", func(t *testing.T) {
+		original := attachmentMessage("../../etc/passwd", base64.StdEncoding.EncodeToString([]byte("root")))
+		var header attachmentAnswer
+		if err := ReadFrame(runWorkerOnce(t, workerRequest{Op: "attachment", Position: "2"}, original), &header); err != nil {
+			t.Fatal(err)
+		}
+		if header.Name != "etcpasswd" {
+			t.Errorf("name %q, want etcpasswd", header.Name)
+		}
+	})
+
+	t.Run("a damaged part sends what decoded", func(t *testing.T) {
+		// The asterisk is outside the base64 alphabet. The rest decodes to
+		// "Heiler Anhang".
+		original := attachmentMessage("heil.bin", "SGVpbGVy*IEFuaGFuZw==")
+		output := runWorkerOnce(t, workerRequest{Op: "attachment", Position: "2"}, original)
+		var header attachmentAnswer
+		if err := ReadFrame(output, &header); err != nil {
+			t.Fatal(err)
+		}
+		if want := (attachmentAnswer{Found: true, Name: "heil.bin", Size: 13}); header != want {
+			t.Errorf("header %+v, want %+v", header, want)
+		}
+		if got := output.String(); got != "Heiler Anhang" {
+			t.Errorf("bytes %q, want %q", got, "Heiler Anhang")
+		}
+	})
+
+	for _, position := range []string{"1", "3", "", "2.1", "../1"} {
+		t.Run("no attachment at "+strconv.Quote(position), func(t *testing.T) {
+			output := runWorkerOnce(t, workerRequest{Op: "attachment", Position: position}, plainFixture(t, "attachment.eml"))
+			var header attachmentAnswer
+			if err := ReadFrame(output, &header); err != nil {
+				t.Fatal(err)
+			}
+			if header != (attachmentAnswer{}) || output.Len() != 0 {
+				t.Errorf("header %+v and %d bytes, want not found and nothing after", header, output.Len())
+			}
+		})
+	}
+}
+
+// The bytes come after the frame, so an attachment larger than a frame
+// reaches the server whole through the pipe.
+func TestWorkerAttachmentOf20MB(t *testing.T) {
+	content := make([]byte, 20_000_000)
+	for i := range content {
+		content[i] = byte(i * 7)
+	}
+	original := attachmentMessage("gross.bin", base64.StdEncoding.EncodeToString(content))
+	// Parsing 27 MB under the race detector takes longer than testLimit.
+	pool, err := NewPool(1, MessageLimit, testWorkerCommand, slogDiscard())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+
+	ctx, cancel := context.WithTimeout(context.Background(), MessageLimit)
+	defer cancel()
+	var header attachmentAnswer
+	received := sha256.New()
+	request := workerRequest{Op: "attachment", Size: int64(len(original)), Position: "2"}
+	err = pool.exchange(ctx, request, bytes.NewReader(original), func(answer io.Reader, streaming func()) error {
+		if err := ReadFrame(answer, &header); err != nil {
+			return err
+		}
+		streaming()
+		_, err := io.CopyN(received, answer, header.Size)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if header.Size != int64(len(content)) {
+		t.Errorf("size %d, want %d", header.Size, len(content))
+	}
+	if want := sha256.Sum256(content); !bytes.Equal(received.Sum(nil), want[:]) {
+		t.Error("the bytes differ")
+	}
+	// The worker answered completely, so it takes the next request.
+	if answer := readThrough(t, pool, plainFixture(t, "plain-text.eml"), false); answer.Message.Subject == nil {
+		t.Errorf("the next read gave %+v", answer.Message)
 	}
 }

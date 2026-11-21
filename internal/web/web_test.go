@@ -2,6 +2,7 @@ package web
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/x509"
 	"encoding/json"
@@ -11,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -84,6 +86,8 @@ type harness struct {
 	search    *search.Module
 	// stopProcessing stops processing early, when a search program runs.
 	stopProcessing func()
+	// markers holds a file for each hung view worker that holds a request.
+	markers string
 }
 
 // harnessOptions choose how the harness collects mail. The zero value has a
@@ -103,6 +107,13 @@ type harnessOptions struct {
 	// module then run until the test ends. Otherwise the search module never
 	// starts, so searches answer 503.
 	search string
+	// views, if set, starts the interactive workers in this mode of the test
+	// binary: 1 for real workers, hang, or cut. Otherwise the view routes
+	// have no viewer and mustn't be called.
+	views string
+	// viewLimit and viewWait, if set, replace the 60 s limit and the 30 s
+	// wait.
+	viewLimit, viewWait time.Duration
 }
 
 func newHarness(t *testing.T, routes []Route) *harness {
@@ -116,6 +127,7 @@ func newHarnessWith(t *testing.T, routes []Route, options harnessOptions) *harne
 	deps := h.deps(t)
 	deps.Collect = h.openCollector(t, options)
 	deps.Search = h.openSearch(t, options.search)
+	deps.Processing = h.openViewer(t, options)
 	handler := newHandler(deps, routes)
 	if options.checkLimit > 0 {
 		handler = withDeadline(handler, options.checkLimit)
@@ -192,6 +204,25 @@ func (h *harness) openSearch(t *testing.T, program string) *search.Module {
 		background(t, h.search.Run)
 	}
 	return h.search
+}
+
+// openViewer starts the interactive pool when the options ask for one.
+func (h *harness) openViewer(t *testing.T, options harnessOptions) *processing.Viewer {
+	t.Helper()
+	if options.views == "" {
+		return nil
+	}
+	h.markers = t.TempDir()
+	logger := slog.New(slog.NewJSONHandler(h.log, nil))
+	limit := cmp.Or(options.viewLimit, processing.MessageLimit)
+	wait := cmp.Or(options.viewWait, processing.InteractiveWait)
+	command := func() *exec.Cmd { return workerCommand(options.views, h.markers) }
+	pool, err := processing.NewInteractivePool(processing.InteractiveWorkers, limit, wait, command, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	return processing.NewViewer(h.archive, pool, logger)
 }
 
 // deps opens a catalog in a new data directory and builds the modules on it.

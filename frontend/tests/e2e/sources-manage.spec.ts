@@ -13,6 +13,7 @@ import {
   signIn,
   stateSection,
 } from "./support/sources";
+import { openHistory } from "./support/view";
 
 // An administrator pauses, resumes, syncs, edits, and removes a source.
 
@@ -411,11 +412,10 @@ test("removing asks first, naming the source, and its history stays", async ({
     .getByRole("list", { name: "Messages" })
     .getByRole("listitem");
   await expect(rows).toHaveCount(3);
-  await rows
-    .first()
-    .getByRole("link", { name: /^History of/ })
-    .click();
-  const drawer = page.getByRole("dialog", { name: /^History/ });
+  const drawer = await openHistory(
+    page,
+    rows.first().getByRole("link", { name: /^Open / }),
+  );
   await expect(drawer.locator("dl.collection dd").first()).toHaveText("Anna");
 });
 

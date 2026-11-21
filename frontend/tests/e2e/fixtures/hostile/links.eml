@@ -1,0 +1,8 @@
+From: Mallory <mallory@attacker.example>
+To: admin@example.test
+Subject: Links
+Date: Mon, 09 Nov 2026 10:00:00 +0000
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+
+<html><head><title>Links</title><base href="https://leak.example.test/" target="_top"></head><body><p>Links that go places.</p><p><a href="https://leak.example.test/default">Default target</a></p><p><a href="https://leak.example.test/self" target="_self">Self</a></p><p><a href="https://leak.example.test/top" target="_top">Top</a></p><p><a href="https://leak.example.test/blank" target="_blank">Blank</a></p><p><a href="relative">Relative</a></p><p><a href="/sources">MailArkiv page</a></p><p><a href="https://leak.example.test/ping" ping="https://leak.example.test/pinged">Ping</a></p><p><a href="javascript:document.title=&quot;MARKER-TITLE-javascript&quot;">Script link</a></p><img src="data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==" width="40" height="40" usemap="#map" alt="Map"><map name="map"><area shape="rect" coords="0,0,40,40" href="https://leak.example.test/area" alt="Area"></map><svg width="200" height="40"><a href="https://leak.example.test/svg"><text x="0" y="15">SVG link</text></a><a xlink:href="https://leak.example.test/xlink" xmlns:xlink="http://www.w3.org/1999/xlink"><text x="0" y="35">XLink</text></a></svg><noscript><p><a href="https://leak.example.test/noscript">Inside noscript</a></p></noscript></body></html>

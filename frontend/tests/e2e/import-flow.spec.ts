@@ -258,7 +258,7 @@ test("an import finishes after leaving without changing the destination page", a
   await expect(
     page
       .getByRole("list", { name: "Messages" })
-      .getByRole("link", { name: /^History of/ }),
+      .getByRole("link", { name: /^Open / }),
   ).toHaveCount(1);
 });
 
@@ -432,7 +432,7 @@ test("an import ending moves focus only if Import had it", async ({ page }) => {
   // Its row is the older one, so it ends the list once large.eml arrives.
   const row = page
     .getByRole("list", { name: "Messages" })
-    .getByRole("link", { name: /^History of/ })
+    .getByRole("link", { name: /^Open / })
     .last();
   await row.focus();
   gate.sendBody();

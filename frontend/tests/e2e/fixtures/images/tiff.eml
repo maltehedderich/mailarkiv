@@ -1,0 +1,19 @@
+From: Anna Schmidt <anna@example.test>
+To: admin@example.test
+Subject: TIFF
+Date: Tue, 10 Nov 2026 09:00:00 +0000
+MIME-Version: 1.0
+Content-Type: multipart/related; boundary="images"
+
+--images
+Content-Type: text/html; charset=utf-8
+
+<p>A TIFF:</p><img src="cid:scan@example.test" alt="Hidden: TIFF">
+--images
+Content-Type: image/tiff
+Content-ID: <scan@example.test>
+Content-Disposition: inline; filename="scan.tif"
+Content-Transfer-Encoding: base64
+
+SUkqAAgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==
+--images--

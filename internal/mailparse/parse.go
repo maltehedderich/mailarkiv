@@ -7,6 +7,7 @@ package mailparse
 import (
 	"bytes"
 	"errors"
+	"strings"
 
 	"github.com/jhillyerd/enmime/v2"
 )
@@ -17,6 +18,9 @@ type Message struct {
 	// Problems is set then.
 	Unreadable bool      `json:"unreadable,omitempty"`
 	From       []Address `json:"from,omitempty"`
+	// Encrypted is true when the top part is multipart/encrypted, or
+	// application/pkcs7-mime with smime-type=enveloped-data.
+	Encrypted bool `json:"encrypted,omitempty"`
 	// FromText is the decoded From header when it isn't an address list.
 	FromText *string `json:"from_text,omitempty"`
 	Subject  *string `json:"subject,omitempty"`
@@ -41,6 +45,8 @@ type Address struct {
 type Body struct {
 	Position string `json:"position"`
 	Content  string `json:"content"`
+	// Truncated is true when the body passed MaxBody.
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 func newParser() *enmime.Parser {
@@ -60,6 +66,42 @@ func newParser() *enmime.Parser {
 // problem on the message, and a header it can't read makes the message
 // Unreadable.
 func Read(original []byte) Message {
+	m, _ := parse(original)
+	return m
+}
+
+// ReadView parses one original for the message view: what Read finds, and
+// the HTML body rewritten for the preview, or nil without one.
+func ReadView(original []byte) (Message, *Preview) {
+	m, parts := parse(original)
+	if m.HTML == nil {
+		return m, nil
+	}
+	preview := rewrite(m.HTML.Content, newImagePlacer(parts))
+	return m, &preview
+}
+
+// AttachmentContent parses one original and returns the attachment Read
+// lists at position, with its decoded bytes. A damaged part gives the bytes
+// that decoded. ok is false when Read lists no attachment there.
+func AttachmentContent(original []byte, position string) (attachment Attachment, content []byte, ok bool) {
+	m, parts := parse(original)
+	for _, listed := range m.Attachments {
+		if listed.Position != position {
+			continue
+		}
+		for _, part := range parts {
+			if part.position == position {
+				return listed, part.part.Content, true
+			}
+		}
+	}
+	return Attachment{}, nil, false
+}
+
+// parse reads one original and also returns its leaves, which hold the
+// decoded parts.
+func parse(original []byte) (Message, []leaf) {
 	input, bounds := scanParts(withoutMboxFromLine(original))
 	root, err := newParser().ReadParts(bytes.NewReader(input))
 	if err != nil {
@@ -67,12 +109,13 @@ func Read(original []byte) Message {
 		if _, ok := errors.AsType[*enmime.TooManyPartsError](err); ok {
 			kind = TooManyParts
 		}
-		return Message{Unreadable: true, Problems: []Problem{{Kind: kind}}}
+		return Message{Unreadable: true, Problems: []Problem{{Kind: kind}}}, nil
 	}
 
 	var m Message
 	var problems problemList
 	readFields(&m, root.Header, &problems)
+	m.Encrypted = encrypted(root)
 
 	leaves := walkParts(root, &problems)
 	plain, html := chooseBodies(leaves)
@@ -87,7 +130,18 @@ func Read(original []byte) Message {
 		problems.add(bound.Position, bound.DeclaredType, bound.Kind)
 	}
 	m.Problems = problems.items
-	return m
+	return m, leaves
+}
+
+// encrypted reports whether the top part holds an encrypted message.
+func encrypted(root *enmime.Part) bool {
+	switch strings.ToLower(root.ContentType) {
+	case "multipart/encrypted":
+		return true
+	case "application/pkcs7-mime":
+		return strings.EqualFold(headerParameter(root, "Content-Type", "smime-type"), "enveloped-data")
+	}
+	return false
 }
 
 // withoutMboxFromLine skips a first line starting with "From ", which an

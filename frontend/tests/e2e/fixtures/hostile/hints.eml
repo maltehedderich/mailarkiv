@@ -1,0 +1,8 @@
+From: Mallory <mallory@attacker.example>
+To: admin@example.test
+Subject: Hints
+Date: Mon, 09 Nov 2026 10:00:00 +0000
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+
+<html><head><title>Hints</title><link rel="prefetch" href="https://leak.example.test/prefetch"><link rel="preload" href="https://leak.example.test/preload.js" as="script"><link rel="preconnect" href="https://leak.example.test"><link rel="dns-prefetch" href="https://leak.example.test"><link rel="modulepreload" href="https://leak.example.test/module.js"><link rel="icon" href="https://leak.example.test/favicon.ico"></head><body><p>Hints that fetch early.</p></body></html>

@@ -1,0 +1,8 @@
+From: Mallory <mallory@attacker.example>
+To: admin@example.test
+Subject: Script sets the title
+Date: Mon, 09 Nov 2026 10:00:00 +0000
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+
+<html><head><title>Script</title><script>document.title = "MARKER-TITLE-script";</script></head><body><p>A script sets the title.</p><script>document.body.textContent = "MARKER-TEXT-script";</script></body></html>

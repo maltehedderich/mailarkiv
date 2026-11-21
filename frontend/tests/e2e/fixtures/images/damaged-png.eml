@@ -1,0 +1,21 @@
+From: Anna Schmidt <anna@example.test>
+To: admin@example.test
+Subject: Damaged PNG
+Date: Tue, 10 Nov 2026 09:00:00 +0000
+MIME-Version: 1.0
+Content-Type: multipart/related; boundary="images"
+
+--images
+Content-Type: text/html; charset=utf-8
+
+<p>A damaged PNG:</p><img src="cid:broken@example.test" alt="Hidden: damaged">
+--images
+Content-Type: image/png
+Content-ID: <broken@example.test>
+Content-Disposition: inline; filename="broken.png"
+Content-Transfer-Encoding: base64
+
+iVBORw0KGgoAAAANSUhE*UgAAAA4AAAAOCAIAAACQKrqGAAAARElEQVR4nGJhYGDQqDjBgApudFhg
+CjIRqe5GhwUTjE1AnUbFCSYi1TEwMDBhCmFVh1BKUB1UKTHqGBgYGEcDi/jAAgwAWJJQ7m7oiJ0A
+AAAASUVORK5CYII=
+--images--

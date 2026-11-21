@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 import { startServer, type TestServer } from "./support/server";
+import { openHistory } from "./support/view";
 
 // A hostile file name, which only a direct request can send, shows as plain
 // text with its bidi override as a code. No script runs, and the page's
@@ -72,8 +73,10 @@ test("a hostile name shows as text with its override as a code", async ({
   await expect(row).toHaveCount(1);
   await expect(row.locator("img, script")).toHaveCount(0);
 
-  await row.getByRole("link", { name: /history of/i }).click();
-  const drawer = page.getByRole("dialog", { name: "History" });
+  const drawer = await openHistory(
+    page,
+    row.getByRole("link", { name: /^Open / }),
+  );
   const entry = drawer.getByRole("listitem");
   await expect(entry).toContainText(`${MARKUP}U+202Elmth.exe`);
   expect(await drawer.textContent()).not.toContain("\u202E");
@@ -100,10 +103,12 @@ test("a space where a long name is cut still shows", async ({ page }) => {
   expect(imported.status()).toBe(201);
   await page.reload();
 
-  await page
-    .getByRole("list", { name: "Messages" })
-    .getByRole("link", { name: /^History of/ })
-    .click();
+  await openHistory(
+    page,
+    page
+      .getByRole("list", { name: "Messages" })
+      .getByRole("link", { name: /^Open / }),
+  );
   const title = page
     .getByRole("dialog", { name: `History of ${name}` })
     .getByRole("heading", { level: 2 });

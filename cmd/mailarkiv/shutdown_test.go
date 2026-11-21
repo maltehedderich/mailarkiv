@@ -119,8 +119,9 @@ func TestShutdownWithSearchRunning(t *testing.T) {
 			searchProcesses++
 		}
 	}
-	if len(children) != 3 || workers != 2 || searchProcesses != 1 {
-		t.Fatalf("the server's children are %+v, want two parse workers and one search process", children)
+	// Two parse workers for processing and two for the message view.
+	if len(children) != 5 || workers != 4 || searchProcesses != 1 {
+		t.Fatalf("the server's children are %+v, want four parse workers and one search process", children)
 	}
 
 	started := time.Now()

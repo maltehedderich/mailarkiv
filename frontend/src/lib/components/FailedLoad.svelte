@@ -9,12 +9,17 @@
 
   let {
     retry = refreshAll,
+    what = "This page couldn't be loaded.",
+    next = "Try again. If this repeats, check the server log.",
   }: {
     /**
      * Loads the data again, and settles once it has arrived or failed. A list
      * that streams settles later than the load, so its page passes its own.
      */
     retry?: () => Promise<unknown>;
+    /** What happened, when the page knows more than that it didn't load. */
+    what?: string;
+    next?: string;
   } = $props();
 
   /**
@@ -62,8 +67,8 @@
 
 <div class="failed">
   <div class="message" role="status">
-    <p class="what">This page couldn't be loaded.</p>
-    <p class="next">Try again. If this repeats, check the server log.</p>
+    <p class="what">{what}</p>
+    <p class="next">{next}</p>
   </div>
   <button
     class="button"

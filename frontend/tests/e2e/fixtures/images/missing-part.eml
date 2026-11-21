@@ -1,0 +1,21 @@
+From: Anna Schmidt <anna@example.test>
+To: admin@example.test
+Subject: Missing part
+Date: Tue, 10 Nov 2026 09:00:00 +0000
+MIME-Version: 1.0
+Content-Type: multipart/related; boundary="images"
+
+--images
+Content-Type: text/html; charset=utf-8
+
+<p>Before.</p><img src="cid:missing@example.test" alt="Hidden: missing"><img src="cid:present@example.test" alt="Shown: present"><p>Text after the missing image.</p>
+--images
+Content-Type: image/png
+Content-ID: <present@example.test>
+Content-Disposition: inline; filename="present.png"
+Content-Transfer-Encoding: base64
+
+iVBORw0KGgoAAAANSUhEUgAAAAwAAAAMCAIAAADZF8uwAAAAQElEQVR4nGJhYGDQqDjBgApudFgg
+CzIRVMHAwMAEY+BUga4Iq4obHRZMBFVoVJxgIqgCah1+FQwMDIxDNQgAAwAxfzjqbIWa6AAAAABJ
+RU5ErkJggg==
+--images--

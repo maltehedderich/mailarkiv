@@ -3,6 +3,7 @@ package archive
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -471,5 +472,58 @@ func TestProcessingCounts(t *testing.T) {
 	want := ProcessingCounts{NotProcessed: 2, ProcessedWithProblems: 3, Unreadable: 1}
 	if err != nil || counts != want {
 		t.Errorf("ProcessingCounts = %+v, %v; want %+v", counts, err, want)
+	}
+}
+
+func TestReadMessage(t *testing.T) {
+	f := newFixture(t)
+	waiting, read := f.importNew(t, "a"), f.importNew(t, "b")
+	listDate := time.Date(2026, 11, 2, 8, 14, 55, 0, time.UTC)
+	result := readSummary(listDate)
+	// Recorded out of order: part numbers compare as numbers, one part at a
+	// time, and the whole message comes last.
+	result.Problems = []Problem{
+		{Position: "", Kind: "too_many_parts"},
+		{Position: "10", Kind: "unknown_charset"},
+		{Position: "2.1", Kind: "invalid_encoding"},
+		{Position: "2", DeclaredType: text("text/plain"), Kind: "unknown_charset"},
+		{Position: "2", DeclaredType: text("text/plain"), Kind: "body_cut"},
+		{Position: "1.10", Kind: "invalid_encoding"},
+		{Position: "1.9", Kind: "invalid_encoding"},
+	}
+	f.record(t, read, result)
+
+	message, problems, err := f.archive.ReadMessage(context.Background(), read)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, err := f.archive.Rows(context.Background(), []int64{read})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(message, rows[0]) {
+		t.Errorf("ReadMessage gave %+v, the list row is %+v", message, rows[0])
+	}
+	// Within a part, kinds go in the order of the wire words' table.
+	want := []Problem{
+		{Position: "1.9", Kind: "invalid_encoding"},
+		{Position: "1.10", Kind: "invalid_encoding"},
+		{Position: "2", DeclaredType: text("text/plain"), Kind: "unknown_charset"},
+		{Position: "2", DeclaredType: text("text/plain"), Kind: "body_cut"},
+		{Position: "2.1", Kind: "invalid_encoding"},
+		{Position: "10", Kind: "unknown_charset"},
+		{Position: "", Kind: "too_many_parts"},
+	}
+	if !reflect.DeepEqual(problems, want) {
+		t.Errorf("problems %+v, want %+v", problems, want)
+	}
+
+	message, problems, err = f.archive.ReadMessage(context.Background(), waiting)
+	if err != nil || message.Processing != NotProcessed || problems != nil {
+		t.Errorf("a message not processed reads as %+v with problems %+v, %v", message, problems, err)
+	}
+
+	if _, _, err := f.archive.ReadMessage(context.Background(), 999); !errors.Is(err, ErrNotFound) {
+		t.Errorf("an unknown ID gave %v, want ErrNotFound", err)
 	}
 }

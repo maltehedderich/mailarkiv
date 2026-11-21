@@ -19,10 +19,16 @@
   let {
     history,
     onclose,
+    retry,
   }: {
     /** Null keeps the drawer closed. */
     history: ApiResult<MessageHistory> | null;
     onclose: () => void;
+    /**
+     * Fetches the history again, for a page whose load doesn't. By default
+     * Try again reruns the page's load.
+     */
+    retry?: () => Promise<unknown>;
   } = $props();
 
   const numbers = new Intl.NumberFormat("en-US");
@@ -217,7 +223,7 @@
       {/key}
     {:else if shown !== null}
       <div class="body">
-        <FailedLoad />
+        <FailedLoad {retry} />
       </div>
     {/if}
     <!-- The page's toasts are inert behind this modal, so the drawer has its

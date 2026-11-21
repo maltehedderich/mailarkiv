@@ -190,8 +190,14 @@ func TestEveryRouteDeniesWithoutSession(t *testing.T) {
 			t.Run(route.pattern()+"/"+tt.name, func(t *testing.T) {
 				response, body := h.send(t, route.Method, path, requestBody(t, route, double.Addr()), tt.change)
 
-				if response.StatusCode != http.StatusUnauthorized || body != noSession {
-					t.Fatalf("%s %s = %d %q, want 401 %s", route.Method, path, response.StatusCode, body, noSession)
+				want := noSession
+				if route.Path == "/api/messages/{id}/html" {
+					// The preview loads in a frame, which shows a body as a
+					// page, so its 401 is empty.
+					want = ""
+				}
+				if response.StatusCode != http.StatusUnauthorized || body != want {
+					t.Fatalf("%s %s = %d %q, want 401 %q", route.Method, path, response.StatusCode, body, want)
 				}
 			})
 		}

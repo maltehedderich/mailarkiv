@@ -83,6 +83,21 @@ const DOWNLOAD_FAILED: Record<
   unavailable: { nextStep: TRY_AGAIN },
 };
 
+/**
+ * Why a file wasn't saved and what to do, after `notSaved`, which says what
+ * wasn't.
+ */
+export function failureWords(
+  reason: DownloadFailure,
+  notSaved: string,
+): { what: string; next: string } {
+  const { meaning, nextStep } = DOWNLOAD_FAILED[reason];
+  return {
+    what: meaning === undefined ? notSaved : `${notSaved} ${meaning}`,
+    next: nextStep,
+  };
+}
+
 export function toastWords(toast: Toast): ToastWords {
   switch (toast.kind) {
     case "import":
@@ -117,16 +132,13 @@ export function toastWords(toast: Toast): ToastWords {
         what: "Nothing was saved.",
       };
     case "download_failed": {
-      const { meaning, nextStep } = DOWNLOAD_FAILED[toast.reason];
+      const { what, next } = failureWords(toast.reason, NOT_DOWNLOADED);
       return {
         tone: "bad",
         word: "Download failed",
         name: toast.fileName,
-        what:
-          meaning === undefined
-            ? NOT_DOWNLOADED
-            : `${NOT_DOWNLOADED} ${meaning}`,
-        next: nextStep,
+        what,
+        next,
       };
     }
   }

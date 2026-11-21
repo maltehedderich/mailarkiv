@@ -125,5 +125,5 @@ func body(chosen *leaf, problems *problemList) *Body {
 	if cut {
 		problems.add(chosen.position, declaredType(chosen.part), BodyCut)
 	}
-	return &Body{Position: chosen.position, Content: content}
+	return &Body{Position: chosen.position, Content: content, Truncated: cut}
 }

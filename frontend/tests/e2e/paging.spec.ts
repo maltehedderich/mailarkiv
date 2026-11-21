@@ -49,7 +49,7 @@ function pages(page: Page) {
  */
 function named(index: number): RegExp {
   const padded = String(index).padStart(2, "0");
-  return new RegExp(`^History of (message-${padded}\\.eml|Message ${index})$`);
+  return new RegExp(`^Open (message-${padded}\\.eml|Message ${index})$`);
 }
 
 function rows(page: Page) {
@@ -127,8 +127,8 @@ test("focus moving up the list stays clear of the header", async ({ page }) => {
   await page.reload();
   await expect(rows(page)).toHaveCount(50);
 
-  await page
-    .getByRole("link", { name: /history of/i })
+  await rows(page)
+    .getByRole("link", { name: /^Open / })
     .last()
     .focus();
   for (let presses = 0; presses < 40; presses++) {
@@ -218,7 +218,7 @@ test("an import from a later page shows the newest message on page 1", async ({
   await expect(
     rows(page)
       .first()
-      .getByRole("link", { name: /^History of (newest\.eml|Newest)$/ }),
+      .getByRole("link", { name: /^Open (newest\.eml|Newest)$/ }),
   ).toBeVisible();
   await expect(pages(page)).toContainText("1–50 of 52");
 });

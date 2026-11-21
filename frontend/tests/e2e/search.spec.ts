@@ -7,6 +7,7 @@ import {
   type ServerOptions,
   type TestServer,
 } from "./support/server";
+import { openHistory, openMessage } from "./support/view";
 
 // Search words and filters name people and topics, so they never reach an
 // address the browser, a proxy, or the server's log records. They travel
@@ -108,7 +109,7 @@ function results(page: Page) {
 
 /** The subjects of the result rows, in order. */
 function subjects(page: Page) {
-  return results(page).getByRole("link", { name: /^History of / });
+  return results(page).getByRole("link", { name: /^Open / });
 }
 
 function field(page: Page, label: string) {
@@ -164,18 +165,19 @@ test("a body word finds its message, and no address holds the word", async ({
   await expect(row).toHaveCount(1);
   await expect(row).toContainText("Bernd Weber");
   await expect(row).toContainText("bernd@example.test");
-  await expect(
-    row.getByRole("link", { name: "History of Bericht" }),
-  ).toBeVisible();
+  await expect(row.getByRole("link", { name: "Open Bericht" })).toBeVisible();
   // The file name shows only in the history.
   await expect(row).not.toContainText("report.eml");
 
-  // The history opens over the results and closes back to them.
-  await row.getByRole("link", { name: "History of Bericht" }).click();
-  const drawer = page.getByRole("dialog", { name: "History" });
+  // The message opens from the results, and its way up goes back to them.
+  const drawer = await openHistory(
+    page,
+    row.getByRole("link", { name: "Open Bericht" }),
+  );
   await expect(drawer).toContainText("report.eml");
   await drawer.getByRole("button", { name: "Close" }).click();
   await expect(drawer).toBeHidden();
+  await page.getByRole("main").getByRole("link", { name: "Messages" }).click();
   await expect(results(page).getByRole("listitem")).toHaveCount(1);
 
   await page.getByRole("button", { name: "Clear" }).click();
@@ -345,12 +347,22 @@ test("Back from a result shows the same search, page, and results", async ({
 
   const sent = searchRequests(page);
 
-  await test.step("a result's history, then Back", async () => {
-    await subjects(page).first().click();
-    const drawer = page.getByRole("dialog", { name: "History" });
-    await expect(drawer).toContainText("message-01.eml");
+  await test.step("a result's message, then Back", async () => {
+    await openMessage(page, subjects(page).first());
+    await expect(page.getByRole("main")).toContainText("Message 1");
     await page.goBack();
-    await expect(drawer).toBeHidden();
+    await expect(field(page, "Words")).toHaveValue("body");
+    await expect(pager).toContainText("51–51 of 51");
+    await expect(subjects(page)).toHaveText(["Message 1"]);
+  });
+
+  await test.step("a result's message, then its way up", async () => {
+    await openMessage(page, subjects(page).first());
+    await page
+      .getByRole("main")
+      .getByRole("link", { name: "Messages" })
+      .click();
+    await expect(field(page, "Words")).toHaveValue("body");
     await expect(pager).toContainText("51–51 of 51");
     await expect(subjects(page)).toHaveText(["Message 1"]);
   });

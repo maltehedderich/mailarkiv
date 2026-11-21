@@ -1,0 +1,8 @@
+From: Mallory <mallory@attacker.example>
+To: admin@example.test
+Subject: Remote resources
+Date: Mon, 09 Nov 2026 10:00:00 +0000
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+
+<html><head><title>Remote</title><link rel="stylesheet" href="https://leak.example.test/style.css"><style>@import url("https://leak.example.test/import.css"); @font-face { font-family: Leak; src: url("https://leak.example.test/font.woff2"); } body { font-family: Leak; background: url("https://leak.example.test/background.png"); } .bg { background-image: url("https://leak.example.test/div-background.png"); }</style></head><body><p>Remote resources.</p><img src="https://leak.example.test/image.png" alt="Remote image"><img srcset="https://leak.example.test/srcset.png 1x" alt=""><div class="bg">Background</div><div style="background: url(https://leak.example.test/inline-background.png)">Inline</div><table background="https://leak.example.test/table.png"><tr><td>Cell</td></tr></table><svg width="10" height="10"><image href="https://leak.example.test/svg-image.png" width="10" height="10"/></svg><video poster="https://leak.example.test/poster.png" src="https://leak.example.test/video.mp4"></video><audio src="https://leak.example.test/audio.mp3" autoplay></audio><iframe src="https://leak.example.test/frame"></iframe><iframe src="/"></iframe><object data="https://leak.example.test/object"></object><embed src="https://leak.example.test/embed"><img src="/api/session" alt=""><input type="image" src="https://leak.example.test/input.png" alt="Input"></body></html>
