@@ -4,16 +4,21 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -179,6 +184,211 @@ func (f *fixture) background(fn func(context.Context)) {
 func (f *fixture) runProcessing() { f.background(f.processor.Run) }
 func (f *fixture) runSearch()     { f.background(f.module.Run) }
 
+// startSearch runs the module and returns a stop that waits for Run to
+// return. The test's end stops it too.
+func (f *fixture) startSearch() (stop func()) {
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		f.module.Run(ctx)
+	}()
+	stop = func() {
+		cancel()
+		<-done
+	}
+	f.t.Cleanup(stop)
+	return stop
+}
+
+// newModule replaces the module with a new one on the same catalog and data
+// directory, as a server restart does. The old one must be stopped.
+func (f *fixture) newModule() {
+	old := f.module
+	f.module = New(old.config)
+	f.module.restartAfter = old.restartAfter
+	f.module.command = old.command
+}
+
+// advance moves the fixture's clock.
+func (f *fixture) advance(d time.Duration) {
+	f.clockMu.Lock()
+	defer f.clockMu.Unlock()
+	f.clock = f.clock.Add(d)
+}
+
+// fastRestarts starts the search process again 10 ms after it stops.
+func (f *fixture) fastRestarts() {
+	f.module.restartAfter = func(time.Duration) <-chan time.Time { return time.After(10 * time.Millisecond) }
+}
+
+// fastRetries sends a failed batch again 10 ms after it failed.
+func (f *fixture) fastRetries() {
+	f.module.retryAfter = func(time.Duration) <-chan time.Time { return time.After(10 * time.Millisecond) }
+}
+
+// switchableFaults starts program with the fault list setFaults last set,
+// read anew at each start.
+func (f *fixture) switchableFaults(program string) (setFaults func(string)) {
+	var faults atomic.Pointer[string]
+	setFaults = func(list string) { faults.Store(&list) }
+	setFaults("")
+	f.module.command = func() *exec.Cmd {
+		cmd := exec.Command(program)
+		cmd.Env = []string{}
+		if list := *faults.Load(); list != "" {
+			cmd.Env = append(cmd.Env, faultsVariable+"="+list)
+		}
+		return cmd
+	}
+	return setFaults
+}
+
+// killSearch waits for a running search process, kills it, and waits until
+// the module has recorded the stop.
+func (f *fixture) killSearch() {
+	f.t.Helper()
+	f.waitFor("a running search process", func() bool { return f.module.pid() != 0 })
+	before := len(f.failures(opstatus.SearchProcessStopped))
+	if err := syscall.Kill(f.module.pid(), syscall.SIGKILL); err != nil {
+		f.t.Fatal(err)
+	}
+	f.waitFor("the recorded stop", func() bool { return len(f.failures(opstatus.SearchProcessStopped)) == before+1 })
+}
+
+// importNote imports a short synthetic message whose subject is "Notiz" and
+// whose text holds "notiz<n>".
+func (f *fixture) importNote(n int) int64 {
+	f.t.Helper()
+	return f.importBytes(fmt.Appendf(nil, "From: anna@example.test\r\nTo: bernd@example.test\r\n"+
+		"Subject: Notiz\r\nDate: Mon, 02 Nov 2026 08:00:00 +0000\r\nMessage-ID: <notiz%d@example.test>\r\n\r\nnotiz%d\r\n", n, n))
+}
+
+// account inserts the administrator who starts rebuilds and returns its ID.
+func (f *fixture) account() int64 {
+	f.t.Helper()
+	result, err := f.db.Writer.Exec(
+		"INSERT INTO account (email, password_hash, created_at) VALUES ('admin@example.test', 'not a hash', 0)")
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	return id
+}
+
+// activeID is the active generation's ID.
+func (f *fixture) activeID() int64 {
+	f.t.Helper()
+	for _, row := range f.generations() {
+		if row.role == roleActive {
+			return row.id
+		}
+	}
+	f.t.Fatalf("no active generation in %+v", f.generations())
+	return 0
+}
+
+// needsRebuild reads search_needs_rebuild's category, or "" without a row.
+func (f *fixture) needsRebuild() string {
+	f.t.Helper()
+	var category string
+	err := f.db.Reader.QueryRow("SELECT category FROM search_needs_rebuild").Scan(&category)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		f.t.Fatal(err)
+	}
+	return category
+}
+
+// indexSize sums the sizes of the files in index/<id>, as the search
+// program's size does.
+func (f *fixture) indexSize(id int64) int64 {
+	f.t.Helper()
+	entries, err := os.ReadDir(filepath.Join(f.dataDir, "index", itoa64(id)))
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	var size int64
+	for _, entry := range entries {
+		info, err := entry.Info()
+		if err != nil {
+			f.t.Fatal(err)
+		}
+		if info.Mode().IsRegular() {
+			size += info.Size()
+		}
+	}
+	return size
+}
+
+const gib = int64(1) << 30
+
+// fakeDisk is a free space reader whose answer the test sets.
+type fakeDisk struct {
+	mu    sync.Mutex
+	free  int64
+	rule  func() int64
+	paths []string
+}
+
+// fakeDisk replaces the module's free space reader with one that answers
+// free until the test changes it.
+func (f *fixture) fakeDisk(free int64) *fakeDisk {
+	d := &fakeDisk{free: free}
+	f.module.freeSpace = d.read
+	return d
+}
+
+func (d *fakeDisk) read(path string) (int64, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.paths = append(d.paths, path)
+	if d.rule != nil {
+		return d.rule(), nil
+	}
+	return d.free, nil
+}
+
+// set answers free from now on.
+func (d *fakeDisk) set(free int64) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.free, d.rule = free, nil
+}
+
+// setRule answers what rule gives at each reading from now on.
+func (d *fakeDisk) setRule(rule func() int64) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.rule = rule
+}
+
+// readings counts the readings so far.
+func (d *fakeDisk) readings() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return len(d.paths)
+}
+
+// waitForReadings waits until the reader has answered n more times.
+func (f *fixture) waitForReadings(d *fakeDisk, n int) {
+	f.t.Helper()
+	target := d.readings() + n
+	f.waitFor(fmt.Sprintf("%d free space readings", n), func() bool { return d.readings() >= target })
+}
+
+// search runs q's words on the first page.
+func (f *fixture) search(words string) Result {
+	f.t.Helper()
+	result, err := f.module.Search(context.Background(), Query{Words: words, Page: 1})
+	if err != nil {
+		f.t.Fatalf("search %q: %v", words, err)
+	}
+	return result
+}
+
 // waitFor polls cond every 20 ms for at most 30 s.
 func (f *fixture) waitFor(what string, cond func() bool) {
 	f.t.Helper()
@@ -273,6 +483,29 @@ func (f *fixture) failures(category opstatus.Category) []opstatus.FailureEvent {
 }
 
 // logged returns the log entries with this msg.
+// maintenanceRun is one maintenance answer the module got.
+type maintenanceRun struct {
+	generation int64
+	answer     maintainAnswer
+}
+
+// maintenanceRuns records each maintenance answer and returns a reader of
+// them. Call it before runSearch.
+func (f *fixture) maintenanceRuns() func() []maintenanceRun {
+	var mu sync.Mutex
+	var runs []maintenanceRun
+	f.module.maintained = func(generation int64, answer maintainAnswer) {
+		mu.Lock()
+		defer mu.Unlock()
+		runs = append(runs, maintenanceRun{generation, answer})
+	}
+	return func() []maintenanceRun {
+		mu.Lock()
+		defer mu.Unlock()
+		return slices.Clone(runs)
+	}
+}
+
 func (f *fixture) logged(msg string) []map[string]any {
 	var out []map[string]any
 	for _, entry := range f.log.entries(f.t) {

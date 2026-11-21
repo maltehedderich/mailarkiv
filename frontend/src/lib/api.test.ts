@@ -618,6 +618,20 @@ describe("searchMessages", () => {
       },
     ],
     [
+      "search unavailable because the index needs a rebuild",
+      503,
+      {
+        error: "search_unavailable",
+        cause: "index_needs_rebuild",
+        next_start_at: null,
+      },
+      {
+        kind: "search_unavailable",
+        cause: "index_needs_rebuild",
+        nextStartAt: null,
+      },
+    ],
+    [
       "a search the process didn't answer",
       503,
       { error: "search_did_not_answer" },
@@ -1054,6 +1068,10 @@ describe("getStatus", () => {
       "search_process_did_not_start",
       "search_process_did_not_answer",
       "index_write_failed",
+      "index_maintenance_failed",
+      "index_needs_rebuild",
+      "low_disk_space",
+      "rebuild_failed",
     ];
     const failures = categories.map((category) => ({
       at: "2026-11-06T15:20:00.000Z",

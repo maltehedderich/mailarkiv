@@ -107,6 +107,10 @@ export const SEARCH_CAUSES = [
   "search_process_stopped",
   "search_process_did_not_start",
   "index_write_failed",
+  "index_maintenance_failed",
+  "index_needs_rebuild",
+  "low_disk_space",
+  "rebuild_failed",
 ] as const;
 
 export type SearchCause = (typeof SEARCH_CAUSES)[number];
@@ -290,6 +294,10 @@ export const FAILURE_CATEGORIES = [
   "search_process_did_not_start",
   "search_process_did_not_answer",
   "index_write_failed",
+  "index_maintenance_failed",
+  "index_needs_rebuild",
+  "low_disk_space",
+  "rebuild_failed",
 ] as const;
 
 export type FailureCategory = (typeof FAILURE_CATEGORIES)[number];

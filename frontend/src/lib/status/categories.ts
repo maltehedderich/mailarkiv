@@ -83,6 +83,30 @@ export const CATEGORIES: Record<FailureCategory, CategoryWords> = {
       "A batch couldn't be saved to the index, such as through a denied write.",
     nextStep: "Fix the index location, such as its permissions.",
   },
+  index_maintenance_failed: {
+    name: "Index maintenance failed",
+    meaning:
+      "Background merging of index files failed. MailArkiv tries again at the next maintenance, and after 3 failures in a row marks the index Needs rebuild.",
+    nextStep: "If search shows Needs rebuild, start a rebuild.",
+  },
+  index_needs_rebuild: {
+    name: "Index needs rebuild",
+    meaning:
+      "Repeated crashes or maintenance failures. Indexing stops, and search answers when it can, with a notice.",
+    nextStep: "Start a rebuild on the status screen.",
+  },
+  low_disk_space: {
+    name: "Low disk space",
+    meaning:
+      "Free space where the index lives fell below 2 GiB. Indexing and rebuilding pause until 3 GiB is free, and capture continues.",
+    nextStep: "Free disk space.",
+  },
+  rebuild_failed: {
+    name: "Rebuild failed",
+    meaning:
+      "A rebuild stopped with an error other than low disk space or a restart. The new index was discarded, and the old one keeps answering.",
+    nextStep: "Start the rebuild again. If it repeats, check the server log.",
+  },
 };
 
 export const UNREFERENCED_MEANING =

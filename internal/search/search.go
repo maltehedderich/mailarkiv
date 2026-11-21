@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/maltehedderich/mailarkiv/internal/archive"
@@ -47,6 +48,8 @@ type Result struct {
 	// FullList is true when the words had no letters or digits, so the rows
 	// are the whole list.
 	FullList bool
+	// MayBeIncomplete is true while the index is marked Needs rebuild.
+	MayBeIncomplete bool
 }
 
 // UnavailableError means the search process isn't running.
@@ -97,7 +100,7 @@ type searchAnswer struct {
 }
 
 // Search finds the messages that match q. It searches the active index, or
-// the one being built when none is active yet.
+// the one being built when none is active or the active one can't be read.
 func (m *Module) Search(ctx context.Context, q Query) (Result, error) {
 	if q.Page < 1 || q.Page > MaxPage {
 		return Result{}, fmt.Errorf("search page %d: pages run from 1 to %d", q.Page, MaxPage)
@@ -106,9 +109,16 @@ func (m *Module) Search(ctx context.Context, q Query) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	s.searching.RLock()
+	written := sync.OnceFunc(s.searching.RUnlock)
+	defer written()
 	generationID := s.search()
+	if generationID == 0 {
+		return Result{}, &UnavailableError{Cause: opstatus.IndexNeedsRebuild}
+	}
+	incomplete := m.mayBeIncomplete()
 	var answer searchAnswer
-	err = s.client.call(ctx, opstatus.OperationSearch, func(id int64) any {
+	err = s.client.callSent(ctx, opstatus.OperationSearch, func(id int64) any {
 		return searchRequest{
 			ID: id, Op: "search", Generation: generationID,
 			Words: q.Words, From: q.From, To: q.To, Subject: q.Subject, Attachment: q.Attachment,
@@ -117,7 +127,7 @@ func (m *Module) Search(ctx context.Context, q Query) (Result, error) {
 			Offset:         (q.Page - 1) * archive.PageSize, Limit: archive.PageSize,
 			DeadlineMS: searchDeadline.Milliseconds(),
 		}
-	}, &answer)
+	}, &answer, written)
 	switch {
 	case err == nil:
 	case isAnswer(err, "timed_out"):
@@ -133,7 +143,7 @@ func (m *Module) Search(ctx context.Context, q Query) (Result, error) {
 		if err != nil {
 			return Result{}, err
 		}
-		return Result{Rows: page.Items, Total: page.Total, FullList: true}, nil
+		return Result{Rows: page.Items, Total: page.Total, FullList: true, MayBeIncomplete: incomplete}, nil
 	}
 	rows, err := m.config.Archive.Rows(ctx, answer.IDs)
 	if err != nil {
@@ -143,7 +153,7 @@ func (m *Module) Search(ctx context.Context, q Query) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	return Result{Rows: rows, Total: answer.Total, NotIncluded: notIncluded}, nil
+	return Result{Rows: rows, Total: answer.Total, NotIncluded: notIncluded, MayBeIncomplete: incomplete}, nil
 }
 
 // openSession returns the running session once an index is open for
@@ -151,11 +161,7 @@ func (m *Module) Search(ctx context.Context, q Query) (Result, error) {
 func (m *Module) openSession(ctx context.Context) (*session, error) {
 	m.mu.Lock()
 	s := m.session
-	unavailable := &UnavailableError{Cause: m.lastFailure}
-	if m.nextStartAt != nil {
-		next := *m.nextStartAt
-		unavailable.NextStartAt = &next
-	}
+	unavailable := m.unavailableLocked()
 	m.mu.Unlock()
 	if s == nil {
 		return nil, unavailable

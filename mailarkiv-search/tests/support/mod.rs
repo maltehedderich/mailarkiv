@@ -184,6 +184,18 @@ impl Search {
         self.call(json!({"op": "index", "generation": generation, "documents": documents, "commit": commit}))
     }
 
+    pub fn maintain(&mut self, generation: u64) -> Value {
+        self.call(json!({"op": "maintain", "generation": generation}))
+    }
+
+    pub fn close(&mut self, generation: u64, delete: bool) -> Value {
+        self.call(json!({"op": "close", "generation": generation, "delete": delete}))
+    }
+
+    pub fn size(&mut self, generation: u64) -> Value {
+        self.call(json!({"op": "size", "generation": generation}))
+    }
+
     /// Searches generation for words and returns the answer.
     pub fn search(&mut self, generation: u64, words: &str, offset: u64, limit: u64) -> Value {
         self.query(

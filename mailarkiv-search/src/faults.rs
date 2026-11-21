@@ -9,6 +9,8 @@ pub enum Point {
     AfterCommit,
     /// After the query is built, before collection.
     DuringSearch,
+    /// Inside a maintenance run, before the first merge.
+    DuringMerge,
     /// Before an index opens.
     OnOpen,
 }
@@ -65,6 +67,7 @@ mod enabled {
             let point = match point {
                 "after-commit" => Point::AfterCommit,
                 "during-search" => Point::DuringSearch,
+                "during-merge" => Point::DuringMerge,
                 "on-open" => Point::OnOpen,
                 _ => return Err(()),
             };

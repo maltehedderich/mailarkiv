@@ -39,6 +39,10 @@ var (
 	SearchProcessDidNotStart  = Category{name: "search_process_did_not_start", search: true}
 	SearchProcessDidNotAnswer = Category{name: "search_process_did_not_answer", search: true}
 	IndexWriteFailed          = Category{name: "index_write_failed", search: true}
+	IndexMaintenanceFailed    = Category{name: "index_maintenance_failed", search: true}
+	IndexNeedsRebuild         = Category{name: "index_needs_rebuild", search: true}
+	LowDiskSpace              = Category{name: "low_disk_space", search: true}
+	RebuildFailed             = Category{name: "rebuild_failed", search: true}
 )
 
 // String returns the category's name, which the log, the API, and the frontend
@@ -57,6 +61,10 @@ var (
 	CauseNoSpace          = Cause{"no_space"}
 	CausePermissionDenied = Cause{"permission_denied"}
 	CauseOther            = Cause{"other"}
+	// Why the index needs a rebuild.
+	CauseSearchProcessStopped   = Cause{"search_process_stopped"}
+	CauseIndexMaintenanceFailed = Cause{"index_maintenance_failed"}
+	CauseIndexDamaged           = Cause{"index_damaged"}
 )
 
 func (c Cause) String() string { return c.name }
@@ -83,8 +91,10 @@ type Detail struct {
 	Cause          Cause
 	Operation      Operation
 	GenerationID   *int64
+	RebuildID      *int64
 	FirstMessageID *int64
 	LastMessageID  *int64
+	FreeBytes      *int64
 }
 
 func (d *Detail) attrs() []slog.Attr {
@@ -99,8 +109,10 @@ func (d *Detail) attrs() []slog.Attr {
 	optional("cause", d.Cause.name, d.Cause != Cause{})
 	optional("operation", d.Operation.name, d.Operation != Operation{})
 	optional("generation_id", deref(d.GenerationID), d.GenerationID != nil)
+	optional("rebuild_id", deref(d.RebuildID), d.RebuildID != nil)
 	optional("first_message_id", deref(d.FirstMessageID), d.FirstMessageID != nil)
 	optional("last_message_id", deref(d.LastMessageID), d.LastMessageID != nil)
+	optional("free_bytes", deref(d.FreeBytes), d.FreeBytes != nil)
 	return attrs
 }
 

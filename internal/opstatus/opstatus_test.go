@@ -69,6 +69,10 @@ func TestCategoryNames(t *testing.T) {
 		{SearchProcessDidNotStart, "search_process_did_not_start"},
 		{SearchProcessDidNotAnswer, "search_process_did_not_answer"},
 		{IndexWriteFailed, "index_write_failed"},
+		{IndexMaintenanceFailed, "index_maintenance_failed"},
+		{IndexNeedsRebuild, "index_needs_rebuild"},
+		{LowDiskSpace, "low_disk_space"},
+		{RebuildFailed, "rebuild_failed"},
 	}
 	for _, tt := range tests {
 		if got := tt.category.String(); got != tt.want {
@@ -112,7 +116,7 @@ func TestEntitiesHoldOnlyTheAllowedFields(t *testing.T) {
 		},
 		{
 			reflect.TypeFor[Detail](),
-			[]string{"Cause", "ExitStatus", "FirstMessageID", "GenerationID", "LastMessageID", "Operation", "Signal"},
+			[]string{"Cause", "ExitStatus", "FirstMessageID", "FreeBytes", "GenerationID", "LastMessageID", "Operation", "RebuildID", "Signal"},
 		},
 	}
 	for _, tt := range tests {
@@ -312,6 +316,26 @@ func TestSearchFailureIsListedAndLogged(t *testing.T) {
 				"first_message_id": float64(17), "last_message_id": float64(40), "cause": "permission_denied",
 			},
 		},
+		{
+			name:    "index maintenance failed",
+			event:   FailureEvent{Category: IndexMaintenanceFailed, Detail: &Detail{GenerationID: pointer(int64(3))}},
+			wantLog: map[string]any{"category": "index_maintenance_failed", "generation_id": float64(3)},
+		},
+		{
+			name:    "index needs rebuild",
+			event:   FailureEvent{Category: IndexNeedsRebuild, Detail: &Detail{Cause: CauseIndexDamaged}},
+			wantLog: map[string]any{"category": "index_needs_rebuild", "cause": "index_damaged"},
+		},
+		{
+			name:    "low disk space",
+			event:   FailureEvent{Category: LowDiskSpace, Detail: &Detail{FreeBytes: pointer(int64(1 << 30))}},
+			wantLog: map[string]any{"category": "low_disk_space", "free_bytes": float64(1 << 30)},
+		},
+		{
+			name:    "rebuild failed",
+			event:   FailureEvent{Category: RebuildFailed, Detail: &Detail{RebuildID: pointer(int64(4)), GenerationID: pointer(int64(5))}},
+			wantLog: map[string]any{"category": "rebuild_failed", "rebuild_id": float64(4), "generation_id": float64(5)},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -364,6 +388,9 @@ func TestDetailWords(t *testing.T) {
 		{CauseNoSpace, "no_space"},
 		{CausePermissionDenied, "permission_denied"},
 		{CauseOther, "other"},
+		{CauseSearchProcessStopped, "search_process_stopped"},
+		{CauseIndexMaintenanceFailed, "index_maintenance_failed"},
+		{CauseIndexDamaged, "index_damaged"},
 		{OperationOpen, "open"},
 		{OperationIndex, "index"},
 		{OperationSearch, "search"},

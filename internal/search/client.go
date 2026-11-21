@@ -128,6 +128,19 @@ func (c *client) read(stdout *bufio.Reader) {
 // call sends the request that build makes for a fresh ID and decodes the
 // answer's ok object into result, which may be nil.
 func (c *client) call(ctx context.Context, op opstatus.Operation, build func(id int64) any, result any) error {
+	return c.callSent(ctx, op, build, result, nil)
+}
+
+// callSent is call that also runs sent, if set, once the request is written
+// or can't be, before the wait for the answer.
+func (c *client) callSent(ctx context.Context, op opstatus.Operation, build func(id int64) any, result any, sent func()) error {
+	written := func() {
+		if sent != nil {
+			sent()
+			sent = nil
+		}
+	}
+	defer written()
 	answer := make(chan incoming, 1)
 	c.mu.Lock()
 	if c.stopped {
@@ -147,6 +160,7 @@ func (c *client) call(ctx context.Context, op opstatus.Operation, build func(id 
 	c.writeMu.Lock()
 	err := processing.WriteFrame(c.stdin, build(id))
 	c.writeMu.Unlock()
+	written()
 	if err != nil {
 		forget()
 		return errStopped

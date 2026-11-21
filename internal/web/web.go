@@ -62,6 +62,7 @@ func Routes() []Route {
 		{Method: http.MethodGet, Path: "/api/processing-problems", Access: SignedIn, Handler: listProcessingProblems},
 		{Method: http.MethodGet, Path: "/api/messages/{id}", Access: SignedIn, Handler: readHistory},
 		{Method: http.MethodPost, Path: "/api/search", Access: SignedIn, Handler: searchMessages},
+		{Method: http.MethodPost, Path: "/api/search/rebuild", Access: SignedIn, Handler: startRebuild},
 		{Method: http.MethodGet, Path: "/api/messages/{id}/original", Access: SignedIn, Handler: downloadOriginal, NoSession: redirectToSignIn},
 		{Method: http.MethodGet, Path: "/api/messages/{id}/content", Access: SignedIn, Handler: readContent},
 		{Method: http.MethodGet, Path: "/api/messages/{id}/text", Access: SignedIn, Handler: readText},
