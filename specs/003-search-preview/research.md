@@ -350,7 +350,7 @@ The policy blocks everything except link navigation, so the server must also rew
 
 ## Sizing test
 
-**Decision:** `mise run sizing` runs `go run ./internal/sizing/cmd/sizing` against a fresh data directory, outside `mise run check`. It:
+**Decision:** `mise run sizing` builds `./internal/sizing/cmd/sizing` and runs it against a fresh data directory, outside `mise run check`. It:
 
 1. Generates 5,000,000 synthetic messages from a fixed seed, with German and English words, about 8 KB each on average, and a small attachment on one in ten. It imports them through `archive.Import`.
 2. Runs the real processing and search modules and the shipped search program until the index is up to date.

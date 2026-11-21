@@ -170,7 +170,7 @@ sudo umount .data/small
 
 ## 8. Sizing test
 
-This takes most of a day and about 60 GB of disk. Run it on a host with 4 cores and 8 GiB of memory:
+This takes most of a day and about 80 GB of disk. Run it on a host with 4 cores and 8 GiB of memory:
 
 ```sh
 mise run sizing

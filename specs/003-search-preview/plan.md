@@ -180,7 +180,7 @@ docs/OPERATIONS.md, docs/adr/0009-*.md, docs/research/search-sizing/
 - `processing` uses `archive`, `mailparse`, and `fault`.
 - `search` uses `archive`, `processing`, `opstatus`, `sqlitedb`, and `fault`.
 - `mailparse` and `imagetest` import no module.
-- `sizing/cmd/sizing` uses `archive`, `processing`, `search`, `opstatus`, and `sqlitedb`. No package imports `sizing` or `imagetest`.
+- `sizing/cmd/sizing` uses `archive`, `identity`, `processing`, `search`, `opstatus`, and `sqlitedb`. It signs in through `identity` because a rebuild names the account that started it. No package imports `sizing` or `imagetest`.
 - `archive` is unchanged: `opstatus`, `sqlitedb`, `fault`.
 
 `tableOwners` adds `message_summary` and `message_problem` for `archive`, and the three search tables for `search`.

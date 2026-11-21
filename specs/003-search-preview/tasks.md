@@ -476,13 +476,13 @@ Writing these tasks exposed places where the plan's order or contracts don't hol
 
 ### Tests for User Story 7
 
-- [ ] T154 [P] [US7] Write `internal/sizing/cmd/sizing/sizing_test.go`: the generator gives the same messages for the same seed, averages about 8 KB, attaches a file to one in ten, and includes `internal/web/testdata/searchset/`. `seed` with 50 messages and `measure` finish against the real search program and write a results section with every field FR-049 names
+- [X] T154 [P] [US7] Write `internal/sizing/cmd/sizing/sizing_test.go`: the generator gives the same messages for the same seed, averages about 8 KB, attaches a file to one in ten, and includes `internal/web/testdata/searchset/`. `seed` with 50 messages and `measure` finish against the real search program and write a results section with every field FR-049 names
 
 ### Implementation for User Story 7
 
-- [ ] T155 [US7] Write `internal/sizing/cmd/sizing/main.go` and `internal/sizing/cmd/sizing/generate.go`: `seed --data-dir DIR --messages N [--seed S]` generates German and English synthetic messages from a fixed seed and imports them through `archive.Import`, with the fixed set. `sizing parse-worker` runs `processing.RunWorker`, so the tool can start its own workers
-- [ ] T156 [US7] Write `internal/sizing/cmd/sizing/measure.go`, following [research.md](research.md#sizing-test): run processing and search with `bin/mailarkiv-search` until Up to date, run a fixed set of newest-first searches with and without prefix words and record the median and 95th percentile, start a rebuild and time it, sample `RssAnon` of the search process from `/proc` every 100 ms, record the index directory's size, and append a dated section with the versions to `docs/research/search-sizing/README.md`
-- [ ] T157 [US7] Add `mise run sizing` to `mise.toml`, outside `check`, depending on `search:build`, and add its row to `AGENTS.md` (Performance, manual)
+- [X] T155 [US7] Write `internal/sizing/cmd/sizing/main.go` and `internal/sizing/cmd/sizing/generate.go`: `seed --data-dir DIR --messages N [--seed S]` generates German and English synthetic messages from a fixed seed and imports them through `archive.Import`, with the fixed set. `sizing parse-worker` runs `processing.RunWorker`, so the tool can start its own workers
+- [X] T156 [US7] Write `internal/sizing/cmd/sizing/measure.go`, following [research.md](research.md#sizing-test): run processing and search with `bin/mailarkiv-search` until Up to date, run a fixed set of newest-first searches with and without prefix words and record the median and 95th percentile, start a rebuild and time it, sample `RssAnon` of the search process from `/proc` every 100 ms, record the index directory's size, and append a dated section with the versions to `docs/research/search-sizing/README.md`
+- [X] T157 [US7] Add `mise run sizing` to `mise.toml`, outside `check`, depending on `search:build`, and add its row to `AGENTS.md` (Performance, manual)
 - [ ] T158 [US7] Run `mise run sizing` on a host with 4 cores and 8 GiB of memory. Write the method and results in `docs/research/search-sizing/README.md`. If every FR-049 target holds (95th percentile under 1 s, rebuild within 8 hours, under 1 GiB allocated), 5,000,000 is the supported size. Otherwise state the largest size tested that met every target, and record the miss for a review of ADR 0007
 
 **Checkpoint**: The sizing run's results are in the repository (SC-011).
