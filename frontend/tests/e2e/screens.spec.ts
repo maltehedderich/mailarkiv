@@ -32,6 +32,48 @@ const CONTENT = Buffer.from(
 );
 const HASH = createHash("sha256").update(CONTENT).digest("hex");
 const LONG_NAME = `${"quarterly-statement-".repeat(8)}final.eml`;
+/** Its subject's word finds it alone. */
+const REPORT_WORD = "quartalsbericht";
+/**
+ * Both bodies, an image from the internet so the view offers to load it, and
+ * a PDF attachment as part 2.
+ */
+const REPORT = Buffer.from(
+  [
+    "From: Anna Schmidt <anna@example.test>",
+    "To: admin@example.test",
+    "Subject: Quartalsbericht",
+    "Date: Mon, 2 Nov 2026 09:14:55 +0100",
+    "MIME-Version: 1.0",
+    'Content-Type: multipart/mixed; boundary="mix"',
+    "",
+    "--mix",
+    'Content-Type: multipart/alternative; boundary="alt"',
+    "",
+    "--alt",
+    "Content-Type: text/plain; charset=utf-8",
+    "",
+    "Der Bericht liegt bei.",
+    "--alt",
+    "Content-Type: text/html; charset=utf-8",
+    "",
+    '<p>Der Bericht liegt bei.</p><img src="https://images.example.org/chart.png" alt="Chart">',
+    "--alt--",
+    "--mix",
+    "Content-Type: application/pdf",
+    'Content-Disposition: attachment; filename="bericht.pdf"',
+    "Content-Transfer-Encoding: base64",
+    "",
+    "JVBERi0xLjQK",
+    "--mix--",
+    "",
+  ].join("\r\n"),
+);
+/** Its unknown character set puts it on the problem list. */
+const UNKNOWN_CHARSET = Buffer.from(
+  "Subject: Zeichensatz\r\nMIME-Version: 1.0\r\n" +
+    "Content-Type: text/plain; charset=x-unknown\r\n\r\nText.\r\n",
+);
 const FAILED_LOAD = "This page couldn't be loaded.";
 /** The error page's heading when a page's code didn't arrive. */
 const PAGE_FAILED = "This page couldn't be loaded";
@@ -80,6 +122,60 @@ function rowLink(page: Page) {
     .getByRole("list", { name: "Messages" })
     .getByRole("link", { name: /^Open / })
     .first();
+}
+
+function results(page: Page) {
+  return page.getByRole("list", { name: "Search results" });
+}
+
+function words(page: Page) {
+  return page.getByLabel("Words", { exact: true });
+}
+
+/** Imports through the API, which the page's session allows. */
+async function importQuietly(page: Page, name: string, buffer: Buffer) {
+  const response = await page.request.post(`${server.origin}/api/imports`, {
+    headers: { "MailArkiv-File-Name": name },
+    data: buffer,
+  });
+  expect(response.status()).toBe(201);
+}
+
+/**
+ * Waits until a search for word finds one message and leaves none out, so
+ * processing and indexing have reached every message. A new message is
+ * searchable within 60 s.
+ */
+async function waitUntilSearchable(page: Page, word: string) {
+  await expect
+    .poll(
+      async () => {
+        const response = await page.request.post(
+          `${server.origin}/api/search`,
+          {
+            data: {
+              words: word,
+              from: "",
+              to: "",
+              subject: "",
+              attachment: "",
+              list_date_from: null,
+              list_date_before: null,
+              has_attachments: false,
+              page: 1,
+            },
+          },
+        );
+        if (!response.ok()) return response.status();
+        const { total, not_included } = (await response.json()) as {
+          total: number;
+          not_included: number;
+        };
+        return `${total} found, ${not_included} left out`;
+      },
+      { timeout: 60_000 },
+    )
+    .toBe("1 found, 0 left out");
 }
 
 /** The view's way up, which goes back to the list it came from. */
@@ -170,11 +266,46 @@ test("the whole flow works by keyboard", async ({ page }) => {
   expect((await download).suggestedFilename()).toBe(`${HASH}.eml`);
 });
 
+// Search, a result, a saved attachment, and back to the same results, by
+// keyboard alone.
+test("search to a saved attachment works by keyboard", async ({ page }) => {
+  await signIn(page);
+  await importQuietly(page, "report.eml", REPORT);
+  await waitUntilSearchable(page, REPORT_WORD);
+  await page.reload();
+
+  await tabTo(page, words(page));
+  await page.keyboard.type(REPORT_WORD);
+  await page.keyboard.press("Enter");
+  const result = results(page).getByRole("link", {
+    name: "Open Quartalsbericht",
+  });
+  await expect(result).toBeVisible();
+
+  await tabTo(page, result);
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/\/messages\/\d+$/);
+  const save = page.getByRole("button", { name: "Save bericht.pdf" });
+  await tabTo(page, save);
+  const download = page.waitForEvent("download");
+  await page.keyboard.press("Enter");
+  expect((await download).suggestedFilename()).toBe("bericht.pdf");
+
+  await tabTo(page, upLink(page));
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(`${server.origin}/`);
+  await expect(words(page)).toHaveValue(REPORT_WORD);
+  await expect(results(page).getByRole("listitem")).toHaveCount(1);
+  await expect(result).toBeVisible();
+});
+
 /**
  * Opens every screen in turn and runs check on each: sign-in and its error,
  * the list with an import result, the import box with a choice and with a
- * refusal, the message view, the history, status with a failure and an
- * unreferenced original, the failed-download toast, and the failed-load state.
+ * refusal, the message view, the history, search results, a result's view
+ * with its preview, image notice, and attachments, the problem list, status
+ * with a failure and an unreferenced original, the failed-download toast, and
+ * the failed-load state.
  */
 async function visitEveryScreen(
   page: Page,
@@ -247,6 +378,43 @@ async function visitEveryScreen(
   await expect(drawer(page)).toBeHidden();
   await upLink(page).click();
   await expect(page).toHaveURL(`${server.origin}/`);
+
+  await importQuietly(page, "unknown-charset.eml", UNKNOWN_CHARSET);
+  await importQuietly(page, "report.eml", REPORT);
+  await waitUntilSearchable(page, REPORT_WORD);
+  await words(page).fill(REPORT_WORD);
+  await page.getByRole("button", { name: "Search", exact: true }).click();
+  await expect(results(page).getByRole("listitem")).toHaveCount(1);
+  await check("search results");
+
+  await openMessage(page, results(page).getByRole("link", { name: /^Open / }));
+  await expect(
+    page.getByRole("button", { name: "Save bericht.pdf" }),
+  ).toBeVisible();
+  await expect(
+    page
+      .frameLocator("iframe")
+      .getByText("Der Bericht liegt bei.", { exact: true }),
+  ).toBeVisible();
+  await check("a result's view with its preview and attachments");
+  await upLink(page).click();
+  await expect(results(page).getByRole("listitem")).toHaveCount(1);
+  await page.getByRole("button", { name: "Clear" }).click();
+  await expect(results(page)).toHaveCount(0);
+
+  // Search left no message out, so processing has read the problem message.
+  await page.goto(`${server.origin}/problems`);
+  await expect(
+    page
+      .getByRole("list", { name: "Processing problems" })
+      .getByRole("link", { name: /^Open / }),
+  ).toHaveCount(1);
+  await check("the problem list");
+  await page
+    .getByRole("navigation", { name: "Main" })
+    .getByRole("link", { name: "Messages" })
+    .click();
+  await expect(page.getByRole("heading", { name: "Messages" })).toBeVisible();
 
   // Damage the short file's stored copy, then download it.
   await writeFile(
@@ -321,8 +489,15 @@ async function expectNoAxeViolations(page: Page, screen: string) {
       document.getAnimations().map((animation) => animation.finished),
     ),
   );
+  // The only frame is the message preview. It holds the sender's HTML, which
+  // isn't the interface's to fix, and its sandbox stops axe's timers, so a
+  // run inside it never ends. Legacy mode is the one that passes iframes:
+  // false to axe, which then checks the frame element but not its contents.
+  // options replaces what withTags set, so it comes first.
   const { violations } = await new AxeBuilder({ page })
+    .options({ iframes: false })
     .withTags(WCAG_22_AA)
+    .setLegacyMode()
     .analyze();
   expect(
     violations.map(({ id, nodes }) => ({

@@ -454,15 +454,15 @@ Writing these tasks exposed places where the plan's order or contracts don't hol
 
 > **NOTE: Write these tests first, and ensure they fail before implementation.**
 
-- [ ] T148 [P] [US4] Write `TestPreviewWithoutSession` and extend `internal/web/access_test.go` (SC-004): for each new route, no session, an expired session, and a signed-out session are denied, and no answer body contains a subject, address, body word, or attachment byte from the message. `TestEveryRouteDeniesWithoutSession` and `TestEverySignedInRouteFailsClosedWhenTheCatalogFails` cover the seven routes through the route table
-- [ ] T149 [P] [US4] Extend `internal/web/access_test.go`: `POST /api/search/rebuild` and `POST /api/search` with `Sec-Fetch-Site: cross-site` and another `Origin` are rejected, and no `search_rebuild` row appears (US4 scenario 3)
-- [ ] T150 [P] [US4] Write `TestSearchProcessHasNoAddress` in `cmd/mailarkiv/search_access_test.go`: every link under `/proc/<pid>/fd` of the search process is a pipe, `/dev/null`, or a file under the data directory, and none is a `socket:` (US4 scenario 5)
-- [ ] T151 [P] [US4] Extend `frontend/tests/e2e/access.spec.ts`: a page at `http://other.example.test/`, served through `page.route`, frames a preview address and an attachment address. Neither frame shows MailArkiv content (US4 scenario 4)
-- [ ] T152 [US4] Extend `frontend/tests/e2e/screens.spec.ts` (SC-012): by keyboard alone, search, open a result, save an attachment, and go back. At 360 px, search, results, the message view, the problem list, and the status screen don't scroll sideways. axe finds no violation on each, in both themes
+- [X] T148 [P] [US4] Write `TestPreviewWithoutSession` and extend `internal/web/access_test.go` (SC-004): for each new route, no session, an expired session, and a signed-out session are denied, and no answer body contains a subject, address, body word, or attachment byte from the message. `TestEveryRouteDeniesWithoutSession` and `TestEverySignedInRouteFailsClosedWhenTheCatalogFails` cover the seven routes through the route table
+- [X] T149 [P] [US4] Extend `internal/web/access_test.go`: `POST /api/search/rebuild` and `POST /api/search` with `Sec-Fetch-Site: cross-site` and another `Origin` are rejected, and no `search_rebuild` row appears (US4 scenario 3)
+- [X] T150 [P] [US4] Write `TestSearchProcessHasNoAddress` in `cmd/mailarkiv/search_access_test.go`: every link under `/proc/<pid>/fd` of the search process is a pipe, `/dev/null`, or a file under the data directory, and none is a `socket:` (US4 scenario 5)
+- [X] T151 [P] [US4] Extend `frontend/tests/e2e/access.spec.ts`: a page at `http://other.example.test/`, served through `page.route`, frames a preview address and an attachment address. Neither frame shows MailArkiv content (US4 scenario 4). The other site is a real server on `127.0.0.1`, as in the existing framing test: from a routed public origin, Chromium fails the frame with `ERR_BLOCKED_BY_LOCAL_NETWORK_ACCESS_CHECKS` before MailArkiv answers, so the test wouldn't reach MailArkiv's headers
+- [X] T152 [US4] Extend `frontend/tests/e2e/screens.spec.ts` (SC-012): by keyboard alone, search, open a result, save an attachment, and go back. At 360 px, search, results, the message view, the problem list, and the status screen don't scroll sideways. axe finds no violation on each, in both themes
 
 ### Implementation for User Story 4
 
-- [ ] T153 [US4] Fix what T148 to T152 find in `internal/web/` and `frontend/src/`, and review every new screen against `frontend/DESIGN.md`. Each fix comes with the test that found it
+- [X] T153 [US4] Fix what T148 to T152 find in `internal/web/` and `frontend/src/`, and review every new screen against `frontend/DESIGN.md`. Each fix comes with the test that found it
 
 **Checkpoint**: `mise run check` passes. SC-004 and SC-012 pass.
 
