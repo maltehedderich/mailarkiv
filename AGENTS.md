@@ -20,7 +20,7 @@ Read [the design guide](frontend/DESIGN.md) before you build or change a screen.
 | `mise run search:test` | `cargo test --locked`, then `cargo test --locked --features faults`, in `mailarkiv-search/` | Unit, integration |
 | `mise run server:test` | Builds `bin/mailarkiv-search` and `bin/faults/mailarkiv-search` first, then `go test -race ./...`, including process-level crash, syscall, and marker tests, then `go test -run '^$' -fuzz FuzzBoundaryScanner -fuzztime 10s ./internal/mailparse`. Needs `strace` | Unit, integration, process, fuzz |
 | `mise run frontend:test` | `vitest run` | Unit |
-| `mise run test:e2e` | Builds `bin/mailarkiv`, `bin/mailarkiv-search`, and `bin/faults/mailarkiv-search`, and `go build` of `bin/imaptestserver`, the test IMAP server, then `playwright test` against the built binaries and that server. Search tests run a copy of `bin/mailarkiv` beside the fault build, or with no search program | End to end |
+| `mise run test:e2e` | Builds `bin/mailarkiv`, `bin/mailarkiv-search`, and `bin/faults/mailarkiv-search`, and `go build` of `bin/imaptestserver`, the test IMAP server, and `bin/imagehost`, the test HTTPS image host that records requests, then `playwright test` against the built binaries and those servers. Search tests run a copy of `bin/mailarkiv` beside the fault build, or with no search program | End to end |
 | `mise run test` | The four test tasks above | |
 | `mise run check` | `lint`, `typecheck`, `test`, `audit`. CI gates on this | |
 

@@ -328,7 +328,7 @@ The policy blocks everything except link navigation, so the server must also rew
 
 **Rationale:** Tested in Chromium with a local image host:
 
-- An `http:` image was requested over `https:`.
+- An `http:` image was requested over `https:`. Chromium 158 upgrades only a host that isn't loopback: it treats `localhost` and `127.0.0.1` as secure and blocks their `http:` images instead. The end-to-end tests reach the image host as `images.example.test`, which the browser maps to `127.0.0.1`.
 - The image host received no `Referer` and no cookie, from the frame and from the preview opened in a tab, even with `<meta name="referrer" content="unsafe-url">` and `referrerpolicy="unsafe-url"` in the message.
 - **`<link rel=prefetch>` still went out** after images were allowed, as a request with `Sec-Fetch-Dest: empty`. Removing `link` elements in the rewrite closes this.
 

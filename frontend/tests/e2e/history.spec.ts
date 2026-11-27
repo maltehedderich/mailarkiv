@@ -5,9 +5,16 @@ import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 
 import { startServer, type TestServer } from "./support/server";
+import {
+  historyButton,
+  openHistory,
+  openMessage,
+  viewedId,
+} from "./support/view";
 
-// A message's history opens from its row, by pointer or keyboard, from
-// an address that survives Back and sign-in.
+// A message's history opens from its view, by pointer or keyboard, and over
+// the list from its address, which toasts and Status link to. Both survive
+// Back and sign-in.
 
 const PASSWORD = "correct horse battery";
 const NEW_PASSWORD = "a different horse battery";
@@ -69,7 +76,18 @@ async function importEnded(page: Page) {
 }
 
 function rowLink(page: Page) {
-  return page.getByRole("link", { name: /history of/i });
+  return page
+    .getByRole("list", { name: "Messages" })
+    .getByRole("link", { name: /^Open / });
+}
+
+/** The message's ID, read from its view, back on the list. */
+async function messageId(page: Page): Promise<string> {
+  await openMessage(page, rowLink(page));
+  const id = viewedId(page);
+  await page.goBack();
+  await expect(rowLink(page)).toBeVisible();
+  return id;
 }
 
 function drawer(page: Page) {
@@ -103,8 +121,7 @@ test("a repeat import adds history and no copy", async ({ page }) => {
   });
   expect(stored.filter((entry) => entry.isFile())).toHaveLength(1);
 
-  await rowLink(page).click();
-  await expect(drawer(page)).toBeVisible();
+  await openHistory(page, rowLink(page));
 
   // It names the message by the newest entry's name, and counts every
   // entry.
@@ -159,7 +176,7 @@ test("Copy puts the 64 characters on the clipboard", async ({
 }) => {
   await signInWithOneMessage(page);
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
-  await rowLink(page).click();
+  await openHistory(page, rowLink(page));
 
   await drawer(page).getByRole("button", { name: /copy/i }).click();
 
@@ -179,7 +196,7 @@ test("a failed Copy selects the hash, and copying it gives the 64 characters", a
 }) => {
   await signInWithOneMessage(page);
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
-  await rowLink(page).click();
+  await openHistory(page, rowLink(page));
   await page.evaluate(() => {
     navigator.clipboard.writeText = () => Promise.reject(new Error("denied"));
   });
@@ -201,40 +218,58 @@ test("a failed Copy selects the hash, and copying it gives the 64 characters", a
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(HASH);
 });
 
-test("Enter opens the history, and Escape returns to the row", async ({
+test("Enter opens the message, then its history, and Escape returns to History", async ({
   page,
 }) => {
   await signInWithOneMessage(page);
   await rowLink(page).focus();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/\/messages\/\d+$/);
+  await historyButton(page).focus();
 
   // The key is held until the drawer is open, so the press can't reach Close.
   await page.keyboard.down("Enter");
   await expect(drawer(page)).toBeVisible();
   await page.keyboard.up("Enter");
   await expect(drawer(page)).toBeVisible();
-  await expect(page).toHaveURL(/\?message=\d+$/);
+  await expect(page).toHaveURL(/\/messages\/\d+\?history$/);
   await expect(
     drawer(page).getByRole("button", { name: "Close" }),
   ).toBeFocused();
 
   await page.keyboard.press("Escape");
   await expect(drawer(page)).toBeHidden();
-  await expect(page).toHaveURL(`${server.origin}/`);
-  await expect(rowLink(page)).toBeFocused();
+  await expect(page).toHaveURL(/\/messages\/\d+$/);
+  await expect(historyButton(page)).toBeFocused();
 });
 
-test("a click opens the history, and Close returns to the row", async ({
+test("a click opens the history, and Close returns to History", async ({
   page,
 }) => {
   await signInWithOneMessage(page);
 
-  await rowLink(page).click();
-  await expect(drawer(page)).toBeVisible();
+  await openHistory(page, rowLink(page));
 
   await drawer(page).getByRole("button", { name: "Close" }).click();
   await expect(drawer(page)).toBeHidden();
+  await expect(page).toHaveURL(/\/messages\/\d+$/);
+  await expect(historyButton(page)).toBeFocused();
+});
+
+// Closing takes back the entry History added, so Messages goes back to the
+// list, not to the history.
+test("after the history closes, Messages returns to the list", async ({
+  page,
+}) => {
+  await signInWithOneMessage(page);
+  await openHistory(page, rowLink(page));
+  await page.keyboard.press("Escape");
+  await expect(drawer(page)).toBeHidden();
+
+  await page.getByRole("main").getByRole("link", { name: "Messages" }).click();
   await expect(page).toHaveURL(`${server.origin}/`);
-  await expect(rowLink(page)).toBeFocused();
+  await expect(rowLink(page)).toBeVisible();
+  await expect(drawer(page)).toBeHidden();
 });
 
 // The scrim is the list the drawer covers, so a click there closes it. A press
@@ -243,8 +278,7 @@ test("a click on the scrim closes the history, and a drag out of it doesn't", as
   page,
 }) => {
   await signInWithOneMessage(page);
-  await rowLink(page).click();
-  await expect(drawer(page)).toBeVisible();
+  await openHistory(page, rowLink(page));
   await settled(page);
 
   const hash = (await drawer(page).locator("code").boundingBox())!;
@@ -256,8 +290,8 @@ test("a click on the scrim closes the history, and a drag out of it doesn't", as
 
   await page.mouse.click(100, 400);
   await expect(drawer(page)).toBeHidden();
-  await expect(page).toHaveURL(`${server.origin}/`);
-  await expect(rowLink(page)).toBeFocused();
+  await expect(page).toHaveURL(/\/messages\/\d+$/);
+  await expect(historyButton(page)).toBeFocused();
 });
 
 // The drawer keeps its history while it slides out, and each opening starts
@@ -265,13 +299,13 @@ test("a click on the scrim closes the history, and a drag out of it doesn't", as
 test("a reopened history starts afresh", async ({ page, context }) => {
   await signInWithOneMessage(page);
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
-  await rowLink(page).click();
+  await openHistory(page, rowLink(page));
   await drawer(page).getByRole("button", { name: /copy/i }).click();
   await expect(drawer(page).getByText("Hash copied.")).toBeVisible();
 
   await page.keyboard.press("Escape");
   await expect(drawer(page)).toBeHidden();
-  await rowLink(page).click();
+  await historyButton(page).click();
   await expect(drawer(page)).toBeVisible();
   await expect(drawer(page).getByText("Hash copied.")).toHaveCount(0);
 });
@@ -289,44 +323,59 @@ test("the size shows in bytes and as its row shows it", async ({ page }) => {
     buffer: bytes,
   });
   await page.getByRole("button", { name: "Import" }).click();
-  await rowLink(page).click();
+  await openHistory(page, rowLink(page));
 
   await expect(drawer(page)).toContainText("2,048 bytes (2 KB)");
 });
 
-// The drawer opens once its history has arrived. Until then the row shows the
-// click, and it stays marked while the drawer is open.
-test("the row stays marked from the click until the drawer closes", async ({
+function rowFill(page: Page) {
+  return page
+    .getByRole("list", { name: "Messages" })
+    .getByRole("listitem")
+    .evaluate((item) => getComputedStyle(item).backgroundColor);
+}
+
+// The view opens once its content has arrived. Until then the row shows the
+// click.
+test("the row stays marked from the click until its message opens", async ({
   page,
 }) => {
   await signInWithOneMessage(page);
-  const row = page
-    .getByRole("list", { name: "Messages" })
-    .getByRole("listitem");
-  const fill = () =>
-    row.evaluate((item) => getComputedStyle(item).backgroundColor);
   await page.mouse.move(0, 0);
-  const rest = await fill();
+  const rest = await rowFill(page);
 
   let release = () => {};
   const held = new Promise<void>((resolve) => (release = resolve));
-  await page.route(/\/api\/messages\/\d+$/, async (route) => {
+  await page.route(/\/api\/messages\/\d+\/content$/, async (route) => {
     await held;
     await route.fallback();
   });
   await rowLink(page).click();
   await page.mouse.move(0, 0);
-  await expect.poll(fill).not.toBe(rest);
-  await expect(drawer(page)).toBeHidden();
-  const marked = await fill();
+  await expect.poll(() => rowFill(page)).not.toBe(rest);
+  await expect(page).toHaveURL(`${server.origin}/`);
 
   release();
+  await expect(page).toHaveURL(/\/messages\/\d+$/);
+});
+
+// Beside a history opened over the list, the row it's about stays marked.
+test("a history over the list marks its row until it closes", async ({
+  page,
+}) => {
+  await signInWithOneMessage(page);
+  const id = await messageId(page);
+  await page.mouse.move(0, 0);
+  const rest = await rowFill(page);
+
+  await page.goto(`${server.origin}/?message=${id}`);
   await expect(drawer(page)).toBeVisible();
-  expect(await fill()).toBe(marked);
+  await expect.poll(() => rowFill(page)).not.toBe(rest);
+  const marked = await rowFill(page);
 
   await drawer(page).getByRole("button", { name: "Close" }).click();
   await expect(drawer(page)).toBeHidden();
-  await expect.poll(fill).not.toBe(marked);
+  await expect.poll(() => rowFill(page)).not.toBe(marked);
 });
 
 test("the row's download button saves the file and opens nothing", async ({
@@ -346,7 +395,7 @@ test("the drawer's Download saves the file and stays open", async ({
   page,
 }) => {
   await signInWithOneMessage(page);
-  await rowLink(page).click();
+  await openHistory(page, rowLink(page));
 
   const saved = page.waitForEvent("download");
   await drawer(page).getByRole("button", { name: "Download" }).click();
@@ -359,25 +408,22 @@ test("Back closes the history, and Forward opens it again", async ({
   page,
 }) => {
   await signInWithOneMessage(page);
-  await rowLink(page).click();
-  await expect(drawer(page)).toBeVisible();
+  await openHistory(page, rowLink(page));
 
   await page.goBack();
   await expect(drawer(page)).toBeHidden();
-  await expect(page).toHaveURL(`${server.origin}/`);
+  await expect(page).toHaveURL(/\/messages\/\d+$/);
 
   await page.goForward();
   await expect(drawer(page)).toBeVisible();
-  await expect(page).toHaveURL(/\?message=\d+$/);
+  await expect(page).toHaveURL(/\/messages\/\d+\?history$/);
 });
 
 test("an address with the message opens its history, and closing keeps the page", async ({
   page,
 }) => {
   await signInWithOneMessage(page);
-  await rowLink(page).click();
-  await expect(drawer(page)).toBeVisible();
-  const id = new URL(page.url()).searchParams.get("message");
+  const id = await messageId(page);
 
   await page.goto(`${server.origin}/?page=1&message=${id}`);
   await expect(drawer(page)).toBeVisible();
@@ -394,9 +440,7 @@ test("closing before the list arrives still returns focus to the row", async ({
   page,
 }) => {
   await signInWithOneMessage(page);
-  await rowLink(page).click();
-  await expect(drawer(page)).toBeVisible();
-  const id = new URL(page.url()).searchParams.get("message");
+  const id = await messageId(page);
 
   let release = () => {};
   const held = new Promise<void>((resolve) => (release = resolve));
@@ -418,8 +462,7 @@ test("the history reopens after a session ends and sign-in", async ({
   page,
 }) => {
   await signInWithOneMessage(page);
-  await rowLink(page).click();
-  await expect(drawer(page)).toBeVisible();
+  await openHistory(page, rowLink(page));
   const address = page.url();
 
   await server.setPassword("admin@example.test", NEW_PASSWORD);
@@ -457,9 +500,8 @@ test("Try again loads the history and keeps focus in the drawer", async ({
   page,
 }) => {
   await signInWithOneMessage(page);
-  await rowLink(page).click();
-  await expect(drawer(page)).toBeVisible();
-  const pathname = `/api/messages/${new URL(page.url()).searchParams.get("message")}`;
+  await openHistory(page, rowLink(page));
+  const pathname = `/api/messages/${viewedId(page)}`;
 
   await page.route(`**${pathname}`, (route) => route.abort());
   await page.reload();
@@ -488,7 +530,7 @@ test("at 360 px a long name fits, and Download stays in view", async ({
     await importEnded(page);
   }
 
-  await rowLink(page).click();
+  await openHistory(page, rowLink(page));
   await expect(
     drawer(page).getByRole("heading", { name: "Entries 6" }),
   ).toBeVisible();

@@ -168,6 +168,108 @@ export interface MessageHistory {
   observations: Observation[];
 }
 
+/** What processing found wrong with a part, in the server's words. */
+export const PROBLEM_KINDS = [
+  "unknown_charset",
+  "invalid_encoding",
+  "malformed_header",
+  "malformed_structure",
+  "cut_short",
+  "too_many_parts",
+  "nested_too_deeply",
+  "body_cut",
+  "took_too_long",
+] as const;
+
+export type ProblemKind = (typeof PROBLEM_KINDS)[number];
+
+/** Why the list date is the first archive time and not the Date header's. */
+export const DATE_REASONS = ["missing", "unreadable", "ahead"] as const;
+
+export type DateReason = (typeof DATE_REASONS)[number];
+
+export const ATTACHMENT_KINDS = ["file", "message", "embedded_image"] as const;
+
+export type AttachmentKind = (typeof ATTACHMENT_KINDS)[number];
+
+export interface MessageProblem {
+  /** The part number, or null for the whole message. */
+  position: string | null;
+  /** Untrusted. */
+  declaredType: string | null;
+  kind: ProblemKind;
+}
+
+/** One mailbox in full. Both parts are untrusted text. */
+export interface Address {
+  name: string | null;
+  /** Null when the header wasn't a list of addresses. The name holds its text. */
+  address: string | null;
+}
+
+export interface Attachment {
+  /** The part number, which names it in its download address. */
+  position: string;
+  /** Untrusted. */
+  name: string | null;
+  /** Untrusted. */
+  declaredType: string | null;
+  /** Decoded bytes. */
+  size: number;
+  damaged: boolean;
+  kind: AttachmentKind;
+}
+
+/** A message as the view shows it. */
+export interface MessageContent {
+  id: number;
+  contentHash: string;
+  size: number;
+  processing: Processing;
+  /** In part order, with the whole message last. */
+  problems: MessageProblem[];
+  listDate: string;
+  dateReason: DateReason | null;
+  /** Untrusted. The Date header's text. */
+  dateHeader: string | null;
+  /** Null when processing hasn't read the message, or couldn't. */
+  parsed: ParsedMessage | null;
+}
+
+/** What a worker read from the original, in full. Text fields are untrusted. */
+export interface ParsedMessage {
+  subject: string | null;
+  from: Address[];
+  to: Address[];
+  cc: Address[];
+  bcc: Address[];
+  encrypted: boolean;
+  /** Null when the message has no HTML body. */
+  html: {
+    truncated: boolean;
+    remoteImages: boolean;
+    embeddedImagesLeftOut: boolean;
+  } | null;
+  /** Null when the message has no text body. */
+  text: { truncated: boolean } | null;
+  /** In part order. */
+  attachments: Attachment[];
+}
+
+/** Why the view couldn't read a message, in the server's words. */
+export const CONTENT_FAILURES = [
+  "not_found",
+  "stored_original_missing",
+  "stored_original_damaged",
+  "busy",
+  "could_not_read",
+] as const;
+
+export type ContentFailure = (typeof CONTENT_FAILURES)[number];
+
+export type ContentResult<T> =
+  ApiResult<T> | { kind: "failed"; reason: ContentFailure };
+
 export interface SessionInfo {
   problemCount: number;
   /** Whole seconds the session had left when the server answered. */
@@ -562,6 +664,94 @@ export async function getMessage(
  * Searches. The query goes in the body, so search words stay out of
  * addresses, which proxies and browser history record.
  */
+/**
+ * The view's calls wait up to 30 s for a worker and 60 s for it to read, so
+ * they give up later than the rest.
+ */
+export const VIEW_TIMEOUT_MS = 100_000;
+
+/**
+ * Reads one message for the view. `id` goes to the server as typed, so one
+ * that names no message comes back as not_found.
+ */
+export async function getMessageContent(
+  id: string,
+  fetch: Fetch = globalThis.fetch,
+): Promise<ContentResult<MessageContent>> {
+  return getView(
+    fetch,
+    `/api/messages/${encodeURIComponent(id)}/content`,
+    async (response) => parseContent(await response.json()),
+  );
+}
+
+/** Reads a message's plain text body, as text. */
+export async function getMessageText(
+  id: number,
+  fetch: Fetch = globalThis.fetch,
+): Promise<ContentResult<string>> {
+  return getView(fetch, `/api/messages/${id}/text`, (response) =>
+    response.text(),
+  );
+}
+
+/** The preview frame's address. Only `images` asks for images from the internet. */
+export function previewAddress(id: number, images: boolean): string {
+  return `/api/messages/${id}/html${images ? "?images=1" : ""}`;
+}
+
+/** The address that sends one attachment's decoded bytes as a file. */
+export function attachmentAddress(id: number, position: string): string {
+  return `/api/messages/${id}/attachments/${position}`;
+}
+
+async function getView<T>(
+  fetch: Fetch,
+  path: string,
+  read: (response: Response) => Promise<T | null>,
+): Promise<ContentResult<T>> {
+  try {
+    const response = await fetch(path, {
+      signal: AbortSignal.timeout(VIEW_TIMEOUT_MS),
+    });
+    if (!isMarked(response)) {
+      await discard(response);
+      return { kind: "unavailable" };
+    }
+    if (response.status === 401) {
+      await discard(response);
+      return { kind: "session_ended" };
+    }
+    if (response.status !== 200) {
+      return parseContentFailure(response.status, await response.json());
+    }
+    const value = await read(response);
+    return value === null ? { kind: "unavailable" } : { kind: "ok", value };
+  } catch {
+    // A network error, the timeout, or a body that isn't what it says.
+    return { kind: "unavailable" };
+  }
+}
+
+const CONTENT_FAILURE_STATUS: Record<ContentFailure, number> = {
+  not_found: 404,
+  stored_original_missing: 404,
+  stored_original_damaged: 500,
+  busy: 503,
+  could_not_read: 500,
+};
+
+function parseContentFailure(
+  status: number,
+  body: unknown,
+): ContentResult<never> {
+  const error = field(body, "error");
+  return isOneOf(error, CONTENT_FAILURES) &&
+    CONTENT_FAILURE_STATUS[error] === status
+    ? { kind: "failed", reason: error }
+    : { kind: "unavailable" };
+}
+
 export async function searchMessages(
   query: SearchQuery,
   fetch: Fetch = globalThis.fetch,
@@ -1065,6 +1255,140 @@ function parseHistory(body: unknown): MessageHistory | null {
   const parsed = observations.map(parseObservation);
   if (parsed.some((observation) => observation === null)) return null;
   return { id, contentHash, size, observations: parsed as Observation[] };
+}
+
+const READ_STATES: readonly Processing[] = [
+  "processed",
+  "processed_with_problems",
+];
+
+function parseContent(body: unknown): MessageContent | null {
+  const id = field(body, "id");
+  const contentHash = field(body, "content_hash");
+  const size = field(body, "size");
+  const processing = field(body, "processing");
+  const problems = parseAll(field(body, "problems"), parseProblem);
+  const listDate = field(body, "list_date");
+  const dateReason = field(body, "date_reason");
+  const dateHeader = field(body, "date_header");
+  if (
+    !isCount(id) ||
+    !isContentHash(contentHash) ||
+    !isCount(size) ||
+    !isOneOf(processing, PROCESSING_STATES) ||
+    problems === null ||
+    !isTime(listDate) ||
+    (dateReason !== null && !isOneOf(dateReason, DATE_REASONS)) ||
+    (dateHeader !== null && typeof dateHeader !== "string")
+  ) {
+    return null;
+  }
+  let parsed: ParsedMessage | null = null;
+  if (READ_STATES.includes(processing)) {
+    parsed = parseParsed(body);
+    if (parsed === null) return null;
+  }
+  return {
+    id,
+    contentHash,
+    size,
+    processing,
+    problems,
+    listDate,
+    dateReason,
+    dateHeader,
+    parsed,
+  };
+}
+
+function parseParsed(body: unknown): ParsedMessage | null {
+  const subject = field(body, "subject");
+  const from = parseAll(field(body, "from"), parseAddress);
+  const to = parseAll(field(body, "to"), parseAddress);
+  const cc = parseAll(field(body, "cc"), parseAddress);
+  const bcc = parseAll(field(body, "bcc"), parseAddress);
+  const encrypted = field(body, "encrypted");
+  const html = parseNullable(field(body, "html"), parseHTMLBody);
+  const text = parseNullable(field(body, "text"), (value) => {
+    const truncated = field(value, "truncated");
+    return typeof truncated === "boolean" ? { truncated } : null;
+  });
+  const attachments = parseAll(field(body, "attachments"), parseAttachment);
+  if (
+    (subject !== null && typeof subject !== "string") ||
+    from === null ||
+    to === null ||
+    cc === null ||
+    bcc === null ||
+    typeof encrypted !== "boolean" ||
+    html === undefined ||
+    text === undefined ||
+    attachments === null
+  ) {
+    return null;
+  }
+  return { subject, from, to, cc, bcc, encrypted, html, text, attachments };
+}
+
+function parseHTMLBody(value: unknown): ParsedMessage["html"] {
+  const truncated = field(value, "truncated");
+  const remoteImages = field(value, "remote_images");
+  const embeddedImagesLeftOut = field(value, "embedded_images_left_out");
+  if (
+    typeof truncated !== "boolean" ||
+    typeof remoteImages !== "boolean" ||
+    typeof embeddedImagesLeftOut !== "boolean"
+  ) {
+    return null;
+  }
+  return { truncated, remoteImages, embeddedImagesLeftOut };
+}
+
+function parseProblem(value: unknown): MessageProblem | null {
+  const position = field(value, "position");
+  const declaredType = field(value, "declared_type");
+  const kind = field(value, "kind");
+  if (
+    (position !== null && typeof position !== "string") ||
+    (declaredType !== null && typeof declaredType !== "string") ||
+    !isOneOf(kind, PROBLEM_KINDS)
+  ) {
+    return null;
+  }
+  return { position, declaredType, kind };
+}
+
+function parseAddress(value: unknown): Address | null {
+  const name = field(value, "name");
+  const address = field(value, "address");
+  if (
+    (name !== null && typeof name !== "string") ||
+    (address !== null && typeof address !== "string")
+  ) {
+    return null;
+  }
+  return { name, address };
+}
+
+function parseAttachment(value: unknown): Attachment | null {
+  const position = field(value, "position");
+  const name = field(value, "name");
+  const declaredType = field(value, "declared_type");
+  const size = field(value, "size");
+  const damaged = field(value, "damaged");
+  const kind = field(value, "kind");
+  if (
+    typeof position !== "string" ||
+    !/^[1-9][0-9]*(\.[1-9][0-9]*)*$/.test(position) ||
+    (name !== null && typeof name !== "string") ||
+    (declaredType !== null && typeof declaredType !== "string") ||
+    !isCount(size) ||
+    typeof damaged !== "boolean" ||
+    !isOneOf(kind, ATTACHMENT_KINDS)
+  ) {
+    return null;
+  }
+  return { position, name, declaredType, size, damaged, kind };
 }
 
 function parseObservation(value: unknown): Observation | null {

@@ -1,10 +1,13 @@
 package archive
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/maltehedderich/mailarkiv/internal/sqlitedb"
@@ -340,3 +343,81 @@ func (a *Archive) CaptureSignal() <-chan struct{} { return a.captured }
 // RestoreSignal fires after a capture that restores a missing or damaged
 // original.
 func (a *Archive) RestoreSignal() <-chan struct{} { return a.restored }
+
+// ReadMessage returns one message's list row and its problems, read together.
+// Problems go in part order, with the whole message last, and within a part
+// in the order of the problem kinds' table. ErrNotFound means no message has
+// the ID.
+func (a *Archive) ReadMessage(ctx context.Context, id int64) (Message, []Problem, error) {
+	var message Message
+	var problems []Problem
+	err := sqlitedb.InTx(ctx, a.db.Reader, func(tx *sql.Tx) error {
+		var err error
+		message, err = readMessage(ctx, tx, id)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		rows, err := tx.QueryContext(ctx, "SELECT position, declared_type, kind FROM message_problem WHERE message_id = ?", id)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var problem Problem
+			var declared sql.NullString
+			if err := rows.Scan(&problem.Position, &declared, &problem.Kind); err != nil {
+				return err
+			}
+			problem.DeclaredType = stringOrNil(declared)
+			problems = append(problems, problem)
+		}
+		return rows.Err()
+	})
+	if errors.Is(err, ErrNotFound) {
+		return Message{}, nil, ErrNotFound
+	}
+	if err != nil {
+		return Message{}, nil, fmt.Errorf("read message %d: %w", id, err)
+	}
+	slices.SortFunc(problems, func(x, y Problem) int {
+		if order := comparePositions(x.Position, y.Position); order != 0 {
+			return order
+		}
+		return cmp.Compare(kindOrder[x.Kind], kindOrder[y.Kind])
+	})
+	return message, problems, nil
+}
+
+// kindOrder is the problem kinds' order in the contract's table.
+var kindOrder = map[string]int{
+	"unknown_charset": 0, "invalid_encoding": 1, "malformed_header": 2, "malformed_structure": 3,
+	"cut_short": 4, "too_many_parts": 5, "nested_too_deeply": 6, "body_cut": 7, "took_too_long": 8,
+}
+
+// comparePositions orders part numbers as the parts come in the message:
+// number by number, a part before the parts inside it. "" is the whole
+// message and comes last. The worker writes the numbers, so each piece is
+// digits.
+func comparePositions(x, y string) int {
+	switch {
+	case x == y:
+		return 0
+	case x == "":
+		return 1
+	case y == "":
+		return -1
+	}
+	xs, ys := strings.Split(x, "."), strings.Split(y, ".")
+	for i := range min(len(xs), len(ys)) {
+		if order := cmp.Compare(len(xs[i]), len(ys[i])); order != 0 {
+			return order
+		}
+		if order := strings.Compare(xs[i], ys[i]); order != 0 {
+			return order
+		}
+	}
+	return cmp.Compare(len(xs), len(ys))
+}

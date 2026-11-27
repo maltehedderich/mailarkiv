@@ -4,7 +4,6 @@
   import PaperclipIcon from "~icons/lucide/paperclip";
   import ProblemsIcon from "~icons/lucide/triangle-alert";
 
-  import { goto } from "$app/navigation";
   import { navigating, page } from "$app/state";
 
   import type { Message } from "#lib/api.js";
@@ -17,32 +16,24 @@
   import { formatSize } from "#lib/format/size.js";
   import { formatTime } from "#lib/format/time.js";
 
-  let { message, historyHref }: { message: Message; historyHref: string } =
-    $props();
+  let { message }: { message: Message } = $props();
+
+  const viewHref = $derived(`/messages/${message.id}`);
 
   // A message processing has read shows its sender and subject. Any other
   // names itself by its latest entry, beside its state. The label has its
   // codes in place, so it can't be reordered either.
   const shown = $derived(rowDisplay(message));
 
-  // The drawer opens once its history has arrived, so the row stays marked
-  // from the click until then, and while the drawer is open. Beside the drawer,
-  // it shows which row the drawer is about.
+  // The view opens once its content has arrived, so the row stays marked
+  // from the click until then. A history opened over the list, from a toast
+  // or Status, marks the row it's about while it shows.
   const open = $derived(
-    [page.url, navigating.to?.url].some(
-      (url) => url?.searchParams.get("message") === String(message.id),
-    ),
+    navigating.to?.url.pathname === viewHref ||
+      [page.url, navigating.to?.url].some(
+        (url) => url?.searchParams.get("message") === String(message.id),
+      ),
   );
-
-  // DESIGN.md: the key press must end here. Otherwise it could reach Close once
-  // the drawer has focus. With a modifier, the browser opens a new tab or window.
-  function openOnEnter(event: KeyboardEvent) {
-    if (event.key !== "Enter") return;
-    if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey)
-      return;
-    event.preventDefault();
-    void goto(historyHref, { reset: false });
-  }
 </script>
 
 <!-- One row of the message list. The parent <ul> sets the columns. -->
@@ -56,14 +47,12 @@
        replaces its content, so the marks sit beside it. -->
   <span class="title" class:entry={shown.kind === "capture"}
     ><!-- Its ::after stretches over the row, so the whole row opens the
-         history. Keeping focus and scroll lets the dialog give focus back
-         to this link. --><a
+         message. The ID lets a history closed over the list give focus
+         back here. --><a
       id="history-{message.id}"
       class="link"
-      href={historyHref}
-      aria-label="History of {shown.label}"
-      data-sveltekit-reset="false"
-      onkeydown={openOnEnter}
+      href={viewHref}
+      aria-label="Open {shown.label}"
       >{#if shown.kind === "capture"}<EntryName
           entry={shown.entry}
         />{:else if shown.subject.kind === "missing"}<span class="missing"
@@ -144,7 +133,7 @@
     transition: none;
   }
 
-  /* Pressed, waiting for its history, or with its history open. */
+  /* Pressed, waiting for its message, or with its history open. */
   li:has(.link:active),
   li.open {
     background: var(--fill-2);
@@ -278,7 +267,7 @@
     gap: var(--space-4);
   }
 
-  /* Above the link's ::after, so a click here doesn't open the history.
+  /* Above the link's ::after, so a click here doesn't open the message.
      Quiet at rest, so a column of icons doesn't compete with the names, and
      raised with its row. Its own hover raises it again, as on any button. */
   .download {

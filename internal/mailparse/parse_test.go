@@ -402,3 +402,123 @@ func TestReadSkipsMboxFromLine(t *testing.T) {
 		t.Errorf("Read gave %s, want %s", describe(got), describe(want))
 	}
 }
+
+func TestEncrypted(t *testing.T) {
+	tests := []struct {
+		name, header, body string
+		want               bool
+	}{
+		{
+			name:   "OpenPGP",
+			header: `Content-Type: multipart/encrypted; protocol="application/pgp-encrypted"; boundary="enc"`,
+			body: "--enc\r\nContent-Type: application/pgp-encrypted\r\n\r\nVersion: 1\r\n" +
+				"--enc\r\nContent-Type: application/octet-stream; name=\"encrypted.asc\"\r\n\r\n" +
+				"-----BEGIN PGP MESSAGE-----\r\nc3ludGhldGlj\r\n-----END PGP MESSAGE-----\r\n--enc--\r\n",
+			want: true,
+		},
+		{
+			name:   "S/MIME enveloped",
+			header: "Content-Type: application/pkcs7-mime; smime-type=enveloped-data; name=\"smime.p7m\"\r\nContent-Transfer-Encoding: base64",
+			body:   "c3ludGhldGlj\r\n",
+			want:   true,
+		},
+		{
+			name:   "S/MIME enveloped, parameter in capitals",
+			header: "Content-Type: Application/PKCS7-MIME; Smime-Type=\"Enveloped-Data\"\r\nContent-Transfer-Encoding: base64",
+			body:   "c3ludGhldGlj\r\n",
+			want:   true,
+		},
+		{
+			name:   "S/MIME signed data",
+			header: "Content-Type: application/pkcs7-mime; smime-type=signed-data; name=\"smime.p7m\"\r\nContent-Transfer-Encoding: base64",
+			body:   "c3ludGhldGlj\r\n",
+			want:   false,
+		},
+		{
+			name:   "plain text",
+			header: "Content-Type: text/plain; charset=utf-8",
+			body:   "Hallo\r\n",
+			want:   false,
+		},
+		{
+			// Only the top part counts.
+			name:   "an encrypted part inside",
+			header: `Content-Type: multipart/mixed; boundary="mix"`,
+			body: "--mix\r\nContent-Type: text/plain\r\n\r\nAnbei\r\n" +
+				"--mix\r\nContent-Type: multipart/encrypted; protocol=\"application/pgp-encrypted\"; boundary=\"enc\"\r\n\r\n" +
+				"--enc\r\nContent-Type: application/pgp-encrypted\r\n\r\nVersion: 1\r\n" +
+				"--enc\r\nContent-Type: application/octet-stream\r\n\r\nx\r\n--enc--\r\n--mix--\r\n",
+			want: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			original := "From: anna@example.test\r\nSubject: Geheim\r\nMIME-Version: 1.0\r\n" + tt.header + "\r\n\r\n" + tt.body
+			if got := Read([]byte(original)).Encrypted; got != tt.want {
+				t.Errorf("Encrypted = %t, want %t", got, tt.want)
+			}
+		})
+	}
+}
+
+// Signatures, encrypted parts, and the parts of an encrypted message are
+// listed like any other attachment.
+func TestSignedAndEncryptedParts(t *testing.T) {
+	tests := []struct {
+		name, original string
+		want           []Attachment
+	}{
+		{
+			name: "OpenPGP signature",
+			original: "From: anna@example.test\r\nMIME-Version: 1.0\r\n" +
+				"Content-Type: multipart/signed; micalg=pgp-sha256; protocol=\"application/pgp-signature\"; boundary=\"sig\"\r\n\r\n" +
+				"--sig\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nUnterschrieben.\r\n" +
+				"--sig\r\nContent-Type: application/pgp-signature; name=\"signature.asc\"\r\n\r\n" +
+				"-----BEGIN PGP SIGNATURE-----\r\nc3ludGhldGlj\r\n-----END PGP SIGNATURE-----\r\n--sig--\r\n",
+			want: []Attachment{{Position: "2", Name: text("signature.asc"), DeclaredType: "application/pgp-signature", Size: 72, Kind: KindFile}},
+		},
+		{
+			name: "S/MIME signature",
+			original: "From: anna@example.test\r\nMIME-Version: 1.0\r\n" +
+				"Content-Type: multipart/signed; protocol=\"application/pkcs7-signature\"; micalg=sha-256; boundary=\"sig\"\r\n\r\n" +
+				"--sig\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nUnterschrieben.\r\n" +
+				"--sig\r\nContent-Type: application/pkcs7-signature; name=\"smime.p7s\"\r\n" +
+				"Content-Disposition: attachment; filename=\"smime.p7s\"\r\nContent-Transfer-Encoding: base64\r\n\r\n" +
+				"c3ludGhldGlj\r\n--sig--\r\n",
+			want: []Attachment{{Position: "2", Name: text("smime.p7s"), DeclaredType: "application/pkcs7-signature", Size: 9, Kind: KindFile}},
+		},
+		{
+			name: "OpenPGP encrypted",
+			original: "From: anna@example.test\r\nMIME-Version: 1.0\r\n" +
+				"Content-Type: multipart/encrypted; protocol=\"application/pgp-encrypted\"; boundary=\"enc\"\r\n\r\n" +
+				"--enc\r\nContent-Type: application/pgp-encrypted\r\n\r\nVersion: 1\r\n" +
+				"--enc\r\nContent-Type: application/octet-stream; name=\"encrypted.asc\"\r\n\r\nc3ludGhldGlj\r\n--enc--\r\n",
+			want: []Attachment{
+				{Position: "1", DeclaredType: "application/pgp-encrypted", Size: 10, Kind: KindFile},
+				{Position: "2", Name: text("encrypted.asc"), DeclaredType: "application/octet-stream", Size: 12, Kind: KindFile},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := Read([]byte(tt.original)).Attachments
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("attachments\n%s\nwant\n%s", describe(got), describe(tt.want))
+			}
+		})
+	}
+}
+
+func TestBodyTruncated(t *testing.T) {
+	long := strings.Repeat("a", MaxBody+1)
+	original := "From: anna@example.test\r\nMIME-Version: 1.0\r\nContent-Type: multipart/alternative; boundary=\"alt\"\r\n\r\n" +
+		"--alt\r\nContent-Type: text/plain\r\n\r\n" + long + "\r\n" +
+		"--alt\r\nContent-Type: text/html\r\n\r\n<p>kurz</p>\r\n--alt--\r\n"
+	got := Read([]byte(original))
+	if got.Plain == nil || !got.Plain.Truncated || len(got.Plain.Content) != MaxBody {
+		t.Errorf("plain body truncated %v, want true at %d bytes", got.Plain != nil && got.Plain.Truncated, MaxBody)
+	}
+	if got.HTML == nil || got.HTML.Truncated {
+		t.Errorf("HTML body %s, want it whole", describe(got.HTML))
+	}
+}

@@ -7,6 +7,7 @@ import {
   type MalformedSet,
 } from "./support/malformed";
 import { expectNoSidewaysScroll } from "./support/sources";
+import { openMessage, viewedId } from "./support/view";
 
 // The problem list holds exactly the messages processing read in part or
 // couldn't read, in the list's order, and opens their history in place.
@@ -33,7 +34,7 @@ test("the problem list holds exactly the problem messages", async ({
   // The unreadable message's list date is its archive time, after every
   // Date header in the set.
   const list = page.getByRole("list", { name: "Processing problems" });
-  await expect(list.getByRole("link", { name: /^History of / })).toHaveText(
+  await expect(list.getByRole("link", { name: /^Open / })).toHaveText(
     [
       `${SOURCE}INBOX`,
       "Abgeschnitten",
@@ -44,16 +45,26 @@ test("the problem list holds exactly the problem messages", async ({
   );
   await expect(page.getByText("1–5 of 5")).toBeVisible();
 
-  // A history opens over the problem list and closes back to it.
-  await list.getByRole("link", { name: "History of Ohne Grenze" }).click();
+  // A message opens from the problem list, and its way up goes back to it.
+  await openMessage(page, list.getByRole("link", { name: "Open Ohne Grenze" }));
+  const id = viewedId(page);
+  await page
+    .getByRole("main")
+    .getByRole("link", { name: "Processing problems" })
+    .click();
+  await expect(page).toHaveURL(/\/problems$/);
+  await expect(page.getByText("1–5 of 5")).toBeVisible();
+
+  // A history opened over the problem list, as Status links to one, closes
+  // back to it.
+  await page.goto(`${set.server.origin}/problems?message=${id}`);
   const drawer = page.getByRole("dialog", { name: /^History of / });
   await expect(drawer).toBeVisible();
-  await expect(page).toHaveURL(/\/problems\?message=\d+$/);
   await drawer.getByRole("button", { name: "Close" }).click();
   await expect(drawer).toBeHidden();
   await expect(page).toHaveURL(/\/problems$/);
   await expect(
-    list.getByRole("link", { name: "History of Ohne Grenze" }),
+    list.getByRole("link", { name: "Open Ohne Grenze" }),
   ).toBeFocused();
 
   await page.setViewportSize({ width: 360, height: 780 });

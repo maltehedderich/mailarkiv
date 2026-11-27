@@ -90,7 +90,7 @@ func runBrokenWorker(mode, marker string) int {
 		default:
 			return workerBadRequest
 		}
-		if err := WriteFrame(os.Stdout, read(original, request.Text)); err != nil {
+		if err := respond(os.Stdout, request, original); err != nil {
 			return workerBadRequest
 		}
 	}

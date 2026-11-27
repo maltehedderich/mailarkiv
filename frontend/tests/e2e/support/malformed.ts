@@ -90,8 +90,6 @@ export async function collectMalformedSet(
 /** The row whose link is named by label. */
 export function rowOf(list: Locator, label: string): Locator {
   return list.getByRole("listitem").filter({
-    has: list
-      .page()
-      .getByRole("link", { name: `History of ${label}`, exact: true }),
+    has: list.page().getByRole("link", { name: `Open ${label}`, exact: true }),
   });
 }

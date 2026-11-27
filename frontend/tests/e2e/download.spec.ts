@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { expect, test, type Download, type Page } from "@playwright/test";
 
 import { startServer, type TestServer } from "./support/server";
+import { openHistory, openMessage } from "./support/view";
 
 // The server checks the stored file before it sends a header, so a bad copy
 // is never saved as the message, and the page says why in a toast.
@@ -53,6 +54,12 @@ async function archiveOneFile(page: Page) {
 
 function toasts(page: Page) {
   return page.getByRole("region", { name: "Notifications" });
+}
+
+function rowLink(page: Page) {
+  return page
+    .getByRole("list", { name: "Messages" })
+    .getByRole("link", { name: /^Open / });
 }
 
 function downloadButton(page: Page) {
@@ -169,6 +176,35 @@ test("a failure stays until it's dismissed, and a retry replaces it", async ({
   ).toBe(false);
 });
 
+test("the message view's Download original saves the file under its hash", async ({
+  page,
+}) => {
+  await archiveOneFile(page);
+  await openMessage(page, rowLink(page));
+
+  const saved = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download original" }).click();
+  const download = await saved;
+
+  expect(download.suggestedFilename()).toBe(`${HASH}.eml`);
+  expect(await readFile((await download.path())!)).toEqual(CONTENT);
+});
+
+// The view can't read a damaged original either, and says so, but its
+// Download original stays, and the download says why it failed.
+test("a failure in the message view shows a toast", async ({ page }) => {
+  await archiveOneFile(page);
+  await damage();
+  await openMessage(page, rowLink(page));
+  await expect(page.getByRole("main")).toContainText(
+    "its stored original can't be read or doesn't match its content hash",
+  );
+
+  await page.getByRole("button", { name: "Download original" }).click();
+  await expect(toasts(page)).toContainText(DAMAGED);
+  await expect(toasts(page)).toContainText(NEXT_STEP);
+});
+
 // The drawer is a modal dialog, so the page's toasts are inert while it's
 // open. Its own failure shows inside it, and stays after it closes.
 test("a failure in the history shows in the drawer and outlasts it", async ({
@@ -177,8 +213,7 @@ test("a failure in the history shows in the drawer and outlasts it", async ({
   await archiveOneFile(page);
   await damage();
 
-  await page.getByRole("link", { name: /history of/i }).click();
-  const drawer = page.getByRole("dialog", { name: "History" });
+  const drawer = await openHistory(page, rowLink(page));
   await drawer.getByRole("button", { name: "Download" }).click();
 
   const inDrawer = drawer.getByRole("region", { name: "Notifications" });

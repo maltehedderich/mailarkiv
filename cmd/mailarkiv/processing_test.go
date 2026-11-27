@@ -56,8 +56,9 @@ func TestHungWorkers(t *testing.T) {
 			workers++
 		}
 	}
-	if workers != 2 {
-		t.Fatalf("the server's children are %+v, want two parse workers", children)
+	// Two for processing and two for the message view.
+	if workers != 4 {
+		t.Fatalf("the server's children are %+v, want four parse workers", children)
 	}
 
 	started := time.Now()

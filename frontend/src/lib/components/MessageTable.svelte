@@ -1,12 +1,9 @@
 <script lang="ts">
-  import { page } from "$app/state";
-
   import type { Message } from "#lib/api.js";
   import MessageRow from "#lib/components/MessageRow.svelte";
-  import { historyHref } from "#lib/history.js";
 
   // A list's rows under its column heads, or still skeleton rows while they
-  // load. Each row opens its history over the list it is on.
+  // load. Each row opens its message.
 
   let {
     items,
@@ -28,7 +25,7 @@
   {#if items !== null}
     <ul aria-label={label}>
       {#each items as message (message.id)}
-        <MessageRow {message} historyHref={historyHref(page.url, message.id)} />
+        <MessageRow {message} />
       {/each}
     </ul>
   {:else}

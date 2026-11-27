@@ -1,0 +1,8 @@
+From: Mallory <mallory@attacker.example>
+To: admin@example.test
+Subject: Remote resources on the image host
+Date: Mon, 09 Nov 2026 10:00:00 +0000
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+
+<html><head><title>Image host</title><meta name="referrer" content="unsafe-url"><meta http-equiv="Referrer-Policy" content="unsafe-url"><link rel="stylesheet" href="https://{{IMAGE_HOST}}/style.css"><link rel="prefetch" href="https://{{IMAGE_HOST}}/prefetch"><link rel="preload" href="https://{{IMAGE_HOST}}/preload.css" as="style"><link rel="preconnect" href="https://{{IMAGE_HOST}}"><style>@import url("https://{{IMAGE_HOST}}/import.css"); @font-face { font-family: Tracker; src: url("https://{{IMAGE_HOST}}/font.woff2"); } body { font-family: Tracker; } .bg { background-image: url("https://{{IMAGE_HOST}}/img/background.png"); width: 4px; height: 4px; }</style></head><body><p>Resources on the image host.</p><img src="https://{{IMAGE_HOST}}/img/https.png" alt="HTTPS image" referrerpolicy="unsafe-url"><img src="http://{{IMAGE_HOST}}/img/http.png" alt="HTTP image"><div class="bg"></div><iframe src="https://{{IMAGE_HOST}}/frame"></iframe><object data="https://{{IMAGE_HOST}}/object"></object><embed src="https://{{IMAGE_HOST}}/embed"><video poster="https://{{IMAGE_HOST}}/img/poster.png" src="https://{{IMAGE_HOST}}/video.mp4"></video><p><a href="https://{{IMAGE_HOST}}/link" ping="https://{{IMAGE_HOST}}/ping">Link to the host</a></p><form action="https://{{IMAGE_HOST}}/form" method="post"><input name="q" value="x"><button type="submit">Send to the host</button></form></body></html>

@@ -2,10 +2,13 @@ import { describe, expect, test } from "vitest";
 
 import {
   addSource,
+  attachmentAddress,
   checkNewSource,
   checkSource,
   editSource,
   getMessage,
+  getMessageContent,
+  getMessageText,
   getSession,
   getStatus,
   listMessages,
@@ -13,6 +16,7 @@ import {
   listSources,
   parseMessage,
   pauseSource,
+  previewAddress,
   readSource,
   removeSource,
   resumeSource,
@@ -2132,5 +2136,272 @@ describe("removeSource", () => {
     ["a timeout", failing(timeout), "unavailable"],
   ] as const)("reads %s as %s", async (_name, fetch, kind) => {
     expect(await removeSource("3", fetch)).toEqual({ kind });
+  });
+});
+
+describe("getMessageContent", () => {
+  // The contract's example, with every part kind and both bodies.
+  const CONTENT = {
+    id: 17,
+    content_hash: HASH,
+    size: 18234,
+    processing: "processed_with_problems",
+    problems: [
+      { position: "2", declared_type: "text/plain", kind: "unknown_charset" },
+      { position: null, declared_type: null, kind: "too_many_parts" },
+    ],
+    list_date: "2026-11-02T08:14:55.000Z",
+    date_reason: null,
+    date_header: "Mon, 2 Nov 2026 09:14:55 +0100",
+    subject: "Quartalsbericht Q3",
+    from: [{ name: "Anna Schmidt", address: "anna@example.com" }],
+    to: [{ name: null, address: "team@example.com" }],
+    cc: [],
+    bcc: [{ name: "not an address", address: null }],
+    encrypted: false,
+    html: {
+      truncated: false,
+      remote_images: true,
+      embedded_images_left_out: false,
+    },
+    text: { truncated: true },
+    attachments: [
+      {
+        position: "1.2",
+        name: null,
+        declared_type: "image/png",
+        size: 9120,
+        damaged: false,
+        kind: "embedded_image",
+      },
+      {
+        position: "3",
+        name: "Vertrag_2026.pdf",
+        declared_type: "application/pdf",
+        size: 48211,
+        damaged: true,
+        kind: "file",
+      },
+      {
+        position: "4",
+        name: "Weitergeleitet",
+        declared_type: null,
+        size: 50,
+        damaged: false,
+        kind: "message",
+      },
+    ],
+  };
+
+  test("reads the contract's answer", async () => {
+    const { fetch, calls } = answer(200, CONTENT);
+    expect(await getMessageContent("17", fetch)).toEqual({
+      kind: "ok",
+      value: {
+        id: 17,
+        contentHash: HASH,
+        size: 18234,
+        processing: "processed_with_problems",
+        problems: [
+          {
+            position: "2",
+            declaredType: "text/plain",
+            kind: "unknown_charset",
+          },
+          { position: null, declaredType: null, kind: "too_many_parts" },
+        ],
+        listDate: "2026-11-02T08:14:55.000Z",
+        dateReason: null,
+        dateHeader: "Mon, 2 Nov 2026 09:14:55 +0100",
+        parsed: {
+          subject: "Quartalsbericht Q3",
+          from: [{ name: "Anna Schmidt", address: "anna@example.com" }],
+          to: [{ name: null, address: "team@example.com" }],
+          cc: [],
+          bcc: [{ name: "not an address", address: null }],
+          encrypted: false,
+          html: {
+            truncated: false,
+            remoteImages: true,
+            embeddedImagesLeftOut: false,
+          },
+          text: { truncated: true },
+          attachments: [
+            {
+              position: "1.2",
+              name: null,
+              declaredType: "image/png",
+              size: 9120,
+              damaged: false,
+              kind: "embedded_image",
+            },
+            {
+              position: "3",
+              name: "Vertrag_2026.pdf",
+              declaredType: "application/pdf",
+              size: 48211,
+              damaged: true,
+              kind: "file",
+            },
+            {
+              position: "4",
+              name: "Weitergeleitet",
+              declaredType: null,
+              size: 50,
+              damaged: false,
+              kind: "message",
+            },
+          ],
+        },
+      },
+    });
+    expect(calls[0].url).toBe("/api/messages/17/content");
+  });
+
+  test("reads a message processing hasn't read, with no parsed fields", async () => {
+    const { fetch } = answer(200, {
+      ...CONTENT,
+      processing: "not_processed",
+      problems: [],
+      date_reason: null,
+      date_header: null,
+      subject: null,
+      from: null,
+      to: null,
+      cc: null,
+      bcc: null,
+      encrypted: null,
+      html: null,
+      text: null,
+      attachments: [],
+    });
+    const result = await getMessageContent("17", fetch);
+    expect(result.kind === "ok" && result.value.parsed).toBeNull();
+  });
+
+  test("reads a list date that is the archive time, with its reason", async () => {
+    const { fetch } = answer(200, {
+      ...CONTENT,
+      date_reason: "ahead",
+      date_header: "Fri, 1 Jan 2027 00:00:00 +0000",
+    });
+    const result = await getMessageContent("17", fetch);
+    expect(result.kind === "ok" && result.value.dateReason).toBe("ahead");
+  });
+
+  test.each([
+    [
+      "an unknown attachment kind",
+      { attachments: [{ ...CONTENT.attachments[1], kind: "inline" }] },
+    ],
+    [
+      "an unknown problem kind",
+      { problems: [{ position: null, declared_type: null, kind: "odd" }] },
+    ],
+    ["an unknown date reason", { date_reason: "late" }],
+    ["a missing address list", { to: null }],
+    ["a missing encrypted flag", { encrypted: null }],
+    ["a body without its flags", { html: {} }],
+    [
+      "a negative size",
+      { attachments: [{ ...CONTENT.attachments[1], size: -1 }] },
+    ],
+  ])("reads %s as unavailable", async (_name, change) => {
+    const { fetch } = answer(200, { ...CONTENT, ...change });
+    expect(await getMessageContent("17", fetch)).toEqual({
+      kind: "unavailable",
+    });
+  });
+
+  test.each([
+    [404, "not_found"],
+    [404, "stored_original_missing"],
+    [500, "stored_original_damaged"],
+    [503, "busy"],
+    [500, "could_not_read"],
+  ] as const)("reads a marked %i %s as that failure", async (status, error) => {
+    const { fetch } = answer(status, { error });
+    expect(await getMessageContent("17", fetch)).toEqual({
+      kind: "failed",
+      reason: error,
+    });
+  });
+
+  test.each([
+    [
+      "a marked 401",
+      "session_ended",
+      answer(401, { error: "no_session" }).fetch,
+    ],
+    [
+      "a 500 internal_error",
+      "unavailable",
+      answer(500, { error: "internal_error" }).fetch,
+    ],
+    ["busy with a 500", "unavailable", answer(500, { error: "busy" }).fetch],
+    [
+      "an unmarked 503",
+      "unavailable",
+      answer(503, { error: "busy" }, { marked: false }).fetch,
+    ],
+    ["a network error", "unavailable", failing(networkError)],
+  ] as const)("reads %s as %s", async (_name, kind, fetch) => {
+    expect(await getMessageContent("17", fetch)).toEqual({ kind });
+  });
+
+  test("sends an ID as typed, escaped", async () => {
+    const { fetch, calls } = answer(404, { error: "not_found" });
+    await getMessageContent("1/../2", fetch);
+    expect(calls[0].url).toBe("/api/messages/1%2F..%2F2/content");
+  });
+});
+
+describe("getMessageText", () => {
+  test("reads the body as text, never as markup", async () => {
+    const calls: string[] = [];
+    const fetch: Fetch = async (input) => {
+      calls.push(String(input));
+      return new Response("<b>Hallo</b>\nZeile 2", {
+        status: 200,
+        headers: {
+          "MailArkiv-Response": "1",
+          "Content-Type": "text/plain; charset=utf-8",
+        },
+      });
+    };
+    expect(await getMessageText(17, fetch)).toEqual({
+      kind: "ok",
+      value: "<b>Hallo</b>\nZeile 2",
+    });
+    expect(calls).toEqual(["/api/messages/17/text"]);
+  });
+
+  test.each([
+    [503, "busy"],
+    [404, "stored_original_missing"],
+  ] as const)("reads a marked %i %s as that failure", async (status, error) => {
+    const { fetch } = answer(status, { error });
+    expect(await getMessageText(17, fetch)).toEqual({
+      kind: "failed",
+      reason: error,
+    });
+  });
+
+  test("reads a body an unmarked answer sent as unavailable", async () => {
+    const { fetch } = answer(200, "Text", { marked: false });
+    expect(await getMessageText(17, fetch)).toEqual({ kind: "unavailable" });
+  });
+});
+
+describe("view addresses", () => {
+  test("the preview asks for images only when told to", () => {
+    expect(previewAddress(17, false)).toBe("/api/messages/17/html");
+    expect(previewAddress(17, true)).toBe("/api/messages/17/html?images=1");
+  });
+
+  test("an attachment's address names its part", () => {
+    expect(attachmentAddress(17, "1.2")).toBe(
+      "/api/messages/17/attachments/1.2",
+    );
   });
 });

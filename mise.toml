@@ -151,10 +151,11 @@ env = { TZ = "Europe/Berlin" }
 run = "bunx vitest run"
 
 [tasks."test:e2e"]
-description = "Run the browser tests against the built binary and the test IMAP server"
+description = "Run the browser tests against the built binary, the test IMAP server, and the test image host"
 depends = ["build", "search:build:faults"]
 run = [
   "go build -o bin/imaptestserver ./internal/imaptest/cmd/imaptestserver",
+  "go build -o bin/imagehost ./internal/imagetest/cmd/imagehost",
   "cd frontend && bunx playwright test",
 ]
 

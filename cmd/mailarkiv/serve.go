@@ -190,6 +190,14 @@ func serveCatalog(logger *slog.Logger, dataDir string, db *sqlitedb.DB, options 
 	// After listenAndServe, so nothing still sends work.
 	defer pool.Close()
 	processor := processing.New(originals, pool, logger)
+	// The message view has its own workers, so a view doesn't queue behind
+	// processing.
+	interactive, err := processing.NewInteractivePool(processing.InteractiveWorkers, processing.MessageLimit,
+		processing.InteractiveWait, processing.WorkerCommand(executable), logger)
+	if err != nil {
+		return startupFailed(logger, causeWorkers, err)
+	}
+	defer interactive.Close()
 	searcher := search.New(search.Config{
 		DataDir:   dataDir,
 		Program:   filepath.Join(filepath.Dir(executable), searchProgram),
@@ -208,14 +216,15 @@ func serveCatalog(logger *slog.Logger, dataDir string, db *sqlitedb.DB, options 
 	}
 
 	return listenAndServe(logger, options.listen, web.New(web.Deps{
-		Files:    files,
-		Logger:   logger,
-		Identity: identity.New(db, time.Now),
-		Archive:  originals,
-		Status:   status,
-		Labels:   collect.NewLabeler(db),
-		Collect:  collector,
-		Search:   searcher,
+		Files:      files,
+		Logger:     logger,
+		Identity:   identity.New(db, time.Now),
+		Archive:    originals,
+		Status:     status,
+		Labels:     collect.NewLabeler(db),
+		Collect:    collector,
+		Search:     searcher,
+		Processing: processing.NewViewer(originals, interactive, logger),
 	}), collector, tasks)
 }
 

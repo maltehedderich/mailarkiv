@@ -1,0 +1,19 @@
+From: Anna Schmidt <anna@example.test>
+To: admin@example.test
+Subject: WebP
+Date: Tue, 10 Nov 2026 09:00:00 +0000
+MIME-Version: 1.0
+Content-Type: multipart/related; boundary="images"
+
+--images
+Content-Type: text/html; charset=utf-8
+
+<p>A WebP:</p><img src="cid:pic@example.test" alt="Shown: WebP">
+--images
+Content-Type: image/webp
+Content-ID: <pic@example.test>
+Content-Disposition: inline; filename="pic.webp"
+Content-Transfer-Encoding: base64
+
+UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==
+--images--

@@ -33,8 +33,13 @@ const (
 type Pool struct {
 	command func() *exec.Cmd
 	limit   time.Duration
-	logger  *slog.Logger
-	idle    chan *worker
+	// wait is how long a request waits for an idle worker before ErrBusy.
+	// 0 waits as long as the request's context allows.
+	wait time.Duration
+	// after is the clock wait reads. Tests replace it.
+	after  func(time.Duration) <-chan time.Time
+	logger *slog.Logger
+	idle   chan *worker
 
 	mu      sync.Mutex
 	workers map[*worker]bool
@@ -43,6 +48,9 @@ type Pool struct {
 
 // errPoolClosed means the server is stopping.
 var errPoolClosed = errors.New("the worker pool is closed")
+
+// ErrBusy means no worker was free within an interactive pool's wait.
+var ErrBusy = errors.New("no worker was free in time")
 
 // WorkerStoppedError means a worker exited before it answered, or was killed
 // at the limit.
@@ -69,10 +77,17 @@ func WorkerCommand(executable string) func() *exec.Cmd {
 }
 
 // NewPool starts size workers, each from command. A worker that spends
-// longer than limit on one request is killed.
+// longer than limit on one request is killed. A request waits for a worker as
+// long as its context allows.
 func NewPool(size int, limit time.Duration, command func() *exec.Cmd, logger *slog.Logger) (*Pool, error) {
+	return NewInteractivePool(size, limit, 0, command, logger)
+}
+
+// NewInteractivePool starts a pool as NewPool does, except that a request
+// that finds no idle worker within wait fails with ErrBusy.
+func NewInteractivePool(size int, limit, wait time.Duration, command func() *exec.Cmd, logger *slog.Logger) (*Pool, error) {
 	p := &Pool{
-		command: command, limit: limit, logger: logger,
+		command: command, limit: limit, wait: wait, after: time.After, logger: logger,
 		idle: make(chan *worker, size), workers: make(map[*worker]bool),
 	}
 	for range size {
@@ -208,75 +223,120 @@ func (p *Pool) startReplacement(w *worker) {
 	}
 }
 
-// take waits for an idle worker that is still running.
+// take waits for an idle worker that is still running. Only a request that
+// finds none idle starts the pool's wait.
 func (p *Pool) take(ctx context.Context) (*worker, error) {
+	var busy <-chan time.Time
 	for {
+		var w *worker
 		select {
-		case w := <-p.idle:
-			p.mu.Lock()
-			alive := !w.hasExited()
-			w.busy = alive
-			p.mu.Unlock()
-			if alive {
-				return w, nil
+		case w = <-p.idle:
+		default:
+			if p.wait > 0 && busy == nil {
+				busy = p.after(p.wait)
 			}
-			// Its replacement is already on the way.
-		case <-ctx.Done():
-			return nil, ctx.Err()
+			select {
+			case w = <-p.idle:
+			case <-busy:
+				return nil, ErrBusy
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
 		}
+		p.mu.Lock()
+		alive := !w.hasExited()
+		w.busy = alive
+		p.mu.Unlock()
+		if alive {
+			return w, nil
+		}
+		// Its replacement is already on the way.
 	}
 }
 
+// release hands a worker that answered completely back to the pool.
+func (p *Pool) release(w *worker) {
+	p.mu.Lock()
+	w.busy = false
+	p.mu.Unlock()
+	p.idle <- w
+}
+
 // read sends one original of size bytes to a worker and returns its answer.
-// When the limit passes or ctx ends first, the worker is killed, so a message
-// it is stuck on can't hold it.
 func (p *Pool) read(ctx context.Context, original io.Reader, size int64, withText bool) (readAnswer, error) {
-	w, err := p.take(ctx)
+	return p.readFor(ctx, workerRequest{Op: "read", Size: size, Text: withText}, original)
+}
+
+// readFor sends a request whose answer is one frame.
+func (p *Pool) readFor(ctx context.Context, request workerRequest, original io.Reader) (readAnswer, error) {
+	var answer readAnswer
+	err := p.exchange(ctx, request, original, func(reply io.Reader, _ func()) error {
+		return ReadFrame(reply, &answer)
+	})
 	if err != nil {
 		return readAnswer{}, err
 	}
-	type result struct {
-		answer readAnswer
-		err    error
+	return answer, nil
+}
+
+// exchange sends request and the original's request.Size bytes to a worker,
+// then receive reads the reply. When the limit passes or ctx ends first, the
+// worker is killed, so a message it is stuck on can't hold it. Once receive
+// calls streaming, the limit no longer applies, so a large attachment can
+// take as long as its reader needs. An error from receive's own writer must
+// come as a *sinkError, so the worker isn't blamed for it.
+func (p *Pool) exchange(ctx context.Context, request workerRequest, original io.Reader, receive func(reply io.Reader, streaming func()) error) error {
+	w, err := p.take(ctx)
+	if err != nil {
+		return err
 	}
-	done := make(chan result, 1)
+	streaming := make(chan struct{})
+	var startStreaming sync.Once
+	done := make(chan error, 1)
 	go func() {
-		var r result
-		r.err = w.exchange(workerRequest{Op: "read", Size: size, Text: withText}, original, &r.answer)
-		done <- r
+		done <- w.exchange(request, original, func(reply io.Reader) error {
+			return receive(reply, func() { startStreaming.Do(func() { close(streaming) }) })
+		})
 	}()
 	limit := time.NewTimer(p.limit)
 	defer limit.Stop()
-	select {
-	case r := <-done:
-		if r.err != nil {
-			// The worker may be waiting for the rest of the original, so it
-			// is replaced either way.
-			if source, ok := errors.AsType[*sourceError](r.err); ok {
+	limitPassed := limit.C
+	for {
+		select {
+		case err := <-done:
+			if err == nil {
+				p.release(w)
+				return nil
+			}
+			// The worker may still be sending, or waiting for the rest of the
+			// original, so it is replaced either way.
+			if source, ok := errors.AsType[*sourceError](err); ok {
 				go p.replace(w)
-				return readAnswer{}, source
+				return source
+			}
+			if sink, ok := errors.AsType[*sinkError](err); ok {
+				go p.replace(w)
+				return sink
 			}
 			stopped := &WorkerStoppedError{Exit: w.exitStatusAfterFailure()}
 			go p.replace(w)
-			return readAnswer{}, stopped
+			return stopped
+		case <-streaming:
+			limit.Stop()
+			limitPassed, streaming = nil, nil
+		case <-limitPassed:
+			w.stop()
+			<-done
+			go p.replace(w)
+			return &WorkerStoppedError{Exit: w.exitStatus(), TookTooLong: true}
+		case <-ctx.Done():
+			w.stop()
+			// The exchange ends once the worker is gone, and only then may the
+			// caller close original.
+			<-done
+			go p.replace(w)
+			return ctx.Err()
 		}
-		p.mu.Lock()
-		w.busy = false
-		p.mu.Unlock()
-		p.idle <- w
-		return r.answer, nil
-	case <-limit.C:
-		w.stop()
-		<-done
-		go p.replace(w)
-		return readAnswer{}, &WorkerStoppedError{Exit: w.exitStatus(), TookTooLong: true}
-	case <-ctx.Done():
-		w.stop()
-		// The exchange ends once the worker is gone, and only then may the
-		// caller close original.
-		<-done
-		go p.replace(w)
-		return readAnswer{}, ctx.Err()
 	}
 }
 
@@ -293,7 +353,7 @@ func (w *worker) exitStatusAfterFailure() string {
 	return w.exitStatus()
 }
 
-func (w *worker) exchange(request workerRequest, original io.Reader, answer *readAnswer) error {
+func (w *worker) exchange(request workerRequest, original io.Reader, receive func(io.Reader) error) error {
 	if err := WriteFrame(w.stdin, request); err != nil {
 		return err
 	}
@@ -304,7 +364,7 @@ func (w *worker) exchange(request workerRequest, original io.Reader, answer *rea
 		}
 		return fmt.Errorf("send the original: %w", err)
 	}
-	return ReadFrame(w.stdout, answer)
+	return receive(w.stdout)
 }
 
 // sourceError means the original couldn't be read, so the worker isn't to
@@ -313,6 +373,28 @@ type sourceError struct{ err error }
 
 func (e *sourceError) Error() string { return "read the original: " + e.err.Error() }
 func (e *sourceError) Unwrap() error { return e.err }
+
+// sinkError means the reader of an answer couldn't take more, so the worker
+// isn't to blame.
+type sinkError struct{ err error }
+
+func (e *sinkError) Error() string { return "pass the answer on: " + e.err.Error() }
+func (e *sinkError) Unwrap() error { return e.err }
+
+// sinkWriter remembers its writer's error, which io.CopyN can't tell from
+// the worker's.
+type sinkWriter struct {
+	writer io.Writer
+	err    error
+}
+
+func (w *sinkWriter) Write(p []byte) (int, error) {
+	n, err := w.writer.Write(p)
+	if err != nil {
+		w.err = err
+	}
+	return n, err
+}
 
 // sourceReader remembers its reader's error, which io.CopyN can't tell from
 // the worker's.

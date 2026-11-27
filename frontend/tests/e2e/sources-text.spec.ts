@@ -12,6 +12,7 @@ import {
   PASSWORD,
   signIn,
 } from "./support/sources";
+import { openHistory } from "./support/view";
 
 // Folder names come from the mail server, so they're untrusted. Markup shows
 // as text, a bidi override shows as its code, and a long name is cut in its
@@ -124,11 +125,10 @@ test("hostile and long folder names show as text on every screen", async ({
   ]);
   const found: string[] = [];
   for (let index = 0; index < FOLDERS.length; index++) {
-    await rows
-      .nth(index)
-      .getByRole("link", { name: /^History of/ })
-      .click();
-    const drawer = page.getByRole("dialog", { name: /^History/ });
+    const drawer = await openHistory(
+      page,
+      rows.nth(index).getByRole("link", { name: /^Open / }),
+    );
     const entry = drawer.getByRole("listitem");
     await expect(entry).toHaveCount(1);
     const text = (await entry.textContent()) ?? "";
@@ -142,6 +142,11 @@ test("hostile and long folder names show as text on every screen", async ({
     await expect(drawer.locator("img, script")).toHaveCount(0);
     await drawer.getByRole("button", { name: "Close" }).click();
     await expect(drawer).toBeHidden();
+    await page
+      .getByRole("main")
+      .getByRole("link", { name: "Messages" })
+      .click();
+    await expect(rows).toHaveCount(3);
   }
   expect(found.toSorted()).toEqual(FOLDERS.toSorted());
 

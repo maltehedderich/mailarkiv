@@ -87,6 +87,12 @@ func redirectToSignIn(w http.ResponseWriter, r *http.Request) {
 		answerNoSession(w, r)
 		return
 	}
+	seeSignIn(w, r)
+}
+
+// seeSignIn sends the browser to sign-in, with a way back to the page that
+// linked here.
+func seeSignIn(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Location", "/sign-in?ended=1&next="+url.QueryEscape(returnPath(r)))
 	w.WriteHeader(http.StatusSeeOther)
 }

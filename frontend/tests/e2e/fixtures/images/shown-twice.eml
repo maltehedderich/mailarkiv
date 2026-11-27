@@ -1,0 +1,21 @@
+From: Anna Schmidt <anna@example.test>
+To: admin@example.test
+Subject: Shown twice
+Date: Tue, 10 Nov 2026 09:00:00 +0000
+MIME-Version: 1.0
+Content-Type: multipart/related; boundary="images"
+
+--images
+Content-Type: text/html; charset=utf-8
+
+<p>Twice:</p><img src="cid:twice@example.test" alt="Shown: first"><img src="cid:twice@example.test" alt="Shown: second">
+--images
+Content-Type: image/png
+Content-ID: <twice@example.test>
+Content-Disposition: inline; filename="twice.png"
+Content-Transfer-Encoding: base64
+
+iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAQklEQVR4nGJhYGDQqDjBgApudFjg
+EmQiSTUDAwMTTARdApcgEy4JXIJMuCRwCTLhksAlyESS6hsdFoyjwTo0gxUwAF9Ka8Gv3bsEAAAA
+AElFTkSuQmCC
+--images--

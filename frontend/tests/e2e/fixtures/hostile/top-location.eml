@@ -1,0 +1,8 @@
+From: Mallory <mallory@attacker.example>
+To: admin@example.test
+Subject: Changes the page around it
+Date: Mon, 09 Nov 2026 10:00:00 +0000
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+
+<html><head><title>Top</title></head><body><p>A script navigates the page around it.</p><script>top.location = "https://leak.example.test/top"; parent.location = "/sources"; parent.document.title = "MARKER-TITLE-parent";</script></body></html>

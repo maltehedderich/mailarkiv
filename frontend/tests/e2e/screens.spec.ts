@@ -14,6 +14,12 @@ import {
   MAILBOX,
   REMOVAL_WARNING,
 } from "./support/sources";
+import {
+  historyButton,
+  openHistory,
+  openMessage,
+  viewedId,
+} from "./support/view";
 
 // Every screen works by keyboard, at 360 px with no sideways scroll, and
 // meets WCAG 2.2 AA in both themes. Data that didn't arrive says so and
@@ -70,7 +76,15 @@ async function importFile(page: Page, name: string, buffer = CONTENT) {
 }
 
 function rowLink(page: Page) {
-  return page.getByRole("link", { name: /history of/i }).first();
+  return page
+    .getByRole("list", { name: "Messages" })
+    .getByRole("link", { name: /^Open / })
+    .first();
+}
+
+/** The view's way up, which goes back to the list it came from. */
+function upLink(page: Page) {
+  return page.getByRole("main").getByRole("link", { name: "Messages" });
 }
 
 function drawer(page: Page) {
@@ -129,15 +143,22 @@ test("the whole flow works by keyboard", async ({ page }) => {
 
   await tabTo(page, rowLink(page));
   await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/\/messages\/\d+$/);
+  await tabTo(page, historyButton(page));
+  await page.keyboard.press("Enter");
   await expect(drawer(page)).toBeVisible();
   await expect(
     drawer(page).getByRole("button", { name: "Close" }),
   ).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(drawer(page)).toBeHidden();
-  await expect(rowLink(page)).toBeFocused();
+  await expect(historyButton(page)).toBeFocused();
+  await tabTo(page, upLink(page));
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(`${server.origin}/`);
 
   // The row's second stop is its download.
+  await tabTo(page, rowLink(page));
   await page.keyboard.press("Tab");
   await expect(
     page
@@ -152,8 +173,8 @@ test("the whole flow works by keyboard", async ({ page }) => {
 /**
  * Opens every screen in turn and runs check on each: sign-in and its error,
  * the list with an import result, the import box with a choice and with a
- * refusal, the history, status with a failure and an unreferenced original,
- * the failed-download toast, and the failed-load state.
+ * refusal, the message view, the history, status with a failure and an
+ * unreferenced original, the failed-download toast, and the failed-load state.
  */
 async function visitEveryScreen(
   page: Page,
@@ -217,10 +238,15 @@ async function visitEveryScreen(
   ).toBeVisible();
   await check("the import box with a refusal");
 
-  await rowLink(page).click();
+  await openMessage(page, rowLink(page));
+  await check("the message view");
+  await historyButton(page).click();
   await expect(drawer(page).getByRole("listitem")).toHaveCount(1);
   await check("the history");
   await drawer(page).getByRole("button", { name: "Close" }).click();
+  await expect(drawer(page)).toBeHidden();
+  await upLink(page).click();
+  await expect(page).toHaveURL(`${server.origin}/`);
 
   // Damage the short file's stored copy, then download it.
   await writeFile(
@@ -233,7 +259,7 @@ async function visitEveryScreen(
     .getByRole("listitem")
     .filter({
       has: page.getByRole("link", {
-        name: /^History of (short\.eml|Synthetic)$/,
+        name: /^Open (short\.eml|Synthetic)$/,
       }),
     })
     .getByRole("button", { name: /^Download / })
@@ -630,14 +656,35 @@ for (const [failure, answer] of Object.entries(FAILURES)) {
       ).toBeFocused();
     });
 
+    test("the message view shows the failed-load state and loads again", async ({
+      page,
+    }) => {
+      await signIn(page);
+      await importFile(page, "synthetic.eml");
+      await openMessage(page, rowLink(page));
+      const content = `**/api/messages/${viewedId(page)}/content`;
+      await fail(page, content);
+
+      await page.reload();
+      await expect(page.getByText(FAILED_LOAD)).toBeVisible();
+      await expect(historyButton(page)).toBeVisible();
+
+      await page.unroute(content);
+      await page.getByRole("button", { name: "Try again" }).click();
+      await expect(page.getByText(FAILED_LOAD)).toHaveCount(0);
+      // Try again went away, so focus moved to the heading on purpose.
+      await expect(
+        page.getByRole("heading", { name: "Message", level: 1 }),
+      ).toBeFocused();
+    });
+
     test("the history shows the failed-load state and loads again", async ({
       page,
     }) => {
       await signIn(page);
       await importFile(page, "synthetic.eml");
-      await rowLink(page).click();
-      await expect(drawer(page)).toBeVisible();
-      const id = new URL(page.url()).searchParams.get("message");
+      await openHistory(page, rowLink(page));
+      const id = viewedId(page);
       await fail(page, `**/api/messages/${id}`);
 
       await page.reload();

@@ -14,6 +14,7 @@ import {
   stateSection,
   tabTo,
 } from "./support/sources";
+import { historyButton } from "./support/view";
 
 // An administrator adds a source and follows its first sync with the keyboard
 // alone, at 360 px wide, and the page never scrolls sideways.
@@ -204,20 +205,23 @@ test("an administrator adds a source and follows its first sync", async ({
   await expect(
     rows.filter({
       has: page.getByRole("link", {
-        name: /^History of (Anna, INBOX|Synthetic message \d in folder 1)$/,
+        name: /^Open (Anna, INBOX|Synthetic message \d in folder 1)$/,
       }),
     }),
   ).toHaveCount(3);
   const sent = rows.filter({
     has: page.getByRole("link", {
-      name: /^History of (Anna, Gesendete Objekte|Synthetic message \d in folder 2)$/,
+      name: /^Open (Anna, Gesendete Objekte|Synthetic message \d in folder 2)$/,
     }),
   });
   await expect(sent).toHaveCount(2);
   await expectNoSidewaysScroll(page, "the list of collected messages");
 
-  // The history shows the collection entry.
-  await tabTo(page, sent.first().getByRole("link", { name: /^History of/ }));
+  // The message's history shows the collection entry.
+  await tabTo(page, sent.first().getByRole("link", { name: /^Open / }));
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/\/messages\/\d+$/);
+  await tabTo(page, historyButton(page));
   await page.keyboard.press("Enter");
   const drawer = page.getByRole("dialog", { name: /^History/ });
   await expect(drawer).toBeVisible();

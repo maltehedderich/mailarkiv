@@ -1,0 +1,8 @@
+From: Mallory <mallory@attacker.example>
+To: admin@example.test
+Subject: Event handlers set the title
+Date: Mon, 09 Nov 2026 10:00:00 +0000
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+
+<html><head><title>Handlers</title></head><body onload="document.title = &quot;MARKER-TITLE-onload&quot;"><p>Event handlers set the title.</p><img src="data:," onerror="document.title = &quot;MARKER-TITLE-onerror&quot;" alt=""><svg onload="document.title = &quot;MARKER-TITLE-svg&quot;"><rect width="1" height="1"/></svg><details open ontoggle="document.title = &quot;MARKER-TITLE-toggle&quot;"><summary>More</summary>Hidden</details><div style="width:1px;height:1px" onmouseover="document.title = &quot;MARKER-TITLE-hover&quot;">Hover</div></body></html>

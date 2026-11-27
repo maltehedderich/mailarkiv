@@ -19,11 +19,11 @@ const CONTENT = Buffer.from(
 let server: TestServer;
 
 // A row names its message by the file name until processing reads it, then
-// by its subject, so the tests find rows by their history links.
+// by its subject, so the tests find rows by their links.
 function rowLinks(page: Page) {
   return page
     .getByRole("list", { name: "Messages" })
-    .getByRole("link", { name: /^History of/ });
+    .getByRole("link", { name: /^Open / });
 }
 
 test.beforeEach(async () => {

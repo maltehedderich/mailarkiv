@@ -1,0 +1,8 @@
+From: Mallory <mallory@attacker.example>
+To: admin@example.test
+Subject: Opens a window
+Date: Mon, 09 Nov 2026 10:00:00 +0000
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+
+<html><head><title>Window</title></head><body><p>A script opens a window.</p><script>window.open("https://leak.example.test/window"); window.open("/status", "_blank");</script></body></html>

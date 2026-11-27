@@ -1,0 +1,8 @@
+From: Mallory <mallory@attacker.example>
+To: admin@example.test
+Subject: Meta refresh
+Date: Mon, 09 Nov 2026 10:00:00 +0000
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+
+<html><head><title>Refresh</title><meta http-equiv="refresh" content="0;url=https://leak.example.test/refresh"></head><body><p>A refresh tag.</p><meta http-equiv="refresh" content="1;url=/sources"></body></html>
