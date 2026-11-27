@@ -256,8 +256,10 @@ test("an import finishes after leaving without changing the destination page", a
   expect(refreshes).toBe(0);
   await messagesLink.click();
   await expect(
-    page.getByRole("link", { name: /history of synthetic.eml/i }),
-  ).toBeVisible();
+    page
+      .getByRole("list", { name: "Messages" })
+      .getByRole("link", { name: /^History of/ }),
+  ).toHaveCount(1);
 });
 
 test.describe("the browser refuses before uploading", () => {
@@ -427,7 +429,11 @@ test("an import ending moves focus only if Import had it", async ({ page }) => {
   gate.hold();
   await page.getByLabel("Choose a file").setInputFiles(await largeFile());
   await importButton(page).click();
-  const row = page.getByRole("link", { name: /history of synthetic.eml/i });
+  // Its row is the older one, so it ends the list once large.eml arrives.
+  const row = page
+    .getByRole("list", { name: "Messages" })
+    .getByRole("link", { name: /^History of/ })
+    .last();
   await row.focus();
   gate.sendBody();
   gate.answer();

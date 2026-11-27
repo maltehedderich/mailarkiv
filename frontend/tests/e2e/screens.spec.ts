@@ -140,7 +140,9 @@ test("the whole flow works by keyboard", async ({ page }) => {
   // The row's second stop is its download.
   await page.keyboard.press("Tab");
   await expect(
-    page.getByRole("button", { name: "Download keyboard.eml" }),
+    page
+      .getByRole("list", { name: "Messages" })
+      .getByRole("button", { name: /^Download / }),
   ).toBeFocused();
   const download = page.waitForEvent("download");
   await page.keyboard.press("Enter");
@@ -225,7 +227,17 @@ async function visitEveryScreen(
     join(server.dataDir, "blobs", HASH.slice(0, 2), HASH.slice(2, 4), HASH),
     "Subject: damaged\r\n\r\n",
   );
-  await page.getByRole("button", { name: "Download short.eml" }).click();
+  // The row names the file until processing reads it, then the subject.
+  await page
+    .getByRole("list", { name: "Messages" })
+    .getByRole("listitem")
+    .filter({
+      has: page.getByRole("link", {
+        name: /^History of (short\.eml|Synthetic)$/,
+      }),
+    })
+    .getByRole("button", { name: /^Download / })
+    .click();
   await expect(
     page
       .getByRole("region", { name: "Notifications" })
@@ -467,10 +479,11 @@ for (const width of [721, 1041]) {
   });
 }
 
-// DESIGN.md: at 720 px and below a row stacks. The name keeps the whole width,
-// and the download sits beside the two lines under it. On a line of its own,
-// the download made each row 97 px tall at 360 px.
-test("at 360 px a stacked row gives the name the whole width", async ({
+// DESIGN.md: at 720 px and below a row stacks. The sender, or the name before
+// processing, keeps the whole width, and the download sits beside the two
+// lines under it. On a line of its own, the download made each row 97 px tall
+// at 360 px.
+test("at 360 px a stacked row gives its first line the whole width", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 360, height: 800 });
@@ -488,15 +501,15 @@ test("at 360 px a stacked row gives the name the whole width", async ({
     };
     return {
       row: item.getBoundingClientRect().height,
-      link: box(item.querySelector("a")!),
+      first: box(item.firstElementChild!),
       time: box(item.querySelector("time")!),
       download: box(item.querySelector("button")!),
     };
   });
-  // The name's line runs past the download's left edge.
-  expect(boxes.link.right).toBeGreaterThan(boxes.download.left);
-  // The download starts below the name, level with the time, and after it.
-  expect(boxes.download.top).toBeGreaterThanOrEqual(boxes.link.bottom);
+  // The first line runs past the download's left edge.
+  expect(boxes.first.right).toBeGreaterThan(boxes.download.left);
+  // The download starts below it, no lower than the time, and after it.
+  expect(boxes.download.top).toBeGreaterThanOrEqual(boxes.first.bottom);
   expect(boxes.download.top).toBeLessThanOrEqual(boxes.time.top);
   expect(boxes.download.left).toBeGreaterThan(boxes.time.right);
   expect(boxes.row).toBeLessThan(80);

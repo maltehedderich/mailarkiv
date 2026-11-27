@@ -81,17 +81,24 @@ test("an administrator imports one file and downloads the same bytes", async ({
     page.getByRole("region", { name: "Notifications" }),
   ).toContainText("Archived");
 
-  // The new message is first, with its name, size, short hash, and a time
-  // that ends in its UTC offset.
+  // The new message is first, with its size and a date that ends in its UTC
+  // offset. Its history names the file and the hash the download saves as.
   const row = page
     .getByRole("list", { name: "Messages" })
     .getByRole("listitem")
     .first();
-  await expect(row).toContainText("synthetic.eml");
   await expect(row).toContainText(`${CONTENT.length} B`);
-  await expect(row).toContainText(CONTENT_HASH.slice(0, 8));
   await expect(row.locator("time")).toHaveText(/[+-]\d\d:\d\d$/);
   await expect(page.getByText("No mail yet")).toHaveCount(0);
+  await row.getByRole("link", { name: /^History of/ }).click();
+  const drawer = page.getByRole("dialog", { name: "History" });
+  await expect(drawer.getByRole("listitem")).toContainText("synthetic.eml");
+  await expect(drawer.locator("footer")).toContainText(
+    `Saves as ${CONTENT_HASH.slice(0, 8)}…${CONTENT_HASH.slice(-4)}.eml`,
+  );
+  await drawer.getByRole("button", { name: "Close" }).click();
+  await expect(drawer).toBeHidden();
+  await expect(page).toHaveURL(`${server.origin}/`);
 
   // The page fetches the file and saves it, so the page stays where it is.
   const before = page.url();

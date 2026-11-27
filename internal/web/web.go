@@ -14,6 +14,7 @@ import (
 	"github.com/maltehedderich/mailarkiv/internal/collect"
 	"github.com/maltehedderich/mailarkiv/internal/identity"
 	"github.com/maltehedderich/mailarkiv/internal/opstatus"
+	"github.com/maltehedderich/mailarkiv/internal/search"
 )
 
 // Access is a route's rule for who may call it. The zero value, Undeclared,
@@ -58,6 +59,7 @@ func Routes() []Route {
 		{Method: http.MethodPost, Path: "/api/imports", Access: SignedIn, Handler: importFile},
 		{Method: http.MethodGet, Path: "/api/messages", Access: SignedIn, Handler: listMessages},
 		{Method: http.MethodGet, Path: "/api/messages/{id}", Access: SignedIn, Handler: readHistory},
+		{Method: http.MethodPost, Path: "/api/search", Access: SignedIn, Handler: searchMessages},
 		{Method: http.MethodGet, Path: "/api/messages/{id}/original", Access: SignedIn, Handler: downloadOriginal, NoSession: redirectToSignIn},
 		{Method: http.MethodGet, Path: "/api/status", Access: SignedIn, Handler: readStatus},
 		{Method: http.MethodPost, Path: "/api/sources/check", Access: SignedIn, Handler: checkMailbox},
@@ -86,6 +88,8 @@ type Deps struct {
 	Labels *collect.Labeler
 	// Collect is required, including when no password key is configured.
 	Collect *collect.Collector
+	// Search is required, including when the search process can't start.
+	Search *search.Module
 }
 
 type server struct {
@@ -96,6 +100,7 @@ type server struct {
 	status   *opstatus.Status
 	labels   *collect.Labeler
 	collect  *collect.Collector
+	search   *search.Module
 }
 
 // New returns the server's handler.
@@ -112,6 +117,7 @@ func newHandler(deps Deps, routes []Route) http.Handler {
 		status:   deps.Status,
 		labels:   deps.Labels,
 		collect:  deps.Collect,
+		search:   deps.Search,
 	}
 
 	mux := http.NewServeMux()

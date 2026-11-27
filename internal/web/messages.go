@@ -12,14 +12,49 @@ import (
 	"github.com/maltehedderich/mailarkiv/internal/collect"
 )
 
-// messageJSON is a message as the contract writes it in the list and in an
-// import's answer.
+// messageJSON is a message row as the contract writes it in the list, in
+// search results, and in an import's answer.
 type messageJSON struct {
-	ID               int64  `json:"id"`
-	ContentHash      string `json:"content_hash"`
-	Size             int64  `json:"size"`
-	ObservationCount int    `json:"observation_count"`
-	Latest           any    `json:"latest"`
+	ID                    int64       `json:"id"`
+	ContentHash           string      `json:"content_hash"`
+	Size                  int64       `json:"size"`
+	Processing            string      `json:"processing"`
+	ListDate              string      `json:"list_date"`
+	ListDateIsArchiveTime bool        `json:"list_date_is_archive_time"`
+	Sender                *senderJSON `json:"sender"`
+	Subject               *string     `json:"subject"`
+	HasAttachments        bool        `json:"has_attachments"`
+	ObservationCount      int         `json:"observation_count"`
+	Latest                any         `json:"latest"`
+}
+
+// senderJSON is a row's sender. Name is nil when the sender gave none, and
+// Address is nil when From wasn't a list of addresses.
+type senderJSON struct {
+	Name    *string `json:"name"`
+	Address *string `json:"address"`
+	More    int     `json:"more"`
+}
+
+func encodeRow(message archive.Message, latest any) messageJSON {
+	row := messageJSON{
+		ID:                    message.ID,
+		ContentHash:           message.ContentHash,
+		Size:                  message.Size,
+		Processing:            message.Processing.String(),
+		ListDate:              formatTime(message.ListDate),
+		ListDateIsArchiveTime: message.ListDateIsArchiveTime,
+		ObservationCount:      message.ObservationCount,
+		Latest:                latest,
+	}
+	if summary := message.Summary; summary != nil {
+		row.Subject = summary.Subject
+		row.HasAttachments = summary.HasAttachments
+		if summary.SenderName != nil || summary.SenderAddress != nil {
+			row.Sender = &senderJSON{Name: summary.SenderName, Address: summary.SenderAddress, More: summary.MoreSenders}
+		}
+	}
+	return row
 }
 
 type importEntryJSON struct {
@@ -58,13 +93,7 @@ func (s *server) encodeMessages(ctx context.Context, messages []archive.Message)
 	}
 	encoded := make([]messageJSON, len(messages))
 	for i, message := range messages {
-		encoded[i] = messageJSON{
-			ID:               message.ID,
-			ContentHash:      message.ContentHash,
-			Size:             message.Size,
-			ObservationCount: message.ObservationCount,
-			Latest:           entries[i],
-		}
+		encoded[i] = encodeRow(message, entries[i])
 	}
 	return encoded, nil
 }

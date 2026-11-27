@@ -23,6 +23,8 @@ import (
 	"github.com/maltehedderich/mailarkiv/internal/identity"
 	"github.com/maltehedderich/mailarkiv/internal/opstatus"
 	"github.com/maltehedderich/mailarkiv/internal/passwordkey"
+	"github.com/maltehedderich/mailarkiv/internal/processing"
+	"github.com/maltehedderich/mailarkiv/internal/search"
 	"github.com/maltehedderich/mailarkiv/internal/sqlitedb"
 )
 
@@ -79,6 +81,7 @@ type harness struct {
 	status    *opstatus.Status
 	clock     *fakeClock
 	collector *collect.Collector
+	search    *search.Module
 }
 
 // harnessOptions choose how the harness collects mail. The zero value has a
@@ -94,6 +97,10 @@ type harnessOptions struct {
 	// checkLimit, if set, gives each request a deadline that far ahead. A
 	// request that signs in then ends as collect's check limit would end it.
 	checkLimit time.Duration
+	// search, if set, is the search program. Processing and the search
+	// module then run until the test ends. Otherwise the search module never
+	// starts, so searches answer 503.
+	search string
 }
 
 func newHarness(t *testing.T, routes []Route) *harness {
@@ -106,6 +113,7 @@ func newHarnessWith(t *testing.T, routes []Route, options harnessOptions) *harne
 	h := &harness{log: &lockedBuffer{}}
 	deps := h.deps(t)
 	deps.Collect = h.openCollector(t, options)
+	deps.Search = h.openSearch(t, options.search)
 	handler := newHandler(deps, routes)
 	if options.checkLimit > 0 {
 		handler = withDeadline(handler, options.checkLimit)
@@ -154,6 +162,34 @@ func (h *harness) openCollector(t *testing.T, options harnessOptions) *collect.C
 	}
 	h.collector = collector
 	return collector
+}
+
+// openSearch builds the search module. With a program, it runs processing
+// with test-binary workers and the search module until the test ends.
+func (h *harness) openSearch(t *testing.T, program string) *search.Module {
+	t.Helper()
+	logger := slog.New(slog.NewJSONHandler(h.log, nil))
+	if err := search.Prepare(context.Background(), h.dataDir, h.db); err != nil {
+		t.Fatal(err)
+	}
+	config := search.Config{
+		DataDir: h.dataDir, Program: program, DB: h.db, Archive: h.archive,
+		Status: h.status, Logger: logger, Now: h.clock.Now,
+	}
+	if program != "" {
+		pool, err := processing.NewPool(2, testWorkerCommand, logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(pool.Close)
+		config.Processor = processing.New(h.archive, pool, logger)
+	}
+	h.search = search.New(config)
+	if program != "" {
+		background(t, config.Processor.Run)
+		background(t, h.search.Run)
+	}
+	return h.search
 }
 
 // deps opens a catalog in a new data directory and builds the modules on it.

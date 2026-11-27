@@ -34,10 +34,7 @@ const clusters = new Intl.Segmenter("en", { granularity: "grapheme" });
 
 export function displayText(value: string): DisplayText {
   // Cut between clusters, so no symbol is split across the two halves.
-  const segments = Array.from(
-    clusters.segment(value),
-    ({ segment }) => segment,
-  );
+  const segments = segment(value);
   const cut =
     segments.length > ENDING
       ? orderedCut(segments, segments.length - ENDING)
@@ -46,6 +43,22 @@ export function displayText(value: string): DisplayText {
   const end = toParts(segments.slice(cut));
   const text = [...start, ...end].map((part) => part.text).join("");
   return { text, start, end };
+}
+
+/**
+ * Text in two parts that are never cut apart from each other: the start loses
+ * its end when space runs out, and the end always shows. With no end, the
+ * text is cut at its end.
+ */
+export function displayParts(start: string, end = ""): DisplayText {
+  const startParts = toParts(segment(start));
+  const endParts = toParts(segment(end));
+  const text = [...startParts, ...endParts].map((part) => part.text).join("");
+  return { text, start: startParts, end: endParts };
+}
+
+function segment(value: string): string[] {
+  return Array.from(clusters.segment(value), ({ segment }) => segment);
 }
 
 function toParts(segments: string[]): TextPart[] {

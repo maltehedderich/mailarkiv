@@ -10,15 +10,18 @@ import {
   getStatus,
   listMessages,
   listSources,
+  parseMessage,
   pauseSource,
   readSource,
   removeSource,
   resumeSource,
+  searchMessages,
   SIGN_IN_TIMEOUT_MS,
   signIn,
   signOut,
   syncSource,
   type Fetch,
+  type SearchQuery,
 } from "./api";
 
 // API results: every call ends in success, session_ended for a marked 401, or
@@ -127,6 +130,12 @@ describe("listMessages", () => {
     id: 17,
     content_hash: HASH,
     size: 31,
+    processing: "not_processed",
+    list_date: "2026-11-06T15:50:52.123Z",
+    list_date_is_archive_time: true,
+    sender: null,
+    subject: null,
+    has_attachments: false,
     observation_count: 3,
     latest: {
       source_type: "manual_import",
@@ -139,6 +148,12 @@ describe("listMessages", () => {
     id: 18,
     content_hash: HASH,
     size: 42,
+    processing: "processed",
+    list_date: "2026-11-02T08:14:55.000Z",
+    list_date_is_archive_time: false,
+    sender: { name: "Anna Schmidt", address: "anna@example.com", more: 0 },
+    subject: "Quartalsbericht Q3",
+    has_attachments: true,
     observation_count: 1,
     latest: {
       source_type: "imap_collection",
@@ -170,7 +185,16 @@ describe("listMessages", () => {
             id: 18,
             contentHash: HASH,
             size: 42,
-            observedAt: "2026-11-08T09:10:04.123Z",
+            processing: "processed",
+            listDate: "2026-11-02T08:14:55.000Z",
+            listDateIsArchiveTime: false,
+            sender: {
+              name: "Anna Schmidt",
+              address: "anna@example.com",
+              more: 0,
+            },
+            subject: "Quartalsbericht Q3",
+            hasAttachments: true,
             observationCount: 1,
             latest: {
               sourceType: "imap_collection",
@@ -190,7 +214,12 @@ describe("listMessages", () => {
             id: 17,
             contentHash: HASH,
             size: 31,
-            observedAt: "2026-11-06T15:50:52.123Z",
+            processing: "not_processed",
+            listDate: "2026-11-06T15:50:52.123Z",
+            listDateIsArchiveTime: true,
+            sender: null,
+            subject: null,
+            hasAttachments: false,
             observationCount: 3,
             latest: {
               sourceType: "manual_import",
@@ -295,6 +324,331 @@ describe("listMessages", () => {
     ["a timeout", failing(timeout)],
   ])("%s is unavailable", async (_name, fetch) => {
     expect(await listMessages(null, fetch)).toEqual({ kind: "unavailable" });
+  });
+});
+
+describe("parseMessage", () => {
+  const row = {
+    id: 17,
+    content_hash: HASH,
+    size: 18234,
+    processing: "processed",
+    list_date: "2026-11-02T08:14:55.000Z",
+    list_date_is_archive_time: false,
+    sender: { name: "Anna Schmidt", address: "anna@example.com", more: 2 },
+    subject: "Quartalsbericht Q3",
+    has_attachments: true,
+    observation_count: 2,
+    latest: {
+      source_type: "manual_import",
+      observed_at: "2026-11-06T15:50:52.123Z",
+      account_email: "admin@example.test",
+      file_name: "q3.eml",
+    },
+  };
+
+  test("reads the contract's row", () => {
+    expect(parseMessage(row)).toEqual({
+      id: 17,
+      contentHash: HASH,
+      size: 18234,
+      processing: "processed",
+      listDate: "2026-11-02T08:14:55.000Z",
+      listDateIsArchiveTime: false,
+      sender: { name: "Anna Schmidt", address: "anna@example.com", more: 2 },
+      subject: "Quartalsbericht Q3",
+      hasAttachments: true,
+      observationCount: 2,
+      latest: {
+        sourceType: "manual_import",
+        observedAt: "2026-11-06T15:50:52.123Z",
+        accountEmail: "admin@example.test",
+        fileName: "q3.eml",
+      },
+    });
+  });
+
+  test.each([
+    "not_processed",
+    "processed",
+    "processed_with_problems",
+    "unreadable",
+  ])("reads processing %s", (processing) => {
+    expect(parseMessage({ ...row, processing })?.processing).toBe(processing);
+  });
+
+  test("reads a sender with only an address, or only a name", () => {
+    expect(
+      parseMessage({
+        ...row,
+        sender: { name: null, address: "anna@example.com", more: 0 },
+      })?.sender,
+    ).toEqual({ name: null, address: "anna@example.com", more: 0 });
+    expect(
+      parseMessage({
+        ...row,
+        sender: { name: "Undisclosed recipients", address: null, more: 0 },
+      })?.sender,
+    ).toEqual({ name: "Undisclosed recipients", address: null, more: 0 });
+  });
+
+  test("reads a row with no summary", () => {
+    expect(parseMessage({ ...row, sender: null, subject: null })).toMatchObject(
+      { sender: null, subject: null },
+    );
+  });
+
+  test.each([
+    ["an unknown processing word", { ...row, processing: "parsed" }],
+    ["no processing word", { ...row, processing: undefined }],
+    ["a list date that isn't a time", { ...row, list_date: "yesterday" }],
+    ["no archive time flag", { ...row, list_date_is_archive_time: undefined }],
+    ["a sender as text", { ...row, sender: "anna@example.com" }],
+    [
+      "a sender with no count",
+      { ...row, sender: { name: null, address: "a@example.com" } },
+    ],
+    [
+      "a sender with a negative count",
+      { ...row, sender: { name: null, address: "a@example.com", more: -1 } },
+    ],
+    [
+      "a sender with a number for a name",
+      { ...row, sender: { name: 7, address: null, more: 0 } },
+    ],
+    ["a subject that isn't text", { ...row, subject: 7 }],
+    ["no attachments flag", { ...row, has_attachments: undefined }],
+  ])("%s is no row", (_name, value) => {
+    expect(parseMessage(value)).toBeNull();
+  });
+});
+
+describe("searchMessages", () => {
+  const query: SearchQuery = {
+    words: "quartals müller",
+    from: "anna@example.com",
+    to: "",
+    subject: "",
+    attachment: "",
+    listDateFrom: "2026-01-01T00:00:00.000+01:00",
+    listDateBefore: null,
+    hasAttachments: true,
+    page: 2,
+  };
+  const row = {
+    id: 17,
+    content_hash: HASH,
+    size: 18234,
+    processing: "processed",
+    list_date: "2026-11-02T08:14:55.000Z",
+    list_date_is_archive_time: false,
+    sender: { name: "Anna Schmidt", address: "anna@example.com", more: 0 },
+    subject: "Quartalsbericht Q3",
+    has_attachments: true,
+    observation_count: 1,
+    latest: {
+      source_type: "manual_import",
+      observed_at: "2026-11-06T15:50:52.123Z",
+      account_email: "admin@example.test",
+      file_name: "q3.eml",
+    },
+  };
+  const results = {
+    items: [row],
+    page: 2,
+    page_size: 50,
+    total: 51,
+    not_included: 17,
+    full_list: false,
+    may_be_incomplete: false,
+  };
+
+  // The words name people and topics, so they travel only in the body.
+  test("posts the query as the contract's body, never in the address", async () => {
+    const { fetch, calls } = answer(200, results);
+    await searchMessages(query, fetch);
+    expect(calls[0].url).toBe("/api/search");
+    expect(calls[0].init?.method).toBe("POST");
+    expect(calls[0].init?.signal).toBeInstanceOf(AbortSignal);
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({
+      words: "quartals müller",
+      from: "anna@example.com",
+      to: "",
+      subject: "",
+      attachment: "",
+      list_date_from: "2026-01-01T00:00:00.000+01:00",
+      list_date_before: null,
+      has_attachments: true,
+      page: 2,
+    });
+  });
+
+  test("reads the results", async () => {
+    const { fetch } = answer(200, results);
+    const result = await searchMessages(query, fetch);
+    expect(result).toEqual({
+      kind: "ok",
+      value: {
+        items: [parseMessage(row)],
+        page: 2,
+        pageSize: 50,
+        total: 51,
+        notIncluded: 17,
+        fullList: false,
+        mayBeIncomplete: false,
+      },
+    });
+  });
+
+  test("reads the full list", async () => {
+    const { fetch } = answer(200, {
+      ...results,
+      not_included: 0,
+      full_list: true,
+    });
+    const result = await searchMessages(query, fetch);
+    expect(result.kind === "ok" && result.value.fullList).toBe(true);
+  });
+
+  test.each([
+    [
+      "the fields that broke a rule",
+      400,
+      { error: "invalid_fields", fields: ["words", "page"] },
+      { kind: "invalid_fields", fields: ["words", "page"] },
+    ],
+    [
+      "a refusal that names no field",
+      400,
+      { error: "invalid_fields", fields: [] },
+      { kind: "invalid_fields", fields: [] },
+    ],
+    [
+      "a page too deep",
+      400,
+      { error: "page_too_deep" },
+      { kind: "page_too_deep" },
+    ],
+    [
+      "a search that took too long",
+      422,
+      { error: "search_took_too_long" },
+      { kind: "search_took_too_long" },
+    ],
+    [
+      "search unavailable with its next start",
+      503,
+      {
+        error: "search_unavailable",
+        cause: "search_process_stopped",
+        next_start_at: "2026-11-06T15:51:00.000Z",
+      },
+      {
+        kind: "search_unavailable",
+        cause: "search_process_stopped",
+        nextStartAt: "2026-11-06T15:51:00.000Z",
+      },
+    ],
+    [
+      "search unavailable while it starts",
+      503,
+      {
+        error: "search_unavailable",
+        cause: "search_process_did_not_start",
+        next_start_at: null,
+      },
+      {
+        kind: "search_unavailable",
+        cause: "search_process_did_not_start",
+        nextStartAt: null,
+      },
+    ],
+    [
+      "search unavailable because its index couldn't be written",
+      503,
+      {
+        error: "search_unavailable",
+        cause: "index_write_failed",
+        next_start_at: null,
+      },
+      {
+        kind: "search_unavailable",
+        cause: "index_write_failed",
+        nextStartAt: null,
+      },
+    ],
+    [
+      "a search the process didn't answer",
+      503,
+      { error: "search_did_not_answer" },
+      { kind: "search_did_not_answer" },
+    ],
+  ])("reads %s", async (_name, status, body, expected) => {
+    const { fetch } = answer(status, body);
+    expect(await searchMessages(query, fetch)).toEqual(expected);
+  });
+
+  test("a marked 401 means the session ended", async () => {
+    const { fetch } = answer(401, { error: "no_session" });
+    expect(await searchMessages(query, fetch)).toEqual({
+      kind: "session_ended",
+    });
+  });
+
+  test.each([
+    [
+      "an unmarked 503",
+      answer(503, "<html>Unavailable</html>", { marked: false }).fetch,
+    ],
+    ["a marked 500", answer(500, { error: "internal_error" }).fetch],
+    [
+      "an unknown field",
+      answer(400, { error: "invalid_fields", fields: ["sender"] }).fetch,
+    ],
+    [
+      "an unknown cause",
+      answer(503, {
+        error: "search_unavailable",
+        cause: "storage_full",
+        next_start_at: null,
+      }).fetch,
+    ],
+    [
+      "a next start that isn't a time",
+      answer(503, {
+        error: "search_unavailable",
+        cause: "search_process_stopped",
+        next_start_at: "soon",
+      }).fetch,
+    ],
+    [
+      "no next start",
+      answer(503, {
+        error: "search_unavailable",
+        cause: "search_process_stopped",
+      }).fetch,
+    ],
+    [
+      "results with no count left out",
+      answer(200, { ...results, not_included: undefined }).fetch,
+    ],
+    [
+      "results with no full list flag",
+      answer(200, { ...results, full_list: undefined }).fetch,
+    ],
+    [
+      "results with no incomplete flag",
+      answer(200, { ...results, may_be_incomplete: undefined }).fetch,
+    ],
+    [
+      "results with a broken row",
+      answer(200, { ...results, items: [{ ...row, processing: "parsed" }] })
+        .fetch,
+    ],
+    ["a network error", failing(networkError)],
+    ["a timeout", failing(timeout)],
+  ])("%s is unavailable", async (_name, fetch) => {
+    expect(await searchMessages(query, fetch)).toEqual({ kind: "unavailable" });
   });
 });
 
@@ -656,6 +1010,10 @@ describe("getStatus", () => {
       "temp_file_not_removed",
       "message_too_large",
       "message_removed",
+      "search_process_stopped",
+      "search_process_did_not_start",
+      "search_process_did_not_answer",
+      "index_write_failed",
     ];
     const failures = categories.map((category) => ({
       at: "2026-11-06T15:20:00.000Z",
