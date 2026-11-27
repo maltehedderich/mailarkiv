@@ -217,6 +217,8 @@ test("images from the internet load only when asked, for that view", async ({
 
   await page.getByRole("button", { name: "Load images" }).click();
   await expect(notice).toBeHidden();
+  // The button has gone, so focus is on the frame, not the page.
+  await expect(page.getByTitle("Message body")).toBeFocused();
   await expect
     .poll(async () =>
       (await imagesIn(previewFrame(page, id))).map(({ alt, naturalWidth }) => [

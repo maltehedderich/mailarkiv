@@ -2,7 +2,7 @@
   import ChevronLeftIcon from "~icons/lucide/chevron-left";
   import ChevronRightIcon from "~icons/lucide/chevron-right";
 
-  import { untrack } from "svelte";
+  import { tick, untrack } from "svelte";
 
   import { afterNavigate, goto } from "$app/navigation";
   import { page } from "$app/state";
@@ -89,6 +89,16 @@
     if (body === null) return;
     change(showBody(body, choice));
     if (choice === "text" && text === null) void fetchText();
+  }
+
+  // Load images goes away with its notice, so focus moves to the reloaded
+  // frame instead of falling to the page.
+  let preview = $state<PreviewFrame | null>(null);
+  async function showImages() {
+    if (body === null) return;
+    change(loadImages(body));
+    await tick();
+    preview?.focus();
   }
 
   $effect(() => {
@@ -255,7 +265,7 @@
           {/if}
 
           {#if shown.remoteImages}
-            <ImageNotice onload={() => change(loadImages(body))} />
+            <ImageNotice onload={showImages} />
           {/if}
           {#if shown.embeddedImagesLeftOut}
             <div class="notice"><p class="what">{EMBEDDED_LEFT_OUT}</p></div>
@@ -270,7 +280,7 @@
           {/if}
 
           {#if body.shown === "html"}
-            <PreviewFrame src={frameAddress(body) ?? ""} />
+            <PreviewFrame bind:this={preview} src={frameAddress(body) ?? ""} />
           {:else if body.shown === "text" && text !== null}
             {#await text}
               <p class="quiet" role="status">Loading the text…</p>

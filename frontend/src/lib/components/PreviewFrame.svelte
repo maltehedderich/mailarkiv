@@ -5,12 +5,23 @@
   // same, so the address opened in a tab is isolated too.
 
   let { src }: { src: string } = $props();
+
+  let frame = $state<HTMLIFrameElement | null>(null);
+
+  export function focus() {
+    frame?.focus();
+  }
 </script>
 
 <!-- A new frame for each address: changing a frame's src would add an entry
      to the tab's history, and Back would only reload the preview. -->
 {#key src}
-  <iframe sandbox="" referrerpolicy="no-referrer" title="Message body" {src}
+  <iframe
+    bind:this={frame}
+    sandbox=""
+    referrerpolicy="no-referrer"
+    title="Message body"
+    {src}
   ></iframe>
 {/key}
 
