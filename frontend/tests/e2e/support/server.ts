@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { copyFile, mkdtemp, rm } from "node:fs/promises";
+import { copyFile, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -41,8 +41,12 @@ export interface TestServer {
   /**
    * Stops the server with SIGTERM and starts it again on the same port and
    * data directory, so the origin and the session cookie stay the same.
+   * A server started with search faults can get a new fault list, which the
+   * next start's first search process gets.
    */
-  restart(): Promise<void>;
+  restart(options?: { searchFaults?: string }): Promise<void>;
+  /** Kills the server's search process with SIGKILL, as a crash would. */
+  killSearch(): Promise<void>;
   stop(): Promise<void>;
 }
 
@@ -69,11 +73,15 @@ export async function startServer(
     );
 
   let collection: Collection | null = null;
-  let program: Program = { binary: BINARY, env: {} };
+  let program: Program = { binary: BINARY, env: {}, search: true };
   let child: ChildProcess;
   try {
     if (options.search !== undefined && binDir !== null) {
-      program = { binary: join(binDir, "mailarkiv"), env: {} };
+      program = {
+        binary: join(binDir, "mailarkiv"),
+        env: {},
+        search: options.search !== "missing",
+      };
       await copyFile(BINARY, program.binary);
       if (options.search !== "missing") {
         await copyFile(FAULTS_SEARCH, join(binDir, "mailarkiv-search"));
@@ -98,9 +106,19 @@ export async function startServer(
       runAccountCommand("create", dataDir, email, password),
     setPassword: (email, password) =>
       runAccountCommand("set-password", dataDir, email, password),
-    restart: async () => {
+    restart: async ({ searchFaults } = {}) => {
       await stopProcess(child);
+      if (searchFaults !== undefined) {
+        if (program.env.MAILARKIV_SEARCH_FAULTS === undefined) {
+          throw new Error("search faults need a server started with them");
+        }
+        program.env.MAILARKIV_SEARCH_FAULTS = searchFaults;
+      }
       child = await launch(program, dataDir, port, origin, collection);
+    },
+    killSearch: async () => {
+      const pid = await searchProcess(child);
+      process.kill(pid, "SIGKILL");
     },
     stop: async () => {
       await stopProcess(child);
@@ -113,6 +131,8 @@ export async function startServer(
 interface Program {
   binary: string;
   env: Record<string, string>;
+  /** Whether a search program sits beside the binary. */
+  search: boolean;
 }
 
 /** What the server needs to collect mail. */
@@ -153,11 +173,61 @@ async function launch(
 
   try {
     await waitUntilAnswering(origin, child);
+    // Search counts as a problem until its process has started, so the
+    // problem count a test reads right after the start would depend on
+    // timing.
+    if (program.search) await waitUntilSearchStarted(() => stderr, child);
   } catch (error) {
     await stopProcess(child);
     throw new Error(`The server didn't start: ${String(error)}\n${stderr}`);
   }
   return child;
+}
+
+/**
+ * Waits for the first search state line that isn't Unavailable: Available,
+ * or Needs rebuild when the index can't be used.
+ */
+async function waitUntilSearchStarted(
+  stderr: () => string,
+  child: ChildProcess,
+): Promise<void> {
+  const deadline = Date.now() + START_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null) {
+      throw new Error(`it exited with code ${child.exitCode}`);
+    }
+    // The last element is a line still being written, or empty.
+    for (const line of stderr().split("\n").slice(0, -1)) {
+      const entry = JSON.parse(line) as { msg?: string; state?: string };
+      if (entry.msg === "search state" && entry.state !== "unavailable") {
+        return;
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+  }
+  throw new Error(`search didn't start within ${START_TIMEOUT_MS} ms`);
+}
+
+/** The server's search process, read from its children in /proc. */
+async function searchProcess(child: ChildProcess): Promise<number> {
+  const deadline = Date.now() + START_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const tasks = `/proc/${child.pid}/task`;
+    for (const task of await readdir(tasks)) {
+      const children = await readFile(`${tasks}/${task}/children`, "utf8");
+      for (const pid of children.split(" ").filter(Boolean)) {
+        const command = await readFile(`/proc/${pid}/cmdline`, "utf8").catch(
+          () => "",
+        );
+        if (command.split("\0")[0].endsWith("/mailarkiv-search")) {
+          return Number(pid);
+        }
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+  }
+  throw new Error(`no search process within ${START_TIMEOUT_MS} ms`);
 }
 
 /**

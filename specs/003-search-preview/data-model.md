@@ -231,7 +231,7 @@ New categories in `opstatus`. Each goes to the log at error level with its time,
 | `low_disk_space` | Low disk space | Free bytes |
 | `rebuild_failed` | Rebuild failed | Rebuild ID, generation ID |
 
-A failure event gains `repeats` and `last_at`. For these eight categories, a failure of the same category as the newest event, with no success of that kind in between, increments `repeats` and sets `last_at` instead of adding an event. A success is a started process, an answered call, a committed batch, a finished maintenance run, or free space at 3 GiB, depending on the category. Slice 1 and 2 categories are unchanged.
+A failure event gains `repeats` and `last_at`. For these eight categories, a failure of the same category as the newest event, with no success of that kind in between, increments `repeats` and sets `last_at` instead of adding an event. A success is a started process, an answered call, a committed batch, a finished maintenance run, or free space at 3 GiB, depending on the category: they end runs of `search_process_did_not_start`, `search_process_did_not_answer`, `index_write_failed`, `index_maintenance_failed`, and `low_disk_space` in that order. `search_process_stopped`, `index_needs_rebuild`, and `rebuild_failed` have no success, so only another category ends their runs. A process that crashes at every start then stays one event. Slice 1 and 2 categories are unchanged.
 
 The log line `processing_worker_stopped`, with the message ID and exit status, is not a failure event. Processing problems aren't system problems (spec, Assumptions).
 

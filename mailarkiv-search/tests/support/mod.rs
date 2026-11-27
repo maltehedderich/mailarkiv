@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
-use std::thread;
+use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
@@ -67,6 +67,12 @@ pub struct Search {
     stdin: Option<ChildStdin>,
     frames: Receiver<Output>,
     next_id: u64,
+    /// Every frame read so far, in order.
+    pub seen: Vec<Value>,
+    /// The log frames `call` passed over.
+    pub logs: Vec<Value>,
+    /// Reads standard error to its end, which comes when the program exits.
+    stderr: Option<JoinHandle<Vec<u8>>>,
 }
 
 impl Search {
@@ -102,29 +108,56 @@ impl Search {
             .current_dir(dir.path())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::piped())
             .spawn()
             .unwrap();
         let stdout = BufReader::new(child.stdout.take().unwrap());
         let (sender, frames) = mpsc::channel();
         thread::spawn(move || read_frames(stdout, sender));
+        let mut stderr = child.stderr.take().unwrap();
+        let stderr = thread::spawn(move || {
+            let mut text = Vec::new();
+            let _ = stderr.read_to_end(&mut text);
+            text
+        });
         Search {
             stdin: child.stdin.take(),
             child,
             frames,
             next_id: 1,
+            seen: Vec::new(),
+            logs: Vec::new(),
+            stderr: Some(stderr),
         }
     }
 
     /// The next frame, within WAIT.
     pub fn frame(&mut self) -> Value {
+        self.next_frame()
+            .unwrap_or_else(|| panic!("the search process closed its output"))
+    }
+
+    /// The next frame within WAIT, or None once the program closed its
+    /// output.
+    pub fn next_frame(&mut self) -> Option<Value> {
         match self.frames.recv_timeout(WAIT) {
-            Ok(Output::Frame(value)) => value,
-            Ok(Output::End) => panic!("the search process closed its output"),
+            Ok(Output::Frame(value)) => {
+                self.seen.push(value.clone());
+                Some(value)
+            }
+            // The reader stops after it sends End.
+            Ok(Output::End) | Err(RecvTimeoutError::Disconnected) => None,
             Ok(Output::Broken(why)) => panic!("broken frame: {why}"),
             Err(RecvTimeoutError::Timeout) => panic!("no frame within {WAIT:?}"),
-            Err(RecvTimeoutError::Disconnected) => panic!("the reader stopped"),
         }
+    }
+
+    /// Everything the program wrote on standard error. It waits for the
+    /// program to close standard error, so call it once the program has
+    /// exited.
+    pub fn stderr(&mut self) -> String {
+        let text = self.stderr.take().expect("standard error read once");
+        String::from_utf8(text.join().unwrap()).expect("standard error is UTF-8")
     }
 
     /// Writes raw bytes to standard input. A write can fail once the program
@@ -140,18 +173,32 @@ impl Search {
     }
 
     /// Sends request with the next id and returns the answer with that id.
-    pub fn call(&mut self, mut request: Value) -> Value {
+    pub fn call(&mut self, request: Value) -> Value {
+        self.try_call(request)
+            .unwrap_or_else(|| panic!("the search process closed its output"))
+    }
+
+    /// Sends request with the next id and returns the answer with that id,
+    /// or None once the program has ended. Log frames before the answer go
+    /// to `logs`.
+    pub fn try_call(&mut self, mut request: Value) -> Option<Value> {
         let id = self.next_id;
         self.next_id += 1;
         request["id"] = json!(id);
-        self.send(&request);
-        let answer = self.frame();
-        assert_eq!(
-            answer["id"],
-            json!(id),
-            "answer {answer} to request {request}"
-        );
-        answer
+        self.send_raw(&frame(&request)).ok()?;
+        loop {
+            let answer = self.next_frame()?;
+            if answer["type"] == "log" {
+                self.logs.push(answer);
+                continue;
+            }
+            assert_eq!(
+                answer["id"],
+                json!(id),
+                "answer {answer} to request {request}"
+            );
+            return Some(answer);
+        }
     }
 
     pub fn close_stdin(&mut self) {
@@ -182,6 +229,18 @@ impl Search {
 
     pub fn index(&mut self, generation: u64, documents: Vec<Value>, commit: bool) -> Value {
         self.call(json!({"op": "index", "generation": generation, "documents": documents, "commit": commit}))
+    }
+
+    pub fn maintain(&mut self, generation: u64) -> Value {
+        self.call(json!({"op": "maintain", "generation": generation}))
+    }
+
+    pub fn close(&mut self, generation: u64, delete: bool) -> Value {
+        self.call(json!({"op": "close", "generation": generation, "delete": delete}))
+    }
+
+    pub fn size(&mut self, generation: u64) -> Value {
+        self.call(json!({"op": "size", "generation": generation}))
     }
 
     /// Searches generation for words and returns the answer.

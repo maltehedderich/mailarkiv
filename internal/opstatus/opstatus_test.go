@@ -69,6 +69,10 @@ func TestCategoryNames(t *testing.T) {
 		{SearchProcessDidNotStart, "search_process_did_not_start"},
 		{SearchProcessDidNotAnswer, "search_process_did_not_answer"},
 		{IndexWriteFailed, "index_write_failed"},
+		{IndexMaintenanceFailed, "index_maintenance_failed"},
+		{IndexNeedsRebuild, "index_needs_rebuild"},
+		{LowDiskSpace, "low_disk_space"},
+		{RebuildFailed, "rebuild_failed"},
 	}
 	for _, tt := range tests {
 		if got := tt.category.String(); got != tt.want {
@@ -108,11 +112,11 @@ func TestEntitiesHoldOnlyTheAllowedFields(t *testing.T) {
 		},
 		{
 			reflect.TypeFor[FailureEvent](),
-			[]string{"At", "Category", "ContentHash", "Detail", "MessageID", "Restored", "SourceID"},
+			[]string{"At", "Category", "ContentHash", "Detail", "LastAt", "MessageID", "Repeats", "Restored", "SourceID"},
 		},
 		{
 			reflect.TypeFor[Detail](),
-			[]string{"Cause", "ExitStatus", "FirstMessageID", "GenerationID", "LastMessageID", "Operation", "Signal"},
+			[]string{"Cause", "ExitStatus", "FirstMessageID", "FreeBytes", "GenerationID", "LastMessageID", "Operation", "RebuildID", "Signal"},
 		},
 	}
 	for _, tt := range tests {
@@ -186,6 +190,115 @@ func TestFailureListHasNoCap(t *testing.T) {
 	}
 }
 
+var searchCategories = []Category{
+	SearchProcessStopped, SearchProcessDidNotStart, SearchProcessDidNotAnswer, IndexWriteFailed,
+	IndexMaintenanceFailed, IndexNeedsRebuild, LowDiskSpace, RebuildFailed,
+}
+
+// A search failure of the newest event's category, with no success of that
+// kind between, raises the event's repeats and last time. Each one still logs.
+func TestSearchFailureRepeats(t *testing.T) {
+	for _, category := range searchCategories {
+		t.Run(category.String(), func(t *testing.T) {
+			f := newFixture(t)
+			first := &Detail{Signal: pointer(9)}
+			f.status.RecordFailure(FailureEvent{Category: category, Detail: first})
+			f.now = startTime.Add(time.Minute)
+			f.status.RecordFailure(FailureEvent{Category: category, Detail: &Detail{Signal: pointer(6)}})
+			f.now = later
+			f.status.RecordFailure(FailureEvent{Category: category})
+
+			want := []FailureEvent{{At: startTime, Category: category, Detail: first, Repeats: 3, LastAt: later}}
+			if got := f.status.Snapshot().Failures; !reflect.DeepEqual(got, want) {
+				t.Errorf("listed %+v, want %+v", got, want)
+			}
+			if got := f.status.ProblemCount(); got != 3 {
+				t.Errorf("count = %d, want 3", got)
+			}
+			if got := len(f.logEntries(t)); got != 3 {
+				t.Errorf("wrote %d log lines, want 3", got)
+			}
+
+			// A success of that kind ends the run.
+			f.status.RecordSuccess(category)
+			f.status.RecordFailure(FailureEvent{Category: category})
+			failures := f.status.Snapshot().Failures
+			if len(failures) != 2 || failures[1].Repeats != 1 || !failures[1].LastAt.Equal(later) {
+				t.Errorf("after a success listed %+v, want a second event with 1 repeat", failures)
+			}
+			if got := f.status.ProblemCount(); got != 4 {
+				t.Errorf("count after a success = %d, want 4", got)
+			}
+		})
+	}
+}
+
+// Only the newest event takes repeats, and only a success of its own kind
+// ends its run.
+func TestRepeatsFollowTheNewestEvent(t *testing.T) {
+	f := newFixture(t)
+	f.status.RecordFailure(FailureEvent{Category: SearchProcessStopped})
+	f.status.RecordFailure(FailureEvent{Category: SearchProcessDidNotStart})
+	f.status.RecordFailure(FailureEvent{Category: SearchProcessStopped})
+	f.status.RecordSuccess(LowDiskSpace)
+	f.status.RecordSuccess(SearchProcessDidNotStart)
+	f.status.RecordFailure(FailureEvent{Category: SearchProcessStopped})
+
+	var got []string
+	for _, event := range f.status.Snapshot().Failures {
+		got = append(got, fmt.Sprintf("%s×%d", event.Category, event.Repeats))
+	}
+	want := []string{"search_process_stopped×1", "search_process_did_not_start×1", "search_process_stopped×2"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("listed %v, want %v", got, want)
+	}
+	if got := f.status.ProblemCount(); got != 4 {
+		t.Errorf("count = %d, want 4", got)
+	}
+}
+
+// The Slice 1 and 2 categories list every event on its own.
+func TestEarlierCategoriesNeverRepeat(t *testing.T) {
+	for _, category := range []Category{
+		StorageFull, StorageWriteFailed, CatalogWriteFailed, StoredOriginalMissing,
+		StoredOriginalDamaged, TempFileNotRemoved, MessageTooLarge, MessageRemoved,
+	} {
+		t.Run(category.String(), func(t *testing.T) {
+			f := newFixture(t)
+			f.status.RecordFailure(FailureEvent{Category: category})
+			f.now = later
+			f.status.RecordFailure(FailureEvent{Category: category})
+
+			want := []FailureEvent{
+				{At: startTime, Category: category, Repeats: 1, LastAt: startTime},
+				{At: later, Category: category, Repeats: 1, LastAt: later},
+			}
+			if got := f.status.Snapshot().Failures; !reflect.DeepEqual(got, want) {
+				t.Errorf("listed %+v, want %+v", got, want)
+			}
+		})
+	}
+}
+
+// The count adds every repeat to the unreferenced originals.
+func TestProblemCountAddsRepeats(t *testing.T) {
+	f := newFixture(t)
+	for range 3 {
+		f.status.RecordFailure(FailureEvent{Category: SearchProcessDidNotStart})
+	}
+	f.status.RecordFailure(FailureEvent{Category: StorageFull})
+	f.status.RecordFailure(FailureEvent{Category: StorageFull})
+	f.status.RecordFailure(FailureEvent{Category: LowDiskSpace})
+	f.status.AddUnreferenced(UnreferencedOriginal{ContentHash: "aa", Size: 1})
+
+	if got := len(f.status.Snapshot().Failures); got != 4 {
+		t.Errorf("listed %d events, want 4", got)
+	}
+	if got := f.status.ProblemCount(); got != 7 {
+		t.Errorf("count = %d, want 7", got)
+	}
+}
+
 func TestFailureIsListedAndLogged(t *testing.T) {
 	hash := strings.Repeat("ab", 32)
 
@@ -245,7 +358,7 @@ func TestFailureIsListedAndLogged(t *testing.T) {
 				t.Fatalf("listed %d failures, want 1", len(failures))
 			}
 			listed := tt.event
-			listed.At = later
+			listed.At, listed.Repeats, listed.LastAt = later, 1, later
 			if !reflect.DeepEqual(failures[0], listed) {
 				t.Errorf("listed %+v, want %+v", failures[0], listed)
 			}
@@ -312,6 +425,26 @@ func TestSearchFailureIsListedAndLogged(t *testing.T) {
 				"first_message_id": float64(17), "last_message_id": float64(40), "cause": "permission_denied",
 			},
 		},
+		{
+			name:    "index maintenance failed",
+			event:   FailureEvent{Category: IndexMaintenanceFailed, Detail: &Detail{GenerationID: pointer(int64(3))}},
+			wantLog: map[string]any{"category": "index_maintenance_failed", "generation_id": float64(3)},
+		},
+		{
+			name:    "index needs rebuild",
+			event:   FailureEvent{Category: IndexNeedsRebuild, Detail: &Detail{Cause: CauseIndexDamaged}},
+			wantLog: map[string]any{"category": "index_needs_rebuild", "cause": "index_damaged"},
+		},
+		{
+			name:    "low disk space",
+			event:   FailureEvent{Category: LowDiskSpace, Detail: &Detail{FreeBytes: pointer(int64(1 << 30))}},
+			wantLog: map[string]any{"category": "low_disk_space", "free_bytes": float64(1 << 30)},
+		},
+		{
+			name:    "rebuild failed",
+			event:   FailureEvent{Category: RebuildFailed, Detail: &Detail{RebuildID: pointer(int64(4)), GenerationID: pointer(int64(5))}},
+			wantLog: map[string]any{"category": "rebuild_failed", "rebuild_id": float64(4), "generation_id": float64(5)},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -322,7 +455,7 @@ func TestSearchFailureIsListedAndLogged(t *testing.T) {
 				t.Errorf("count = %d, want 1", got)
 			}
 			listed := tt.event
-			listed.At = startTime
+			listed.At, listed.Repeats, listed.LastAt = startTime, 1, startTime
 			if failures := f.status.Snapshot().Failures; len(failures) != 1 || !reflect.DeepEqual(failures[0], listed) {
 				t.Errorf("listed %+v, want %+v", failures, listed)
 			}
@@ -364,6 +497,9 @@ func TestDetailWords(t *testing.T) {
 		{CauseNoSpace, "no_space"},
 		{CausePermissionDenied, "permission_denied"},
 		{CauseOther, "other"},
+		{CauseSearchProcessStopped, "search_process_stopped"},
+		{CauseIndexMaintenanceFailed, "index_maintenance_failed"},
+		{CauseIndexDamaged, "index_damaged"},
 		{OperationOpen, "open"},
 		{OperationIndex, "index"},
 		{OperationSearch, "search"},

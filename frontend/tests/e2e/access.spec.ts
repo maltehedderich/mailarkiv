@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type Response } from "@playwright/test";
 
 import { startServer, type TestServer } from "./support/server";
 
@@ -14,6 +14,29 @@ const NEW_PASSWORD = "a different horse battery";
 const ENDED = "Your session ended. Sign in again to continue.";
 const CONTENT = Buffer.from(
   "From: sender@example.test\r\nTo: admin@example.test\r\nSubject: Synthetic\r\n\r\nHello.\r\n",
+);
+const FRAMED_MARKER = "framedmarkerk2v8";
+/** An HTML body and, as part 2, an HTML attachment, both with the marker. */
+const FRAMED = Buffer.from(
+  [
+    "From: sender@example.test",
+    "To: admin@example.test",
+    "Subject: Framed",
+    "MIME-Version: 1.0",
+    'Content-Type: multipart/mixed; boundary="mix"',
+    "",
+    "--mix",
+    "Content-Type: text/html; charset=utf-8",
+    "",
+    `<p>${FRAMED_MARKER}</p>`,
+    "--mix",
+    "Content-Type: text/html; charset=utf-8",
+    'Content-Disposition: attachment; filename="page.html"',
+    "",
+    `<h1>${FRAMED_MARKER}</h1>`,
+    "--mix--",
+    "",
+  ].join("\r\n"),
 );
 
 let server: TestServer;
@@ -122,6 +145,76 @@ test("another site can't show MailArkiv in a frame", async ({ page }) => {
   }
 });
 
+// A signed-in administrator visits another site that frames a message's
+// preview and its HTML attachment. The browser refuses both frames, so
+// neither shows anything from the message and nothing downloads.
+test("another site can't show a preview or an attachment in a frame", async ({
+  page,
+}) => {
+  await server.createAccount(EMAIL, PASSWORD);
+  await signInFromStart(page);
+  const imported = await page.request.post(`${server.origin}/api/imports`, {
+    headers: { "MailArkiv-File-Name": "framed.eml" },
+    data: FRAMED,
+  });
+  expect(imported.status()).toBe(201);
+  const { message } = (await imported.json()) as { message: { id: number } };
+  const preview = `${server.origin}/api/messages/${message.id}/html`;
+  const attachment = `${server.origin}/api/messages/${message.id}/attachments/2`;
+  // This site's own requests get the message, so a frame that showed it
+  // would show the marker.
+  for (const url of [preview, attachment]) {
+    await expect
+      .poll(async () => (await page.request.get(url)).text())
+      .toContain(FRAMED_MARKER);
+  }
+
+  const other = await serveFramingPage(preview, attachment);
+  try {
+    const answers: Response[] = [];
+    const refusals: string[] = [];
+    let downloads = 0;
+    page.on("response", (response) => {
+      if (response.url().startsWith(server.origin)) answers.push(response);
+    });
+    page.on("requestfailed", (request) => {
+      if (request.url().startsWith(server.origin)) {
+        refusals.push(request.failure()?.errorText ?? "");
+      }
+    });
+    page.on("download", () => downloads++);
+
+    await page.goto(other.origin);
+
+    // Chromium shows its own error page in each frame.
+    await expect
+      .poll(() => page.frames().map((frame) => frame.url()))
+      .toEqual([
+        `${other.origin}/`,
+        "chrome-error://chromewebdata/",
+        "chrome-error://chromewebdata/",
+      ]);
+    expect(refusals).toEqual([
+      "net::ERR_BLOCKED_BY_RESPONSE",
+      "net::ERR_BLOCKED_BY_RESPONSE",
+    ]);
+    // MailArkiv answered each request, so the browser's refusal is what kept
+    // the frames empty.
+    expect(answers.length).toBeGreaterThanOrEqual(2);
+    for (const answer of answers) {
+      expect(answer.headers()["content-security-policy"]).toMatch(
+        /frame-ancestors '(none|self)'/,
+      );
+    }
+    for (const frame of page.frames()) {
+      expect(await frame.content()).not.toContain(FRAMED_MARKER);
+    }
+    expect(downloads).toBe(0);
+  } finally {
+    await other.close();
+  }
+});
+
 // DESIGN.md, Sign-in: while the request runs, the button says so and keeps
 // focus, and a second press doesn't send the form again.
 test("sign-in shows that it's working and sends the form once", async ({
@@ -156,15 +249,19 @@ test("sign-in shows that it's working and sends the form once", async ({
   expect(posts).toBe(1);
 });
 
-/** Serves a page on another origin that frames `url`. */
+/** Serves a page on another origin that frames each of `urls`. */
 async function serveFramingPage(
-  url: string,
+  ...urls: string[]
 ): Promise<{ origin: string; close(): Promise<void> }> {
+  const frames = urls
+    .map(
+      (url, index) =>
+        `<iframe title="Framed ${index + 1}" src="${url}"></iframe>`,
+    )
+    .join("");
   const framer = createServer((_request, response) => {
     response.writeHead(200, { "Content-Type": "text/html" });
-    response.end(
-      `<!doctype html><title>Another site</title><iframe title="Framed" src="${url}"></iframe>`,
-    );
+    response.end(`<!doctype html><title>Another site</title>${frames}`);
   });
   await new Promise<void>((resolve) =>
     framer.listen(0, "127.0.0.1", () => resolve()),

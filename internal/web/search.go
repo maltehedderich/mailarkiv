@@ -125,7 +125,42 @@ func searchMessages(s *server, w http.ResponseWriter, r *http.Request) {
 		NotIncluded     int           `json:"not_included"`
 		FullList        bool          `json:"full_list"`
 		MayBeIncomplete bool          `json:"may_be_incomplete"`
-	}{items, query.Page, archive.PageSize, result.Total, result.NotIncluded, result.FullList, false})
+	}{items, query.Page, archive.PageSize, result.Total, result.NotIncluded, result.FullList, result.MayBeIncomplete})
+}
+
+type rebuildJSON struct {
+	ID        int64  `json:"id"`
+	StartedAt string `json:"started_at"`
+	StartedBy string `json:"started_by"`
+}
+
+// startRebuild answers POST /api/search/rebuild, which has no body.
+func startRebuild(s *server, w http.ResponseWriter, r *http.Request) {
+	rebuild, err := s.search.StartRebuild(r.Context(), signedInSession(r).Account.ID)
+	if space, ok := errors.AsType[*search.NotEnoughSpaceError](err); ok {
+		writeJSON(w, http.StatusConflict, struct {
+			Error       string `json:"error"`
+			NeededBytes int64  `json:"needed_bytes"`
+			FreeBytes   int64  `json:"free_bytes"`
+		}{"not_enough_space", space.Needed, space.Free})
+		return
+	}
+	if _, ok := errors.AsType[*search.UnavailableError](err); ok {
+		writeError(w, http.StatusServiceUnavailable, "search_unavailable")
+		return
+	}
+	switch {
+	case errors.Is(err, search.ErrRebuildRunning):
+		writeError(w, http.StatusConflict, "rebuild_running")
+	case errors.Is(err, search.ErrNoIndex):
+		writeError(w, http.StatusConflict, "no_index")
+	case err != nil:
+		s.writeInternalError(w, r, err)
+	default:
+		writeJSON(w, http.StatusAccepted, struct {
+			Rebuild rebuildJSON `json:"rebuild"`
+		}{rebuildJSON{rebuild.ID, formatTime(rebuild.StartedAt), rebuild.StartedBy}})
+	}
 }
 
 // strictDecode decodes a field that must be present and of type T. The JSON

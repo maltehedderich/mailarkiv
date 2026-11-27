@@ -27,12 +27,29 @@ pub enum Request {
         commit: bool,
     },
     Search(Search),
+    Maintain {
+        id: u64,
+        generation: u64,
+    },
+    Close {
+        id: u64,
+        generation: u64,
+        delete: bool,
+    },
+    Size {
+        id: u64,
+        generation: u64,
+    },
 }
 
 impl Request {
     pub fn id(&self) -> u64 {
         match self {
-            Request::Open { id, .. } | Request::Index { id, .. } => *id,
+            Request::Open { id, .. }
+            | Request::Index { id, .. }
+            | Request::Maintain { id, .. }
+            | Request::Close { id, .. }
+            | Request::Size { id, .. } => *id,
             Request::Search(search) => search.id,
         }
     }
@@ -40,7 +57,10 @@ impl Request {
     /// Whether the request keeps the rules a request's frame must keep.
     pub fn is_valid(&self) -> bool {
         let rules = match self {
-            Request::Open { .. } => true,
+            Request::Open { .. }
+            | Request::Maintain { .. }
+            | Request::Close { .. }
+            | Request::Size { .. } => true,
             Request::Index { documents, .. } => documents.len() <= MAX_DOCUMENTS,
             Request::Search(search) => {
                 search.limit > 0 && search.offset.saturating_add(search.limit) <= MAX_RESULTS
@@ -114,6 +134,37 @@ pub struct Hello {
     pub schema_version: u32,
 }
 
+/// A frame after the hello: an answer, or a log frame no request asked for.
+#[derive(Serialize)]
+#[serde(untagged)]
+pub enum Outgoing {
+    Answer(Answer),
+    Log(Log),
+}
+
+impl From<Answer> for Outgoing {
+    fn from(answer: Answer) -> Outgoing {
+        Outgoing::Answer(answer)
+    }
+}
+
+/// A warning or error from a library, without its text, which can quote
+/// mail.
+#[derive(Serialize, Debug, PartialEq, Eq)]
+pub struct Log {
+    #[serde(rename = "type")]
+    pub kind: &'static str,
+    pub level: LogLevel,
+    pub target: String,
+}
+
+#[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LogLevel {
+    Warn,
+    Error,
+}
+
 /// The answer to one request: `ok`, or `error` with an optional `cause`.
 #[derive(Serialize)]
 pub struct Answer {
@@ -129,10 +180,26 @@ pub struct Answer {
 #[derive(Serialize)]
 #[serde(untagged)]
 pub enum Done {
-    Opened {},
-    Indexed { committed: bool },
-    Found { total: u64, ids: Vec<u64> },
-    NoTerms { no_terms: bool },
+    /// The answer to `open` and `close`.
+    Empty {},
+    Indexed {
+        committed: bool,
+    },
+    Found {
+        total: u64,
+        ids: Vec<u64>,
+    },
+    NoTerms {
+        no_terms: bool,
+    },
+    /// How many merges a maintenance run started, and how many of them failed.
+    Maintained {
+        merges: u64,
+        failed: u64,
+    },
+    Sized {
+        bytes: u64,
+    },
 }
 
 #[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -144,6 +211,7 @@ pub enum ErrorCode {
     WriteFailed,
     UnknownGeneration,
     TimedOut,
+    GcFailed,
 }
 
 /// Why a write failed.

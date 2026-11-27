@@ -9,6 +9,8 @@ pub enum Point {
     AfterCommit,
     /// After the query is built, before collection.
     DuringSearch,
+    /// Inside a maintenance run, before the first merge.
+    DuringMerge,
     /// Before an index opens.
     OnOpen,
 }
@@ -42,6 +44,8 @@ mod enabled {
         Fail,
         /// Blocks for good, so the server's time limit fires.
         Hang,
+        /// Panics, which aborts the process after the panic line.
+        Panic,
     }
 
     static FAULTS: OnceLock<Vec<(Point, Action)>> = OnceLock::new();
@@ -65,6 +69,7 @@ mod enabled {
             let point = match point {
                 "after-commit" => Point::AfterCommit,
                 "during-search" => Point::DuringSearch,
+                "during-merge" => Point::DuringMerge,
                 "on-open" => Point::OnOpen,
                 _ => return Err(()),
             };
@@ -72,6 +77,7 @@ mod enabled {
                 "exit" => Action::Exit,
                 "fail" => Action::Fail,
                 "hang" => Action::Hang,
+                "panic" => Action::Panic,
                 _ => return Err(()),
             };
             if faults.iter().any(|&(known, _)| known == point) {
@@ -96,6 +102,7 @@ mod enabled {
             Some(Action::Hang) => loop {
                 std::thread::park();
             },
+            Some(Action::Panic) => panic!("fault at {point:?}"),
         }
     }
 }

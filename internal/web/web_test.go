@@ -86,6 +86,8 @@ type harness struct {
 	search    *search.Module
 	// stopProcessing stops processing early, when a search program runs.
 	stopProcessing func()
+	// startSearch starts the search module when the options held it.
+	startSearch func()
 	// markers holds a file for each hung view worker that holds a request.
 	markers string
 }
@@ -107,6 +109,11 @@ type harnessOptions struct {
 	// module then run until the test ends. Otherwise the search module never
 	// starts, so searches answer 503.
 	search string
+	// freeSpace, if set, replaces the search module's free space reader.
+	freeSpace func(path string) (int64, error)
+	// holdSearch leaves the search module for the test to start with
+	// h.startSearch. Processing still starts.
+	holdSearch bool
 	// views, if set, starts the interactive workers in this mode of the test
 	// binary: 1 for real workers, hang, or cut. Otherwise the view routes
 	// have no viewer and mustn't be called.
@@ -126,7 +133,7 @@ func newHarnessWith(t *testing.T, routes []Route, options harnessOptions) *harne
 	h := &harness{log: &lockedBuffer{}}
 	deps := h.deps(t)
 	deps.Collect = h.openCollector(t, options)
-	deps.Search = h.openSearch(t, options.search)
+	deps.Search = h.openSearch(t, options)
 	deps.Processing = h.openViewer(t, options)
 	handler := newHandler(deps, routes)
 	if options.checkLimit > 0 {
@@ -180,15 +187,16 @@ func (h *harness) openCollector(t *testing.T, options harnessOptions) *collect.C
 
 // openSearch builds the search module. With a program, it runs processing
 // with test-binary workers and the search module until the test ends.
-func (h *harness) openSearch(t *testing.T, program string) *search.Module {
+func (h *harness) openSearch(t *testing.T, options harnessOptions) *search.Module {
 	t.Helper()
+	program := options.search
 	logger := slog.New(slog.NewJSONHandler(h.log, nil))
 	if err := search.Prepare(context.Background(), h.dataDir, h.db); err != nil {
 		t.Fatal(err)
 	}
 	config := search.Config{
 		DataDir: h.dataDir, Program: program, DB: h.db, Archive: h.archive,
-		Status: h.status, Logger: logger, Now: h.clock.Now,
+		Status: h.status, Logger: logger, Now: h.clock.Now, FreeSpace: options.freeSpace,
 	}
 	if program != "" {
 		pool, err := processing.NewPool(processing.BackgroundWorkers, processing.MessageLimit, testWorkerCommand, logger)
@@ -201,7 +209,10 @@ func (h *harness) openSearch(t *testing.T, program string) *search.Module {
 	h.search = search.New(config)
 	if program != "" {
 		h.stopProcessing = background(t, config.Processor.Run)
-		background(t, h.search.Run)
+		h.startSearch = func() { background(t, h.search.Run) }
+		if !options.holdSearch {
+			h.startSearch()
+		}
 	}
 	return h.search
 }

@@ -268,7 +268,8 @@ Adds `processing` and `search`, and new fields on failure events:
 | `needs_rebuild` | Null, or `{ "cause": "search_process_stopped" \| "index_maintenance_failed" \| "index_damaged", "since": "…" }` |
 | `restarts` | Starts of the search process after the first, since the server started (FR-045) |
 | `indexing.waiting` | Processed messages the active index, or the building one when none is active, hasn't saved |
-| `indexing.done`, `to_do` | Set while Building or Rebuilding: the building generation's cursor and the highest `processed_seq` |
+| `indexing.done`, `to_do` | Set while a generation builds, for the first build or a rebuild, also while indexing is Paused or Stopped: the building generation's cursor and the highest `processed_seq`. Null otherwise |
+| `indexing.free_bytes` | The latest free space reading where the index lives, taken while indexing runs. Null before the first reading |
 | `rebuild` | The running rebuild, or null |
 | `repeats`, `last_at` | On every event. `repeats` is 1 and `last_at` equals `at` for events that never repeat |
 | `detail` | Only on the new categories. Keys per category, from the [data model](../data-model.md#failure-categories): `exit_status`, `signal`, `cause`, `operation`, `generation_id`, `rebuild_id`, `first_message_id`, `last_message_id`, `free_bytes` |

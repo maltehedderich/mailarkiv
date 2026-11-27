@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 
+	"github.com/maltehedderich/mailarkiv/internal/opstatus"
 	"github.com/maltehedderich/mailarkiv/internal/sqlitedb"
 )
 
@@ -27,6 +28,8 @@ type generation struct {
 	id     int64
 	role   string
 	cursor int64
+	// rebuildID is set for a rebuild's generation.
+	rebuildID *int64
 }
 
 // Prepare creates DataDir/index with mode 0700 and removes everything in it
@@ -95,22 +98,57 @@ func (m *Module) loadGenerations(ctx context.Context) ([]generation, error) {
 }
 
 // replaceGenerations deletes every row and inserts a building one, for an
-// active index that is gone. Prepare removes the old directories at the next
-// start.
+// index whose directory is gone. A running rebuild ends as failed. Prepare
+// removes the old directories at the next start.
 func (m *Module) replaceGenerations(ctx context.Context) (generation, error) {
 	var created generation
+	var ended []int64
 	err := sqlitedb.InTx(ctx, m.config.DB.Writer, func(tx *sql.Tx) error {
+		var err error
+		if ended, err = runningRebuilds(ctx, tx); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx,
+			"UPDATE search_rebuild SET ended_at = ?, outcome = 'failed' WHERE outcome IS NULL",
+			m.config.Now().UnixMilli()); err != nil {
+			return err
+		}
 		if _, err := tx.ExecContext(ctx, "DELETE FROM search_generation"); err != nil {
 			return err
 		}
-		var err error
 		created, err = m.insertBuilding(ctx, tx)
 		return err
 	})
 	if err != nil {
 		return generation{}, fmt.Errorf("start a new index: %w", err)
 	}
+	for _, id := range ended {
+		m.config.Status.RecordFailure(opstatus.FailureEvent{
+			Category: opstatus.RebuildFailed,
+			Detail:   &opstatus.Detail{RebuildID: &id},
+		})
+	}
+	if len(ended) > 0 {
+		m.endRebuild()
+	}
 	return created, nil
+}
+
+func runningRebuilds(ctx context.Context, tx *sql.Tx) ([]int64, error) {
+	rows, err := tx.QueryContext(ctx, "SELECT id FROM search_rebuild WHERE outcome IS NULL")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 func (m *Module) insertBuilding(ctx context.Context, tx *sql.Tx) (generation, error) {
@@ -125,7 +163,7 @@ func (m *Module) insertBuilding(ctx context.Context, tx *sql.Tx) (generation, er
 }
 
 func readGenerations(ctx context.Context, tx *sql.Tx) ([]generation, error) {
-	rows, err := tx.QueryContext(ctx, "SELECT id, role, cursor FROM search_generation ORDER BY id")
+	rows, err := tx.QueryContext(ctx, "SELECT id, role, cursor, rebuild_id FROM search_generation ORDER BY id")
 	if err != nil {
 		return nil, err
 	}
@@ -133,8 +171,12 @@ func readGenerations(ctx context.Context, tx *sql.Tx) ([]generation, error) {
 	var generations []generation
 	for rows.Next() {
 		var g generation
-		if err := rows.Scan(&g.id, &g.role, &g.cursor); err != nil {
+		var rebuildID sql.NullInt64
+		if err := rows.Scan(&g.id, &g.role, &g.cursor, &rebuildID); err != nil {
 			return nil, err
+		}
+		if rebuildID.Valid {
+			g.rebuildID = &rebuildID.Int64
 		}
 		generations = append(generations, g)
 	}
@@ -148,24 +190,6 @@ func (m *Module) saveCursor(ctx context.Context, g *generation, cursor int64) er
 		return fmt.Errorf("save the index cursor: %w", err)
 	}
 	g.cursor = cursor
-	return nil
-}
-
-// activate makes the building generation g the active one. The old active
-// index stays open until the search process exits, and Prepare removes its
-// directory at the next start.
-func (m *Module) activate(ctx context.Context, g *generation) error {
-	err := sqlitedb.InTx(ctx, m.config.DB.Writer, func(tx *sql.Tx) error {
-		if _, err := tx.ExecContext(ctx, "DELETE FROM search_generation WHERE role = ?", roleActive); err != nil {
-			return err
-		}
-		_, err := tx.ExecContext(ctx, "UPDATE search_generation SET role = ? WHERE id = ?", roleActive, g.id)
-		return err
-	})
-	if err != nil {
-		return fmt.Errorf("activate the new index: %w", err)
-	}
-	g.role = roleActive
 	return nil
 }
 

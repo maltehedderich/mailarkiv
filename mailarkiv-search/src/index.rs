@@ -6,6 +6,7 @@ use std::io::{self, Write as _};
 use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 
 use tantivy::directory::error::{LockError, OpenDirectoryError, OpenWriteError};
@@ -18,7 +19,8 @@ use tantivy::{
 use crate::analysis;
 use crate::directory::RecordingDirectory;
 use crate::faults::{self, Point};
-use crate::protocol::{Address, Answer, Cause, Document, Done, ErrorCode, Failure};
+use crate::maintain::{self, Merged};
+use crate::protocol::{Address, Answer, Cause, Document, Done, ErrorCode, Failure, Outgoing};
 use crate::schema::{self, Fields, SCHEMA_VERSION};
 
 /// The writer's memory budget, shared by its indexing threads.
@@ -33,25 +35,93 @@ const SCHEMA_VERSION_FILE: &str = "schema_version";
 pub struct OpenIndex {
     pub reader: IndexReader,
     pub fields: Fields,
-    writes: Sender<Write>,
+    jobs: Sender<Job>,
+    searches: Searches,
 }
 
-/// One `index` request, for the writer thread.
-struct Write {
-    id: u64,
-    documents: Vec<Document>,
-    commit: bool,
+/// Work for an index's writer thread, which owns its `IndexWriter`.
+pub enum Job {
+    Write {
+        id: u64,
+        documents: Vec<Document>,
+        commit: bool,
+    },
+    /// Starts a maintenance run. `writer` is this thread's own queue, for the
+    /// maintenance thread to send the run back once its merges end.
+    Maintain { id: u64, writer: Sender<Job> },
+    /// A run's merges ended. The writer collects garbage and answers.
+    CollectGarbage(Merged),
+    /// Stops the writer. Later jobs answer `unknown_generation`.
+    Close { done: Sender<()> },
+}
+
+/// Counts the searches sent to an index that haven't answered yet, so
+/// closing it can wait for them.
+#[derive(Default)]
+struct Searches {
+    count: Mutex<usize>,
+    idle: Condvar,
+}
+
+/// A search in progress on an index. Dropping it, after its answer is sent,
+/// ends it.
+pub struct Searching(Arc<OpenIndex>);
+
+impl Searching {
+    pub fn index(&self) -> &OpenIndex {
+        &self.0
+    }
+}
+
+impl Drop for Searching {
+    fn drop(&mut self) {
+        let searches = &self.0.searches;
+        let mut count = searches.count.lock().unwrap();
+        *count -= 1;
+        if *count == 0 {
+            searches.idle.notify_all();
+        }
+    }
 }
 
 impl OpenIndex {
     /// Queues documents for the writer thread, which answers on its own.
     pub fn write(&self, id: u64, documents: Vec<Document>, commit: bool) {
-        // The writer thread only stops when the process does.
-        let _ = self.writes.send(Write {
+        // The writer thread only stops once every sender is gone.
+        let _ = self.jobs.send(Job::Write {
             id,
             documents,
             commit,
         });
+    }
+
+    /// Queues a maintenance run for the writer thread, which answers once
+    /// its merges and garbage collection are done.
+    pub fn maintain(&self, id: u64) {
+        let _ = self.jobs.send(Job::Maintain {
+            id,
+            writer: self.jobs.clone(),
+        });
+    }
+
+    /// Counts a search as in progress until the returned value is dropped.
+    pub fn start_search(self: &Arc<Self>) -> Searching {
+        *self.searches.count.lock().unwrap() += 1;
+        Searching(Arc::clone(self))
+    }
+
+    /// Waits for the searches in progress, then stops the writer. Indexing
+    /// requests queued before this are answered first.
+    pub fn close(&self) {
+        let mut count = self.searches.count.lock().unwrap();
+        while *count > 0 {
+            count = self.searches.idle.wait(count).unwrap();
+        }
+        drop(count);
+        let (done, closed) = mpsc::channel();
+        if self.jobs.send(Job::Close { done }).is_ok() {
+            let _ = closed.recv();
+        }
     }
 }
 
@@ -61,8 +131,14 @@ fn directory(generation: u64) -> PathBuf {
 }
 
 /// Opens `index/<generation>/`, or creates it when create is true, and
-/// starts its writer thread, which sends its answers to answers.
-pub fn open(generation: u64, create: bool, answers: Sender<Answer>) -> Result<OpenIndex, Failure> {
+/// starts its writer thread, which sends its answers to answers and its
+/// maintenance runs to maintenance.
+pub fn open(
+    generation: u64,
+    create: bool,
+    answers: Sender<Outgoing>,
+    maintenance: Sender<maintain::Run>,
+) -> Result<OpenIndex, Failure> {
     if faults::at(Point::OnOpen) {
         return Err(Failure::code(ErrorCode::IndexDamaged));
     }
@@ -91,16 +167,47 @@ pub fn open(generation: u64, create: bool, answers: Sender<Answer>) -> Result<Op
         fields,
         reader: IndexReader::clone(&reader),
         writer: Some(writer),
+        closed: false,
     };
     thread::Builder::new()
         .name(format!("writer-{generation}"))
-        .spawn(move || thread.run(jobs, answers))
+        .spawn(move || thread.run(jobs, &answers, &maintenance))
         .map_err(|_| Failure::write_failed(Cause::Other))?;
     Ok(OpenIndex {
         reader,
         fields,
-        writes,
+        jobs: writes,
+        searches: Searches::default(),
     })
+}
+
+/// The sum of the sizes of the files in `index/<generation>/`.
+pub fn size(generation: u64) -> Result<u64, Failure> {
+    let unreadable = |err: io::Error| match err.kind() {
+        io::ErrorKind::NotFound => Failure::code(ErrorCode::IndexMissing),
+        _ => Failure::code(ErrorCode::IndexDamaged),
+    };
+    let mut bytes = 0;
+    for entry in fs::read_dir(directory(generation)).map_err(unreadable)? {
+        match entry.and_then(|entry| entry.metadata()) {
+            Ok(metadata) if metadata.is_file() => bytes += metadata.len(),
+            Ok(_) => {}
+            // A merge or garbage collection can remove a file meanwhile.
+            Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+            Err(err) => return Err(unreadable(err)),
+        }
+    }
+    Ok(bytes)
+}
+
+/// Removes `index/<generation>/`. One that is already gone counts as removed.
+pub fn remove(generation: u64) -> Result<(), Failure> {
+    match fs::remove_dir_all(directory(generation)) {
+        Err(err) if err.kind() != io::ErrorKind::NotFound => {
+            Err(Failure::write_failed(io_cause(&err)))
+        }
+        _ => Ok(()),
+    }
 }
 
 fn open_existing(dir: &Path) -> Result<(Index, RecordingDirectory), Failure> {
@@ -157,38 +264,70 @@ struct Writer {
     directory: RecordingDirectory,
     fields: Fields,
     reader: IndexReader,
-    /// None after a failure the writer couldn't roll back from. The next
-    /// request makes a new one.
+    /// None after a failure the writer couldn't roll back from, or after a
+    /// close. The next request makes a new one, unless the index is closed.
     writer: Option<IndexWriter>,
+    closed: bool,
 }
 
 impl Writer {
-    fn run(&mut self, jobs: Receiver<Write>, answers: Sender<Answer>) {
+    fn run(
+        &mut self,
+        jobs: Receiver<Job>,
+        answers: &Sender<Outgoing>,
+        maintenance: &Sender<maintain::Run>,
+    ) {
+        // The loop ends once the index and every maintenance run holding
+        // this queue are gone.
         for job in jobs {
-            let answer = match self.write(&job.documents, job.commit) {
-                Ok(()) => Answer::ok(
-                    job.id,
-                    Done::Indexed {
-                        committed: job.commit,
-                    },
-                ),
-                Err(cause) => Answer::failed(job.id, Failure::write_failed(cause)),
+            let answer = match job {
+                Job::Write { id, .. } | Job::Maintain { id, .. } if self.closed => {
+                    Some(Answer::error(id, ErrorCode::UnknownGeneration))
+                }
+                Job::Write {
+                    id,
+                    documents,
+                    commit,
+                } => Some(match self.write(&documents, commit) {
+                    Ok(()) => Answer::ok(id, Done::Indexed { committed: commit }),
+                    Err(cause) => Answer::failed(id, Failure::write_failed(cause)),
+                }),
+                Job::Maintain { id, writer } => self.maintain(id, writer, maintenance),
+                Job::CollectGarbage(merged) => Some(self.collect_garbage(merged)),
+                Job::Close { done } => {
+                    self.closed = true;
+                    // Waiting for running merges means none writes into a
+                    // directory that close then removes.
+                    if let Some(writer) = self.writer.take() {
+                        let _ = writer.wait_merging_threads();
+                    }
+                    let _ = done.send(());
+                    None
+                }
             };
-            if answers.send(answer).is_err() {
+            if let Some(answer) = answer
+                && answers.send(answer.into()).is_err()
+            {
                 return;
             }
         }
     }
 
+    /// The writer, made again after a failure took it.
+    fn writer(&mut self) -> tantivy::Result<&mut IndexWriter> {
+        if self.writer.is_none() {
+            self.writer = Some(new_writer(&self.index)?);
+        }
+        Ok(self.writer.as_mut().expect("set above"))
+    }
+
     fn write(&mut self, documents: &[Document], commit: bool) -> Result<(), Cause> {
         // A failure from an earlier request isn't this one's cause.
         self.directory.take_failure();
-        if self.writer.is_none() {
-            let writer =
-                new_writer(&self.index).map_err(|err| cause_of(&err, Some(&self.directory)))?;
-            self.writer = Some(writer);
+        if let Err(err) = self.writer() {
+            return Err(cause_of(&err, Some(&self.directory)));
         }
-        let writer = self.writer.as_mut().expect("set above");
+        let writer = self.writer.as_mut().expect("made above");
         let result = add(writer, &self.fields, documents).and_then(|()| {
             if commit {
                 writer.commit()?;
@@ -210,6 +349,49 @@ impl Writer {
             return Err(cause);
         }
         Ok(())
+    }
+
+    /// Starts the run's merges and hands them to the maintenance thread, or
+    /// answers at once when the run can't start.
+    fn maintain(
+        &mut self,
+        id: u64,
+        queue: Sender<Job>,
+        maintenance: &Sender<maintain::Run>,
+    ) -> Option<Answer> {
+        let failed = Some(maintain::answer(id, 1, 1));
+        if faults::at(Point::DuringMerge) {
+            return failed;
+        }
+        let index = self.index.clone();
+        let Ok(writer) = self.writer() else {
+            return failed;
+        };
+        let Ok(merges) = maintain::start(&index, writer) else {
+            return failed;
+        };
+        let count = merges.len() as u64;
+        match maintenance.send(maintain::Run::new(id, merges, queue)) {
+            Ok(()) => None,
+            Err(_) => Some(maintain::answer(id, count, count)),
+        }
+    }
+
+    fn collect_garbage(&mut self, merged: Merged) -> Answer {
+        let done = maintain::answer(merged.id, merged.merges, merged.failed);
+        // A closed index's directory is removed or left as it is.
+        if self.closed {
+            return done;
+        }
+        let collected = self
+            .writer()
+            .and_then(|writer| writer.garbage_collect_files().wait());
+        // A failed merge is the more specific answer. Either one counts as a
+        // failed run.
+        match collected {
+            Err(_) if merged.failed == 0 => Answer::error(merged.id, ErrorCode::GcFailed),
+            _ => done,
+        }
     }
 }
 

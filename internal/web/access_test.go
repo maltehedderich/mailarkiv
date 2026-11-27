@@ -222,6 +222,260 @@ func TestEveryRouteDeniesWithoutSession(t *testing.T) {
 	}
 }
 
+// Each leak marker sits in one place a mail route could answer from. They're
+// single lowercase words, so search finds them and a check on a lowercased
+// answer also catches a copy whose case changed.
+const (
+	leakSubject  = "subjectleakq3m8"
+	leakName     = "nameleakv5k2"
+	leakFrom     = "fromleakd7w4"
+	leakTo       = "toleakj2p6"
+	leakText     = "textleakn8c1"
+	leakHTML     = "htmlleakf4x9"
+	leakFileName = "fileleakr6b3"
+	leakBytes    = "bytesleakh1t7"
+)
+
+var leakMarkers = []string{leakSubject, leakName, leakFrom, leakTo, leakText, leakHTML, leakFileName, leakBytes}
+
+// leakMail has a marker in its subject, the sender's name, both addresses,
+// both bodies, its attachment's name, and the attachment's bytes, which are
+// part 2. The name is capitalized, as names are. The text body's unknown
+// character set puts it on the problem list.
+func leakMail() []byte {
+	return []byte(strings.Join([]string{
+		"From: Nameleakv5k2 <" + leakFrom + "@example.test>",
+		"To: " + leakTo + "@example.test",
+		"Subject: " + leakSubject,
+		"Date: Mon, 2 Nov 2026 09:14:55 +0100",
+		"MIME-Version: 1.0",
+		`Content-Type: multipart/mixed; boundary="mix"`,
+		"",
+		"--mix",
+		`Content-Type: multipart/alternative; boundary="alt"`,
+		"",
+		"--alt",
+		"Content-Type: text/plain; charset=x-unknown",
+		"",
+		leakText,
+		"--alt",
+		"Content-Type: text/html; charset=utf-8",
+		"",
+		"<p>" + leakHTML + "</p>",
+		"--alt--",
+		"--mix",
+		"Content-Type: application/octet-stream",
+		`Content-Disposition: attachment; filename="` + leakFileName + `.bin"`,
+		"",
+		leakBytes,
+		"--mix--",
+		"",
+	}, "\r\n"))
+}
+
+// answerText is a response's headers and body, lowercased, for a marker
+// search.
+func answerText(response *http.Response, body string) string {
+	var text strings.Builder
+	for name, values := range response.Header {
+		fmt.Fprintf(&text, "%s: %s\n", name, strings.Join(values, ", "))
+	}
+	text.WriteString(body)
+	return strings.ToLower(text.String())
+}
+
+// waitUntilFound searches for word until the answer finds a message and
+// leaves none out, so processing and indexing have reached every message.
+func (h *harness) waitUntilFound(t *testing.T, session func(*http.Request), word string) {
+	t.Helper()
+	waitFor(t, "the message in the index", func() bool {
+		response, body := h.send(t, http.MethodPost, "/api/search", strings.NewReader(searchBody(word, 1)), session)
+		var answer struct {
+			Total       int `json:"total"`
+			NotIncluded int `json:"not_included"`
+		}
+		return response.StatusCode == http.StatusOK && json.Unmarshal([]byte(body), &answer) == nil &&
+			answer.Total == 1 && answer.NotIncluded == 0
+	})
+}
+
+// unchanged leaves a request as it is.
+func unchanged(*http.Request) {}
+
+// rebuildCount counts the rebuilds ever started.
+func (h *harness) rebuildCount(t *testing.T) int {
+	t.Helper()
+	var count int
+	if err := h.db.Reader.QueryRow("SELECT COUNT(*) FROM search_rebuild").Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	return count
+}
+
+// The routes that read mail or start a rebuild deny a caller whose session is
+// missing, expired, or signed out, however the browser asks, and no answer
+// carries anything from the message. With a valid session, the same requests
+// return the markers, so a leak would show.
+func TestPreviewWithoutSession(t *testing.T) {
+	// Room for a rebuild, so one that got through would start.
+	disk := &fakeDisk{free: 100 * gib}
+	h := newHarnessWith(t, Routes(), harnessOptions{search: searchProgram(t), freeSpace: disk.read, views: "1"})
+	h.createAccount(t, "admin@example.test")
+
+	// Expiry comes first, because moving the clock ends every session started
+	// before it.
+	expired := h.signInToken(t, "admin@example.test")
+	h.clock.Advance(12 * time.Hour)
+	valid := h.signIn(t, "admin@example.test")
+	signedOut := h.signInToken(t, "admin@example.test")
+	if response, body := h.do(t, http.MethodDelete, "/api/session", withSession(signedOut)); response.StatusCode != http.StatusNoContent {
+		t.Fatalf("sign out = %d %s, want 204", response.StatusCode, body)
+	}
+
+	id := h.importMail(t, valid, leakMail(), "leak.eml")
+	h.waitUntilFound(t, valid, leakSubject)
+	message := "/api/messages/" + strconv.FormatInt(id, 10)
+
+	type mailRoute struct {
+		method, path, body string
+		// shows are the markers a valid session's answer holds.
+		shows []string
+	}
+	routes := []mailRoute{
+		{http.MethodPost, "/api/search", searchBody(leakSubject, 1), []string{leakSubject, leakName, leakFrom}},
+		{http.MethodGet, "/api/messages", "", []string{leakSubject, leakName, leakFrom}},
+		{http.MethodGet, "/api/processing-problems", "", []string{leakSubject, leakName, leakFrom}},
+		{http.MethodGet, message + "/content", "", []string{leakSubject, leakName, leakFrom, leakTo, leakFileName}},
+		{http.MethodGet, message + "/text", "", []string{leakText}},
+		{http.MethodGet, message + "/html", "", []string{leakHTML}},
+		{http.MethodGet, message + "/html?images=1", "", []string{leakHTML}},
+		{http.MethodGet, message + "/attachments/2", "", []string{leakFileName, leakBytes}},
+		{http.MethodGet, "/api/status", "", nil},
+	}
+	send := func(t *testing.T, method, path, body string, change func(*http.Request)) (*http.Response, string) {
+		t.Helper()
+		var reader io.Reader
+		if body != "" {
+			reader = strings.NewReader(body)
+		}
+		return h.send(t, method, path, reader, change)
+	}
+
+	for _, route := range routes {
+		t.Run("with a session "+route.method+" "+route.path, func(t *testing.T) {
+			response, body := send(t, route.method, route.path, route.body, valid)
+			if response.StatusCode != http.StatusOK {
+				t.Fatalf("status = %d %s, want 200", response.StatusCode, body)
+			}
+			text := answerText(response, body)
+			for _, marker := range route.shows {
+				if !strings.Contains(text, marker) {
+					t.Errorf("the answer lacks %s, so a leak wouldn't show: %s", marker, body)
+				}
+			}
+		})
+	}
+
+	sessions := []struct {
+		name   string
+		change func(*http.Request)
+	}{
+		{"no session", unchanged},
+		{"expired session", withSession(expired)},
+		{"signed-out session", withSession(signedOut)},
+	}
+	asks := []struct {
+		name   string
+		change func(*http.Request)
+	}{
+		{"fetched", unchanged},
+		{"opened as a page", both(
+			withHeader("Sec-Fetch-Mode", "navigate"), withHeader("Sec-Fetch-Dest", "document"),
+			withHeader("Referer", h.server.URL+"/messages/"+strconv.FormatInt(id, 10)),
+		)},
+		{"in a frame", both(withHeader("Sec-Fetch-Mode", "navigate"), withHeader("Sec-Fetch-Dest", "iframe"))},
+	}
+	denied := append(routes, mailRoute{http.MethodPost, "/api/search/rebuild", "", nil})
+	for _, route := range denied {
+		for _, session := range sessions {
+			for _, ask := range asks {
+				t.Run(route.method+" "+route.path+"/"+session.name+"/"+ask.name, func(t *testing.T) {
+					response, body := send(t, route.method, route.path, route.body, both(session.change, ask.change))
+
+					redirected := response.StatusCode == http.StatusSeeOther &&
+						strings.HasPrefix(response.Header.Get("Location"), "/sign-in?ended=1&next=")
+					if response.StatusCode != http.StatusUnauthorized && !redirected {
+						t.Fatalf("status = %d to %q, want 401 or 303 to sign-in", response.StatusCode, response.Header.Get("Location"))
+					}
+					text := answerText(response, body)
+					for _, marker := range leakMarkers {
+						if strings.Contains(text, marker) {
+							t.Errorf("the answer holds %s:\n%s", marker, text)
+						}
+					}
+				})
+			}
+		}
+	}
+
+	if n := h.rebuildCount(t); n != 0 {
+		t.Errorf("%d rebuilds started, want none", n)
+	}
+	// The valid session still searches, so the denials weren't about search.
+	response, body := send(t, http.MethodPost, "/api/search", searchBody(leakSubject, 1), valid)
+	if response.StatusCode != http.StatusOK || !strings.Contains(body, leakSubject) {
+		t.Fatalf("search with the valid session = %d %s, want 200 with the message", response.StatusCode, body)
+	}
+}
+
+// Another site can't make a signed-in administrator's browser search or
+// start a rebuild. The same rebuild from this site starts one, so the refusal
+// is what kept the row out.
+func TestForgedSearchAndRebuildAreRefused(t *testing.T) {
+	// Room for a rebuild, so one that got through would start.
+	disk := &fakeDisk{free: 100 * gib}
+	h := newHarnessWith(t, Routes(), harnessOptions{search: searchProgram(t), freeSpace: disk.read})
+	h.createAccount(t, "admin@example.test")
+	session := h.signIn(t, "admin@example.test")
+	h.importMail(t, session, leakMail(), "leak.eml")
+	h.waitUntilFound(t, session, leakSubject)
+
+	forgeries := []struct {
+		name   string
+		change func(*http.Request)
+	}{
+		{"Sec-Fetch-Site cross-site", withHeader("Sec-Fetch-Site", "cross-site")},
+		{"Origin of another site", withHeader("Origin", "http://elsewhere.test")},
+		{"both", both(withHeader("Sec-Fetch-Site", "cross-site"), withHeader("Origin", "http://elsewhere.test"))},
+	}
+	for _, route := range []struct{ path, body string }{
+		{"/api/search/rebuild", ""},
+		{"/api/search", searchBody(leakSubject, 1)},
+	} {
+		for _, forgery := range forgeries {
+			t.Run(route.path+"/"+forgery.name, func(t *testing.T) {
+				response, body := h.send(t, http.MethodPost, route.path, strings.NewReader(route.body), both(session, forgery.change))
+
+				assertJSONResponse(t, response, body, http.StatusForbidden, crossOrigin)
+				if strings.Contains(strings.ToLower(body), leakSubject) {
+					t.Errorf("the answer holds the subject: %s", body)
+				}
+			})
+		}
+	}
+	if n := h.rebuildCount(t); n != 0 {
+		t.Fatalf("%d rebuilds started, want none", n)
+	}
+
+	response, body := h.send(t, http.MethodPost, "/api/search/rebuild", nil, both(session, withHeader("Sec-Fetch-Site", "same-origin")))
+	if response.StatusCode != http.StatusAccepted {
+		t.Fatalf("a rebuild from this site = %d %s, want 202", response.StatusCode, body)
+	}
+	if n := h.rebuildCount(t); n != 1 {
+		t.Fatalf("%d rebuilds after one from this site, want 1", n)
+	}
+}
+
 // Only sign-in and the static application files are reachable without a
 // session. Adding another Public route, or one with no rule, fails here.
 func TestOnlyTheAllowlistIsPublic(t *testing.T) {

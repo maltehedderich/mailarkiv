@@ -71,6 +71,32 @@ fn on_open_fail_answers_index_damaged() {
 }
 
 #[test]
+fn during_merge_fail_answers_a_failed_merge() {
+    let dir = DataDir::new();
+    let mut search = Search::start_with_faults(&dir, "during-merge=fail");
+    search.open(1, true);
+    search.index(1, vec![document(1, "Apfel")], true);
+    let answer = search.maintain(1);
+    assert_eq!(
+        answer["ok"],
+        json!({"merges": 1, "failed": 1}),
+        "answer {answer}"
+    );
+    // The index still answers.
+    assert_eq!(search.ids(1, "apfel"), vec![1]);
+    search.stop();
+}
+
+#[test]
+fn during_merge_exit_aborts() {
+    let dir = DataDir::new();
+    let mut search = Search::start_with_faults(&dir, "during-merge=exit");
+    search.open(1, true);
+    search.send(&json!({"id": 100, "op": "maintain", "generation": 1}));
+    assert_eq!(search.wait().signal(), Some(SIGABRT));
+}
+
+#[test]
 fn after_commit_fail_answers_write_failed() {
     let dir = DataDir::new();
     let mut search = Search::start_with_faults(&dir, "after-commit=fail");

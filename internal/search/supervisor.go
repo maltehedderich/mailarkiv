@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"regexp"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -36,6 +37,9 @@ type Config struct {
 	Status    *opstatus.Status
 	Logger    *slog.Logger
 	Now       func() time.Time
+	// FreeSpace, if set, replaces the reading of free space in a
+	// directory, for tests.
+	FreeSpace func(path string) (int64, error)
 }
 
 const (
@@ -71,11 +75,26 @@ type Module struct {
 	config Config
 
 	// These change only in tests.
-	command       func() *exec.Cmd
-	batchMessages int
-	batchBytes    int
-	retryAfter    func(time.Duration) <-chan time.Time
-	batchSent     func(sentBatch)
+	command        func() *exec.Cmd
+	batchMessages  int
+	batchBytes     int
+	commitMessages int
+	retryAfter     func(time.Duration) <-chan time.Time
+	restartAfter   func(time.Duration) <-chan time.Time
+	batchSent      func(sentBatch)
+	maintained     func(generationID int64, answer maintainAnswer)
+	freeSpace      func(path string) (int64, error)
+	diskCheckEvery time.Duration
+	maintainEvery  int
+	maintainAfter  time.Duration
+
+	// faultsGiven is set once a process got the search fault list.
+	faultsGiven atomic.Bool
+	// wake asks the indexing loop to look for a rebuild that started.
+	wake chan struct{}
+	// startMu lets one rebuild start at a time, and markMu one mark.
+	startMu sync.Mutex
+	markMu  sync.Mutex
 
 	mu      sync.Mutex
 	current *process
@@ -84,18 +103,43 @@ type Module struct {
 	lastFailure opstatus.Category
 	nextStartAt *time.Time
 	restarts    int
-	state       State
+	// saved is set once the mark and the running rebuild were read.
+	saved        bool
+	needsRebuild *needsRebuild
+	rebuild      *runningRebuild
+	// crashes holds the times of stops nobody asked for, in the last 30
+	// minutes.
+	crashes             []time.Time
+	maintenanceFailures int
+	rebuildFailures     int
+	paused              bool
+	freeBytes           int64
+	// diskRead is set once freeBytes holds a reading.
+	diskRead bool
+	// progress is what the indexing loop last saw, or empty before it ran.
+	progress IndexingState
+	state    State
 }
 
 // New returns a module that hasn't started the search process yet.
 func New(config Config) *Module {
 	m := &Module{
-		config:        config,
-		batchMessages: maxBatchMessages,
-		batchBytes:    maxBatchBytes,
-		retryAfter:    time.After,
-		lastFailure:   opstatus.SearchProcessDidNotStart,
-		state:         State{Search: SearchUnavailable, Indexing: IndexingStopped},
+		config:         config,
+		batchMessages:  maxBatchMessages,
+		batchBytes:     maxBatchBytes,
+		commitMessages: commitEvery,
+		retryAfter:     time.After,
+		restartAfter:   time.After,
+		freeSpace:      statfsFree,
+		diskCheckEvery: diskCheckEvery,
+		maintainEvery:  maintainEveryCommits,
+		maintainAfter:  maintainAfterTime,
+		wake:           make(chan struct{}, 1),
+		lastFailure:    opstatus.SearchProcessDidNotStart,
+		state:          State{Search: SearchUnavailable, Indexing: IndexingStopped},
+	}
+	if config.FreeSpace != nil {
+		m.freeSpace = config.FreeSpace
 	}
 	m.command = m.programCommand
 	return m
@@ -105,12 +149,13 @@ func New(config Config) *Module {
 // reads. Release builds ignore it.
 const faultsVariable = "MAILARKIV_SEARCH_FAULTS"
 
-// programCommand starts the program with an empty environment, except for
-// the fault list when the server's environment sets one.
+// programCommand starts the program with an empty environment. When the
+// server's environment sets a fault list, only the first process gets it,
+// so a fault that ends the process fires once and the next one recovers.
 func (m *Module) programCommand() *exec.Cmd {
 	cmd := exec.Command(m.config.Program)
 	cmd.Env = []string{}
-	if faults, set := os.LookupEnv(faultsVariable); set {
+	if faults, set := os.LookupEnv(faultsVariable); set && m.faultsGiven.CompareAndSwap(false, true) {
 		cmd.Env = append(cmd.Env, faultsVariable+"="+faults)
 	}
 	return cmd
@@ -152,7 +197,7 @@ func (m *Module) Run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(delay):
+		case <-m.restartAfter(delay):
 		}
 	}
 }
@@ -294,15 +339,18 @@ func (m *Module) readErrors(stderr io.Reader) int {
 // supervise runs indexing while p runs. It returns when p has exited, or,
 // once ctx ends, after stopping p.
 func (m *Module) supervise(ctx context.Context, p *process) {
+	m.loadSavedOnce(ctx)
 	s := newSession(p.client)
 	m.mu.Lock()
 	m.current = p
 	m.session = s
 	restarts := m.restarts
 	m.restarts++
-	m.setStateLocked(State{Search: SearchAvailable, Indexing: IndexingStopped})
+	m.progress = ""
+	m.refreshLocked()
 	m.mu.Unlock()
 	m.config.Logger.Info("search process started", "restarts", restarts)
+	m.config.Status.RecordSuccess(opstatus.SearchProcessDidNotStart)
 
 	running, endSession := context.WithCancel(ctx)
 	indexing := make(chan struct{})
@@ -336,6 +384,7 @@ func (m *Module) supervise(ctx context.Context, p *process) {
 	m.mu.Lock()
 	m.current = nil
 	m.session = nil
+	m.refreshLocked()
 	m.mu.Unlock()
 	if p.ignoredLines > 0 {
 		m.config.Logger.Warn("search process output ignored", "lines", p.ignoredLines)
@@ -346,8 +395,26 @@ func (m *Module) supervise(ctx context.Context, p *process) {
 			Detail:   exitDetail(p.cmd.ProcessState),
 		})
 		m.setFailure(opstatus.SearchProcessStopped)
+		m.recordCrash(ctx)
 	}
-	m.setState(State{Search: SearchUnavailable, Indexing: IndexingStopped})
+}
+
+// loadSavedOnce reads the saved mark and rebuild before the first indexing.
+// A failed read is logged and tried again at the next start.
+func (m *Module) loadSavedOnce(ctx context.Context) {
+	m.mu.Lock()
+	saved := m.saved
+	m.mu.Unlock()
+	if saved {
+		return
+	}
+	if err := m.loadSaved(ctx); err != nil {
+		m.config.Logger.Error("load the search state", "error", err.Error())
+		return
+	}
+	m.mu.Lock()
+	m.saved = true
+	m.mu.Unlock()
 }
 
 // exitDetail names how a process ended: its exit status, or the signal that
@@ -378,6 +445,17 @@ func (m *Module) setFailure(category opstatus.Category) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.lastFailure = category
+}
+
+// unavailableLocked is the answer to a search while no process runs. m.mu
+// must be held.
+func (m *Module) unavailableLocked() *UnavailableError {
+	unavailable := &UnavailableError{Cause: m.lastFailure}
+	if m.nextStartAt != nil {
+		next := *m.nextStartAt
+		unavailable.NextStartAt = &next
+	}
+	return unavailable
 }
 
 func (m *Module) setNextStart(at *time.Time) {

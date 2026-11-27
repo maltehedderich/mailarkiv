@@ -209,11 +209,10 @@ func TestFailedBatchWaitsAndIsSentAgain(t *testing.T) {
 	if got, want := waitsSoFar(), []time.Duration{time.Second, 2 * time.Second, 4 * time.Second}; !slices.Equal(got, want) {
 		t.Errorf("waits %v, want %v", got, want)
 	}
-	failed := f.failures(opstatus.IndexWriteFailed)
-	if len(failed) != 3 {
-		t.Fatalf("%d index_write_failed events, want 3", len(failed))
+	if got := f.failureCount(opstatus.IndexWriteFailed); got != 3 {
+		t.Fatalf("%d index_write_failed failures, want 3", got)
 	}
-	for _, event := range failed {
+	for _, event := range f.failures(opstatus.IndexWriteFailed) {
 		d := event.Detail
 		if d == nil || d.GenerationID == nil || d.FirstMessageID == nil || d.LastMessageID == nil {
 			t.Errorf("detail %+v, want generation and message IDs", d)

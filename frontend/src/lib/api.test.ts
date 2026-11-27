@@ -24,6 +24,7 @@ import {
   SIGN_IN_TIMEOUT_MS,
   signIn,
   signOut,
+  startRebuild,
   syncSource,
   type Fetch,
   type SearchQuery,
@@ -618,6 +619,20 @@ describe("searchMessages", () => {
       },
     ],
     [
+      "search unavailable because the index needs a rebuild",
+      503,
+      {
+        error: "search_unavailable",
+        cause: "index_needs_rebuild",
+        next_start_at: null,
+      },
+      {
+        kind: "search_unavailable",
+        cause: "index_needs_rebuild",
+        nextStartAt: null,
+      },
+    ],
+    [
       "a search the process didn't answer",
       503,
       { error: "search_did_not_answer" },
@@ -975,9 +990,71 @@ const PROBLEM_SOURCES = [
   },
 ];
 
+// The contract's search object, during a rebuild.
+const SEARCH = {
+  state: "available",
+  next_start_at: null,
+  needs_rebuild: null,
+  restarts: 2,
+  indexing: {
+    state: "rebuilding",
+    waiting: 12,
+    done: 1200000,
+    to_do: 5000000,
+    free_bytes: 41234567890,
+    pause_below_bytes: 2147483648,
+    resume_at_bytes: 3221225472,
+  },
+  rebuild: {
+    id: 4,
+    started_at: "2026-11-15T08:00:00.000Z",
+    started_by: "admin@example.test",
+  },
+};
+
+const PARSED_SEARCH = {
+  state: "available",
+  nextStartAt: null,
+  needsRebuild: null,
+  restarts: 2,
+  indexing: {
+    state: "rebuilding",
+    waiting: 12,
+    done: 1200000,
+    toDo: 5000000,
+    freeBytes: 41234567890,
+    pauseBelowBytes: 2147483648,
+    resumeAtBytes: 3221225472,
+  },
+  rebuild: {
+    id: 4,
+    startedAt: "2026-11-15T08:00:00.000Z",
+    startedBy: "admin@example.test",
+  },
+};
+
+/** A detail with none of its keys set. */
+const NO_DETAIL = {
+  exitStatus: null,
+  signal: null,
+  cause: null,
+  operation: null,
+  generationId: null,
+  rebuildId: null,
+  firstMessageId: null,
+  lastMessageId: null,
+  freeBytes: null,
+};
+
 describe("getStatus", () => {
   const STATUS = {
     started_at: "2026-11-06T15:00:00.000Z",
+    processing: {
+      not_processed: 1204,
+      processed_with_problems: 3,
+      unreadable: 1,
+    },
+    search: SEARCH,
     recovery: {
       finished_at: "2026-11-06T15:00:00.410Z",
       temp_files_removed: 1,
@@ -993,11 +1070,15 @@ describe("getStatus", () => {
         message_id: 17,
         content_hash: HASH,
         restored: false,
+        repeats: 1,
+        last_at: "2026-11-06T15:20:00.000Z",
       },
       {
         at: "2026-11-06T15:21:00.000Z",
         category: "temp_file_not_removed",
         restored: false,
+        repeats: 1,
+        last_at: "2026-11-06T15:21:00.000Z",
       },
     ],
   };
@@ -1008,6 +1089,12 @@ describe("getStatus", () => {
       kind: "ok",
       value: {
         startedAt: "2026-11-06T15:00:00.000Z",
+        processing: {
+          notProcessed: 1204,
+          processedWithProblems: 3,
+          unreadable: 1,
+        },
+        search: PARSED_SEARCH,
         recovery: {
           finishedAt: "2026-11-06T15:00:00.410Z",
           tempFilesRemoved: 1,
@@ -1024,6 +1111,9 @@ describe("getStatus", () => {
             contentHash: HASH,
             restored: false,
             source: null,
+            repeats: 1,
+            lastAt: "2026-11-06T15:20:00.000Z",
+            detail: null,
           },
           {
             at: "2026-11-06T15:21:00.000Z",
@@ -1032,12 +1122,219 @@ describe("getStatus", () => {
             contentHash: null,
             restored: false,
             source: null,
+            repeats: 1,
+            lastAt: "2026-11-06T15:21:00.000Z",
+            detail: null,
           },
         ],
       },
     });
     expect(calls[0].url).toBe("/api/status");
     expect(calls[0].init?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  test("reads a search that is starting again", async () => {
+    const { fetch } = answer(200, {
+      ...STATUS,
+      search: {
+        ...SEARCH,
+        state: "unavailable",
+        next_start_at: "2026-11-15T09:00:04.000Z",
+        indexing: {
+          ...SEARCH.indexing,
+          state: "stopped",
+          done: null,
+          to_do: null,
+          free_bytes: null,
+        },
+        rebuild: null,
+      },
+    });
+    const status = await getStatus(fetch);
+    expect(status.kind).toBe("ok");
+    if (status.kind !== "ok") return;
+    expect(status.value.search).toEqual({
+      ...PARSED_SEARCH,
+      state: "unavailable",
+      nextStartAt: "2026-11-15T09:00:04.000Z",
+      indexing: {
+        ...PARSED_SEARCH.indexing,
+        state: "stopped",
+        done: null,
+        toDo: null,
+        freeBytes: null,
+      },
+      rebuild: null,
+    });
+  });
+
+  test.each([
+    "search_process_stopped",
+    "index_maintenance_failed",
+    "index_damaged",
+  ])("reads a search that needs a rebuild after %s", async (cause) => {
+    const { fetch } = answer(200, {
+      ...STATUS,
+      search: {
+        ...SEARCH,
+        state: "needs_rebuild",
+        needs_rebuild: { cause, since: "2026-11-15T09:00:01.000Z" },
+        indexing: { ...SEARCH.indexing, state: "stopped" },
+        rebuild: null,
+      },
+    });
+    const status = await getStatus(fetch);
+    expect(status.kind).toBe("ok");
+    if (status.kind !== "ok") return;
+    expect(status.value.search.state).toBe("needs_rebuild");
+    expect(status.value.search.needsRebuild).toEqual({
+      cause,
+      since: "2026-11-15T09:00:01.000Z",
+    });
+  });
+
+  test.each([
+    "up_to_date",
+    "catching_up",
+    "building",
+    "rebuilding",
+    "paused",
+    "stopped",
+  ])("reads the indexing state %s", async (state) => {
+    const { fetch } = answer(200, {
+      ...STATUS,
+      search: { ...SEARCH, indexing: { ...SEARCH.indexing, state } },
+    });
+    const status = await getStatus(fetch);
+    expect(status.kind).toBe("ok");
+    if (status.kind !== "ok") return;
+    expect(status.value.search.indexing.state).toBe(state);
+  });
+
+  test("reads search failures with their repeats and detail", async () => {
+    const { fetch } = answer(200, {
+      ...STATUS,
+      failures: [
+        {
+          at: "2026-11-15T09:00:01.000Z",
+          category: "search_process_stopped",
+          restored: false,
+          repeats: 3,
+          last_at: "2026-11-15T09:00:09.000Z",
+          detail: { signal: 9 },
+        },
+        {
+          at: "2026-11-15T09:01:00.000Z",
+          category: "index_write_failed",
+          restored: false,
+          repeats: 1,
+          last_at: "2026-11-15T09:01:00.000Z",
+          detail: {
+            generation_id: 3,
+            first_message_id: 17,
+            last_message_id: 40,
+            cause: "no_space",
+          },
+        },
+        {
+          at: "2026-11-15T09:02:00.000Z",
+          category: "search_process_did_not_answer",
+          restored: false,
+          repeats: 1,
+          last_at: "2026-11-15T09:02:00.000Z",
+          detail: { operation: "search" },
+        },
+        {
+          at: "2026-11-15T09:03:00.000Z",
+          category: "low_disk_space",
+          restored: false,
+          repeats: 1,
+          last_at: "2026-11-15T09:03:00.000Z",
+          detail: { free_bytes: 1610612736 },
+        },
+        {
+          at: "2026-11-15T09:04:00.000Z",
+          category: "rebuild_failed",
+          restored: false,
+          repeats: 1,
+          last_at: "2026-11-15T09:04:00.000Z",
+          detail: { rebuild_id: 4, generation_id: 5 },
+        },
+        {
+          at: "2026-11-15T09:05:00.000Z",
+          category: "search_process_stopped",
+          restored: false,
+          repeats: 1,
+          last_at: "2026-11-15T09:05:00.000Z",
+          detail: { exit_status: 0 },
+        },
+      ],
+    });
+    const status = await getStatus(fetch);
+    expect(status.kind).toBe("ok");
+    if (status.kind !== "ok") return;
+    const common = {
+      messageId: null,
+      contentHash: null,
+      source: null,
+      restored: false,
+    };
+    expect(status.value.failures).toEqual([
+      {
+        ...common,
+        at: "2026-11-15T09:00:01.000Z",
+        category: "search_process_stopped",
+        repeats: 3,
+        lastAt: "2026-11-15T09:00:09.000Z",
+        detail: { ...NO_DETAIL, signal: 9 },
+      },
+      {
+        ...common,
+        at: "2026-11-15T09:01:00.000Z",
+        category: "index_write_failed",
+        repeats: 1,
+        lastAt: "2026-11-15T09:01:00.000Z",
+        detail: {
+          ...NO_DETAIL,
+          generationId: 3,
+          firstMessageId: 17,
+          lastMessageId: 40,
+          cause: "no_space",
+        },
+      },
+      {
+        ...common,
+        at: "2026-11-15T09:02:00.000Z",
+        category: "search_process_did_not_answer",
+        repeats: 1,
+        lastAt: "2026-11-15T09:02:00.000Z",
+        detail: { ...NO_DETAIL, operation: "search" },
+      },
+      {
+        ...common,
+        at: "2026-11-15T09:03:00.000Z",
+        category: "low_disk_space",
+        repeats: 1,
+        lastAt: "2026-11-15T09:03:00.000Z",
+        detail: { ...NO_DETAIL, freeBytes: 1610612736 },
+      },
+      {
+        ...common,
+        at: "2026-11-15T09:04:00.000Z",
+        category: "rebuild_failed",
+        repeats: 1,
+        lastAt: "2026-11-15T09:04:00.000Z",
+        detail: { ...NO_DETAIL, rebuildId: 4, generationId: 5 },
+      },
+      {
+        ...common,
+        at: "2026-11-15T09:05:00.000Z",
+        category: "search_process_stopped",
+        repeats: 1,
+        lastAt: "2026-11-15T09:05:00.000Z",
+        detail: { ...NO_DETAIL, exitStatus: 0 },
+      },
+    ]);
   });
 
   test("reads every failure category", async () => {
@@ -1054,6 +1351,10 @@ describe("getStatus", () => {
       "search_process_did_not_start",
       "search_process_did_not_answer",
       "index_write_failed",
+      "index_maintenance_failed",
+      "index_needs_rebuild",
+      "low_disk_space",
+      "rebuild_failed",
     ];
     const failures = categories.map((category) => ({
       at: "2026-11-06T15:20:00.000Z",
@@ -1062,6 +1363,8 @@ describe("getStatus", () => {
         ? { source_id: 3, source_name: "Anna" }
         : {}),
       restored: false,
+      repeats: 1,
+      last_at: "2026-11-06T15:20:00.000Z",
     }));
     const { fetch } = answer(200, { ...STATUS, failures });
     const status = await getStatus(fetch);
@@ -1082,6 +1385,8 @@ describe("getStatus", () => {
           source_id: 3,
           source_name: "Anna",
           restored: false,
+          repeats: 1,
+          last_at: "2026-11-08T09:00:01.000Z",
         },
         {
           at: "2026-11-08T09:05:00.000Z",
@@ -1089,6 +1394,8 @@ describe("getStatus", () => {
           source_id: 5,
           source_name: "<b>Büro</b>",
           restored: false,
+          repeats: 1,
+          last_at: "2026-11-08T09:05:00.000Z",
         },
       ],
     });
@@ -1103,6 +1410,9 @@ describe("getStatus", () => {
         contentHash: null,
         source: { id: 3, name: "Anna" },
         restored: false,
+        repeats: 1,
+        lastAt: "2026-11-08T09:00:01.000Z",
+        detail: null,
       },
       {
         at: "2026-11-08T09:05:00.000Z",
@@ -1111,6 +1421,9 @@ describe("getStatus", () => {
         contentHash: null,
         source: { id: 5, name: "<b>Büro</b>" },
         restored: false,
+        repeats: 1,
+        lastAt: "2026-11-08T09:05:00.000Z",
+        detail: null,
       },
     ]);
   });
@@ -1151,7 +1464,21 @@ describe("getStatus", () => {
     source_id: 3,
     source_name: "Anna",
     restored: false,
+    repeats: 1,
+    last_at: "2026-11-08T09:00:01.000Z",
   };
+  const SEARCH_EVENT = {
+    at: "2026-11-15T09:00:01.000Z",
+    category: "search_process_did_not_start",
+    restored: false,
+    repeats: 2,
+    last_at: "2026-11-15T09:00:02.000Z",
+    detail: { cause: "missing" },
+  };
+  const withIndexing = (change: object) => ({
+    ...STATUS,
+    search: { ...SEARCH, indexing: { ...SEARCH.indexing, ...change } },
+  });
   test.each([
     ["a server error", 500, { error: "internal_error" }],
     ["a body that isn't JSON", 200, "<!doctype html>"],
@@ -1222,6 +1549,104 @@ describe("getStatus", () => {
       200,
       { ...STATUS, sources: [{ ...PROBLEM_SOURCE, failed_attempts: -1 }] },
     ],
+    ["no processing counts", 200, { ...STATUS, processing: undefined }],
+    [
+      "a negative processing count",
+      200,
+      { ...STATUS, processing: { ...STATUS.processing, unreadable: -1 } },
+    ],
+    ["no search object", 200, { ...STATUS, search: undefined }],
+    [
+      "a search state the interface doesn't know",
+      200,
+      { ...STATUS, search: { ...SEARCH, state: "degraded" } },
+    ],
+    [
+      "an indexing state the interface doesn't know",
+      200,
+      withIndexing({ state: "compacting" }),
+    ],
+    [
+      "a Needs rebuild cause the interface doesn't know",
+      200,
+      {
+        ...STATUS,
+        search: {
+          ...SEARCH,
+          state: "needs_rebuild",
+          needs_rebuild: { cause: "cosmic_ray", since: "2026-11-15T09:00:01Z" },
+        },
+      },
+    ],
+    [
+      "a next start that can't be read",
+      200,
+      { ...STATUS, search: { ...SEARCH, next_start_at: "soon" } },
+    ],
+    [
+      "negative restarts",
+      200,
+      { ...STATUS, search: { ...SEARCH, restarts: -1 } },
+    ],
+    ["no waiting count", 200, withIndexing({ waiting: undefined })],
+    ["no free space threshold", 200, withIndexing({ pause_below_bytes: null })],
+    [
+      "a free space that isn't a number",
+      200,
+      withIndexing({ free_bytes: "1" }),
+    ],
+    [
+      "a rebuild with no account",
+      200,
+      {
+        ...STATUS,
+        search: { ...SEARCH, rebuild: { ...SEARCH.rebuild, started_by: null } },
+      },
+    ],
+    [
+      "a failure with no repeats",
+      200,
+      { ...STATUS, failures: [{ ...FAILURE, repeats: undefined }] },
+    ],
+    [
+      "a failure that repeated 0 times",
+      200,
+      { ...STATUS, failures: [{ ...FAILURE, repeats: 0 }] },
+    ],
+    [
+      "a last time that can't be read",
+      200,
+      { ...STATUS, failures: [{ ...FAILURE, last_at: "later" }] },
+    ],
+    [
+      "a detail cause the interface doesn't know",
+      200,
+      {
+        ...STATUS,
+        failures: [{ ...SEARCH_EVENT, detail: { cause: "gremlins" } }],
+      },
+    ],
+    [
+      "a detail operation the interface doesn't know",
+      200,
+      {
+        ...STATUS,
+        failures: [{ ...SEARCH_EVENT, detail: { operation: "reticulate" } }],
+      },
+    ],
+    [
+      "a detail ID that isn't a count",
+      200,
+      {
+        ...STATUS,
+        failures: [{ ...SEARCH_EVENT, detail: { generation_id: -3 } }],
+      },
+    ],
+    [
+      "a detail that isn't an object",
+      200,
+      { ...STATUS, failures: [{ ...SEARCH_EVENT, detail: "signal 9" }] },
+    ],
   ])("reads %s as unavailable", async (_name, status, body) => {
     const { fetch } = answer(status, body);
     expect(await getStatus(fetch)).toEqual({ kind: "unavailable" });
@@ -1236,6 +1661,84 @@ describe("getStatus", () => {
     expect(await getStatus(failing(networkError))).toEqual({
       kind: "unavailable",
     });
+  });
+});
+
+describe("startRebuild", () => {
+  test("sends POST with no body and reads the running rebuild", async () => {
+    const { fetch, calls } = answer(202, {
+      rebuild: {
+        id: 4,
+        started_at: "2026-11-15T08:00:00.000Z",
+        started_by: "admin@example.test",
+      },
+    });
+    expect(await startRebuild(fetch)).toEqual({
+      kind: "ok",
+      value: {
+        id: 4,
+        startedAt: "2026-11-15T08:00:00.000Z",
+        startedBy: "admin@example.test",
+      },
+    });
+    expect(calls[0].url).toBe("/api/search/rebuild");
+    expect(calls[0].init?.method).toBe("POST");
+    expect(calls[0].init?.body).toBeUndefined();
+  });
+
+  test("reads not_enough_space with the space it needs", async () => {
+    const { fetch } = answer(409, {
+      error: "not_enough_space",
+      needed_bytes: 8589934592,
+      free_bytes: 6442450944,
+    });
+    expect(await startRebuild(fetch)).toEqual({
+      kind: "not_enough_space",
+      neededBytes: 8589934592,
+      freeBytes: 6442450944,
+    });
+  });
+
+  test.each([
+    [409, "rebuild_running"],
+    [409, "no_index"],
+    [503, "search_unavailable"],
+  ] as const)("reads %d %s", async (status, error) => {
+    const { fetch } = answer(status, { error });
+    expect(await startRebuild(fetch)).toEqual({ kind: error });
+  });
+
+  test.each([
+    [
+      "a marked 401",
+      answer(401, { error: "no_session" }).fetch,
+      "session_ended",
+    ],
+    [
+      "not_enough_space without its sizes",
+      answer(409, { error: "not_enough_space" }).fetch,
+      "unavailable",
+    ],
+    [
+      "an error the interface doesn't know",
+      answer(409, { error: "too_soon" }).fetch,
+      "unavailable",
+    ],
+    ["a 202 without the rebuild", answer(202, {}).fetch, "unavailable"],
+    [
+      "an unmarked 202",
+      answer(202, { rebuild: null }, { marked: false }).fetch,
+      "unavailable",
+    ],
+    [
+      "a server error",
+      answer(500, { error: "internal_error" }).fetch,
+      "unavailable",
+    ],
+    ["a timeout", failing(timeout), "unavailable"],
+    ["a network error", failing(networkError), "unavailable"],
+  ] as const)("reads %s as %s", async (_name, fetch, kind) => {
+    expect(await startRebuild(fetch)).toEqual({ kind });
   });
 });
 

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/maltehedderich/mailarkiv/internal/archive"
+	"github.com/maltehedderich/mailarkiv/internal/fault"
 	"github.com/maltehedderich/mailarkiv/internal/mailparse"
 )
 
@@ -110,6 +111,7 @@ func (p *Processor) process(ctx context.Context, id int64) error {
 	if _, err := p.archive.RecordProcessed(ctx, id, result); err != nil {
 		return err
 	}
+	_ = fault.At("after-processing-commit")
 	select {
 	case p.processed <- struct{}{}:
 	default:

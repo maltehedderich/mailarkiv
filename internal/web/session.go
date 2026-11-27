@@ -95,7 +95,7 @@ func newSessionCookie(value string, maxAge int) *http.Cookie {
 // opstatus counts, plus each source the status screen lists. The seconds are
 // rounded down, so a page that ends at that time never outlives the session.
 func readSession(s *server, w http.ResponseWriter, r *http.Request) {
-	sources, err := s.problemSources(r)
+	count, err := s.problemCount(r.Context())
 	if err != nil {
 		s.writeInternalError(w, r, err)
 		return
@@ -104,7 +104,7 @@ func readSession(s *server, w http.ResponseWriter, r *http.Request) {
 		ProblemCount int   `json:"problem_count"`
 		ExpiresIn    int64 `json:"expires_in"`
 	}{
-		ProblemCount: s.status.ProblemCount() + len(sources),
+		ProblemCount: count,
 		ExpiresIn:    int64(signedInSession(r).ExpiresIn / time.Second),
 	})
 }

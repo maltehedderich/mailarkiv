@@ -7,8 +7,12 @@ export interface FailureGroup {
   category: FailureCategory;
   /** A restored event shows that the copy was restored, not the next step. */
   restored: boolean;
-  /** In the order they happened. */
+  /** In the order they happened. A repeated event is one entry. */
   events: FailureEvent[];
+  /** Every failure the group stands for, repeats included. */
+  count: number;
+  /** The newest failure's time. */
+  lastAt: string;
 }
 
 /**
@@ -26,10 +30,16 @@ export function groupFailures(failures: FailureEvent[]): FailureGroup[] {
         category: event.category,
         restored: event.restored,
         events: [],
+        count: 0,
+        lastAt: event.lastAt,
       };
       groups.set(key, group);
     }
     group.events.push(event);
+    group.count += event.repeats;
+    if (Date.parse(event.lastAt) > Date.parse(group.lastAt)) {
+      group.lastAt = event.lastAt;
+    }
   }
   return [...groups.values()];
 }

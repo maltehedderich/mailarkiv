@@ -192,6 +192,30 @@ During a search the Messages header's pager pages through the results, 50 at a t
 
 `/problems` lists the messages processed with problems or that couldn't be read, reached from Status, which stays current in the navigation there. It is the message list without the search form and the import box: the same header with the pager, whose spoken range starts `Processing problems`, the same rows, columns, and order, and the history drawer over it. A line in `--text-3` opens the body: `Messages that processing read only in part, or couldn't read. Each original is kept as it arrived and downloads unchanged.` With none, the list's place reads `No processing problems.` in `--text-3`.
 
+### Search and processing on Status
+
+Status puts `Search` and `Processing` between Problems and Recovery, in the same sections with a 136 px label column. Their facts sit in a 200 px label column, labels in `--text-3` and values in `--text-1`, and counts use tabular numerals with separators (`1,204`). Values are left-aligned, so the two sections' values line up. Below 720 px, a state's label moves above it, and a count stays beside its label, right-aligned.
+
+Search has four facts:
+
+- `Search`: a dot and the state word. `Available` takes `--state-ok`. `Unavailable` and `Needs rebuild` take `--state-bad`. Below the word, at label size in `--text-3`, comes what the state shows with: `Next start` and the time, or `A start is under way`. Needs rebuild shows the cause's name and `since` the time, then a line in `--text-2`: `Search answers when it can, with a notice that results may be incomplete. Indexing stays stopped until a rebuild finishes.`
+- `Indexing`: a dot and the state word. `Up to date` takes `--state-ok`. `Catching up`, `Building`, and `Rebuilding` take the neutral `--text-4`. `Paused` takes `--state-warn`, and `Stopped` takes `--state-bad`. Below the word, at label size: `1,200,000 of 5,000,000 messages` while an index builds, paused or not. Paused adds `1.5 GiB free, below 2 GiB. Indexing resumes at 3 GiB.` A running rebuild adds `Started by admin@example.test at` and the time. Stopped has no line of its own, because the Search fact above says why.
+- `Waiting to be indexed` and `Search process restarts`, as counts.
+
+`Rebuild index` follows the facts as a default button, or a primary one while search needs a rebuild, because then it's the screen's main action. It's left out while a rebuild runs, while the first index builds, and while search is Unavailable, because the server would refuse it. Sizes on this screen use binary units (`2 GiB`), as the thresholds are set.
+
+Processing lists `Not processed yet`, `Processed with problems`, and `Couldn't be read`. When either of the last two is above zero, a `Processing problems` link below them opens `/problems`. These messages don't count on the Status item, so the section has no dot.
+
+A failure group's header counts every failure it stands for, repeats included (`5 times`). An event the server repeated stays one line: its first time, then `3 times, last` and the newest time. A search failure's detail follows on that line at label size, in fixed words such as `Signal 9`, `Exit status 1`, `Program missing`, `During search`, `Index 3`, `Messages 17–40`, `No space left`, `Rebuild 4`, and `1.5 GiB free`. It names IDs and closed causes only, never mail or search text.
+
+`Rebuild index` opens a confirmation styled like the remove confirmation, titled `Rebuild the search index?`. Its text in `--text-2` reads `MailArkiv builds a new index from every message in the archive. Search answers from the current index until the new one is complete, then switches to it. Both need room on disk until then.` `Cancel` (large default) takes focus first, so `Enter` alone starts nothing, then `Rebuild index` (large primary) reads `Starting…` while it waits. `Escape` and `Cancel` close it and return focus to `Rebuild index`. Success closes it, reloads Status, and moves focus to the Search heading, because the button has gone. A refusal keeps the dialog open with a line below its buttons:
+
+- `A rebuild needs 8 GiB free where the index lives, and 6 GiB is free. Free disk space, then try again.`
+- `A rebuild is already running.`
+- `The first index is still being built. Start a rebuild once it's done.`
+- `Search is unavailable, so a rebuild can't start. Try again once it's running.`
+- `The rebuild didn't start. Try again. If this repeats, check the server log.`
+
 ### Message view
 
 A row's link opens the message at `/messages/<id>`, and reads `Open` with the subject or the entry's name. The view's header has the source page's trail: a link in `--text-2` to the list it came from, `Messages` or `Processing problems`, a chevron, and `Message` as the title, with the same back arrow at 720 px and below. When the view was opened from a list or from search results, the link goes Back, so the same page and results show; otherwise it reads `Messages` and opens the message list. `History` and `Download original` end the header as default buttons, because they act on the whole message. `History` opens the history drawer over the view at `/messages/<id>?history`, so Back closes it.

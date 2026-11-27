@@ -39,6 +39,10 @@ var (
 	SearchProcessDidNotStart  = Category{name: "search_process_did_not_start", search: true}
 	SearchProcessDidNotAnswer = Category{name: "search_process_did_not_answer", search: true}
 	IndexWriteFailed          = Category{name: "index_write_failed", search: true}
+	IndexMaintenanceFailed    = Category{name: "index_maintenance_failed", search: true}
+	IndexNeedsRebuild         = Category{name: "index_needs_rebuild", search: true}
+	LowDiskSpace              = Category{name: "low_disk_space", search: true}
+	RebuildFailed             = Category{name: "rebuild_failed", search: true}
 )
 
 // String returns the category's name, which the log, the API, and the frontend
@@ -57,6 +61,10 @@ var (
 	CauseNoSpace          = Cause{"no_space"}
 	CausePermissionDenied = Cause{"permission_denied"}
 	CauseOther            = Cause{"other"}
+	// Why the index needs a rebuild.
+	CauseSearchProcessStopped   = Cause{"search_process_stopped"}
+	CauseIndexMaintenanceFailed = Cause{"index_maintenance_failed"}
+	CauseIndexDamaged           = Cause{"index_damaged"}
 )
 
 func (c Cause) String() string { return c.name }
@@ -83,8 +91,10 @@ type Detail struct {
 	Cause          Cause
 	Operation      Operation
 	GenerationID   *int64
+	RebuildID      *int64
 	FirstMessageID *int64
 	LastMessageID  *int64
+	FreeBytes      *int64
 }
 
 func (d *Detail) attrs() []slog.Attr {
@@ -99,8 +109,10 @@ func (d *Detail) attrs() []slog.Attr {
 	optional("cause", d.Cause.name, d.Cause != Cause{})
 	optional("operation", d.Operation.name, d.Operation != Operation{})
 	optional("generation_id", deref(d.GenerationID), d.GenerationID != nil)
+	optional("rebuild_id", deref(d.RebuildID), d.RebuildID != nil)
 	optional("first_message_id", deref(d.FirstMessageID), d.FirstMessageID != nil)
 	optional("last_message_id", deref(d.LastMessageID), d.LastMessageID != nil)
+	optional("free_bytes", deref(d.FreeBytes), d.FreeBytes != nil)
 	return attrs
 }
 
@@ -139,8 +151,13 @@ type FailureEvent struct {
 	ContentHash *string
 	SourceID    *int64
 	Restored    bool
-	// Detail is set only for the search categories.
+	// Detail is set only for the search categories. A repeat keeps the
+	// first failure's detail.
 	Detail *Detail
+	// Repeats counts the failures this event stands for, at least 1, and
+	// LastAt is the newest one's time. Only search failures repeat.
+	Repeats int
+	LastAt  time.Time
 }
 
 // Snapshot is a copy of the status at one moment.
@@ -161,6 +178,9 @@ type Status struct {
 	recovery     *RecoveryResult
 	unreferenced []UnreferencedOriginal
 	failures     []FailureEvent
+	// repeating says the newest event takes the next failure of its
+	// category, because no success of that kind has come since.
+	repeating bool
 }
 
 // New starts the status at the clock's current time.
@@ -168,16 +188,26 @@ func New(logger *slog.Logger, now func() time.Time) *Status {
 	return &Status{logger: logger, now: now, startedAt: now()}
 }
 
-// RecordFailure lists the event at the current time and logs it. The list has
-// no cap yet, and search failures can now arrive without anyone acting.
+// RecordFailure lists the event at the current time and logs it. Search
+// failures arrive without anyone acting, often in runs while the search
+// process keeps failing, so a search failure of the newest event's category
+// adds a repeat to that event instead, until RecordSuccess ends the run. That
+// bounds the list by changes of category, not by time. Every failure logs.
 func (s *Status) RecordFailure(event FailureEvent) {
 	if event.Category == (Category{}) {
 		panic("opstatus: a failure event needs a category")
 	}
-	event.At = s.now()
+	now := s.now()
 
 	s.mu.Lock()
-	s.failures = append(s.failures, event)
+	if last := len(s.failures) - 1; s.repeating && s.failures[last].Category == event.Category {
+		s.failures[last].Repeats++
+		s.failures[last].LastAt = now
+	} else {
+		event.At, event.LastAt, event.Repeats = now, now, 1
+		s.failures = append(s.failures, event)
+		s.repeating = event.Category.search
+	}
 	s.mu.Unlock()
 
 	attrs := []slog.Attr{slog.String("category", event.Category.String())}
@@ -201,6 +231,18 @@ func (s *Status) RecordFailure(event FailureEvent) {
 		}
 	}
 	s.logger.LogAttrs(context.Background(), slog.LevelError, msg, attrs...)
+}
+
+// RecordSuccess ends the newest event's run of repeats if it has this
+// category. A success is a started search process, an answered call, a
+// committed batch, a finished maintenance run, or free space back at the
+// resume level, matching the failure category it ends.
+func (s *Status) RecordSuccess(category Category) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if last := len(s.failures) - 1; last >= 0 && s.failures[last].Category == category {
+		s.repeating = false
+	}
 }
 
 // RecordRecovery keeps startup recovery's result and logs it, with the duration
@@ -240,12 +282,16 @@ func (s *Status) RemoveUnreferenced(contentHash string) {
 	})
 }
 
-// ProblemCount is the number every signed-in page shows: failure events plus
-// unreferenced originals.
+// ProblemCount is this package's part of the number every signed-in page
+// shows: every failure, counting each repeat, plus unreferenced originals.
 func (s *Status) ProblemCount() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return len(s.failures) + len(s.unreferenced)
+	count := len(s.unreferenced)
+	for _, event := range s.failures {
+		count += event.Repeats
+	}
+	return count
 }
 
 // Snapshot copies the status, so the caller can't change it.

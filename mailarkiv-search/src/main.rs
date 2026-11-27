@@ -2,8 +2,8 @@
 //! it, and the two talk over its standard input and output in frames.
 //!
 //! One thread reads frames and dispatches them, one writes answers in any
-//! order, two run searches, one opens indexes, and one writer thread runs per
-//! open index.
+//! order, two run searches, one opens, closes, and measures indexes, one
+//! waits for maintenance merges, and one writer thread runs per open index.
 
 mod analysis;
 mod collector;
@@ -11,6 +11,8 @@ mod directory;
 mod faults;
 mod frame;
 mod index;
+mod maintain;
+mod output;
 mod protocol;
 mod query;
 mod schema;
@@ -23,8 +25,8 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use index::OpenIndex;
-use protocol::{Answer, Done, ErrorCode, Hello, PROTOCOL, Request, Search};
+use index::{OpenIndex, Searching};
+use protocol::{Answer, Done, ErrorCode, Hello, Outgoing, PROTOCOL, Request, Search};
 
 // musl's own allocator built the index 2.4 times slower.
 #[global_allocator]
@@ -38,6 +40,7 @@ const BROKEN_FRAME: u8 = 3;
 type Indexes = Arc<RwLock<HashMap<u64, Arc<OpenIndex>>>>;
 
 fn main() -> ExitCode {
+    output::catch_panics();
     if std::env::args_os().len() > 1 {
         eprintln!("usage: mailarkiv-search (started by the MailArkiv server, takes no arguments)");
         return ExitCode::from(2);
@@ -49,6 +52,7 @@ fn main() -> ExitCode {
 
     let (answers, outgoing) = mpsc::channel();
     thread::spawn(move || write_answers(outgoing));
+    output::forward_logs(answers.clone());
 
     let indexes = Indexes::default();
     let (searches, search_jobs) = mpsc::channel();
@@ -58,11 +62,16 @@ fn main() -> ExitCode {
         let answers = answers.clone();
         thread::spawn(move || run_searches(&jobs, &answers));
     }
-    let (opens, open_jobs) = mpsc::channel();
+    let (maintenance, runs) = mpsc::channel();
+    {
+        let answers = answers.clone();
+        thread::spawn(move || maintain::run(runs, &answers));
+    }
+    let (control, control_jobs) = mpsc::channel();
     {
         let indexes = Arc::clone(&indexes);
         let answers = answers.clone();
-        thread::spawn(move || run_opens(open_jobs, &indexes, &answers));
+        thread::spawn(move || run_control(control_jobs, &indexes, &answers, &maintenance));
     }
 
     let mut input = io::stdin().lock();
@@ -85,8 +94,30 @@ fn main() -> ExitCode {
             Request::Open {
                 generation, create, ..
             } => {
-                let _ = opens.send((id, generation, create));
+                let _ = control.send(Control::Open {
+                    id,
+                    generation,
+                    create,
+                });
             }
+            Request::Close {
+                generation, delete, ..
+            } => {
+                let _ = control.send(Control::Close {
+                    id,
+                    generation,
+                    delete,
+                });
+            }
+            Request::Size { generation, .. } => {
+                let _ = control.send(Control::Size { id, generation });
+            }
+            Request::Maintain { generation, .. } => match open_index(generation) {
+                Some(index) => index.maintain(id),
+                None => {
+                    let _ = answers.send(unknown().into());
+                }
+            },
             Request::Index {
                 generation,
                 documents,
@@ -95,7 +126,7 @@ fn main() -> ExitCode {
             } => match open_index(generation) {
                 Some(index) => index.write(id, documents, commit),
                 None => {
-                    let _ = answers.send(unknown());
+                    let _ = answers.send(unknown().into());
                 }
             },
             Request::Search(search) => match open_index(search.generation) {
@@ -104,20 +135,20 @@ fn main() -> ExitCode {
                     let deadline = Instant::now() + Duration::from_millis(search.deadline_ms);
                     let _ = searches.send(SearchJob {
                         search,
-                        index,
+                        index: index.start_search(),
                         deadline,
                     });
                 }
                 None => {
-                    let _ = answers.send(unknown());
+                    let _ = answers.send(unknown().into());
                 }
             },
         }
     }
 }
 
-/// Sends the hello, then every answer as it comes.
-fn write_answers(answers: Receiver<Answer>) {
+/// Sends the hello, then every answer and log frame as it comes.
+fn write_answers(answers: Receiver<Outgoing>) {
     let mut output = BufWriter::new(io::stdout().lock());
     let hello = Hello {
         kind: "hello",
@@ -148,39 +179,91 @@ fn tantivy_version() -> String {
 
 struct SearchJob {
     search: Search,
-    index: Arc<OpenIndex>,
+    /// Counts as in progress until the job is dropped, after its answer.
+    index: Searching,
     deadline: Instant,
 }
 
-fn run_searches(jobs: &Mutex<Receiver<SearchJob>>, answers: &Sender<Answer>) {
+fn run_searches(jobs: &Mutex<Receiver<SearchJob>>, answers: &Sender<Outgoing>) {
     loop {
         let job = jobs.lock().unwrap().recv();
         let Ok(job) = job else { return };
         let id = job.search.id;
-        let answer = match query::search(&job.index, &job.search, job.deadline) {
+        let answer = match query::search(job.index.index(), &job.search, job.deadline) {
             Ok(done) => Answer::ok(id, done),
             Err(error) => Answer::error(id, error),
         };
-        if answers.send(answer).is_err() {
+        if answers.send(answer.into()).is_err() {
             return;
         }
     }
 }
 
-fn run_opens(jobs: Receiver<(u64, u64, bool)>, indexes: &Indexes, answers: &Sender<Answer>) {
-    for (id, generation, create) in jobs {
-        let answer = if indexes.read().unwrap().contains_key(&generation) {
-            Answer::ok(id, Done::Opened {})
-        } else {
-            match index::open(generation, create, answers.clone()) {
-                Ok(index) => {
-                    indexes.write().unwrap().insert(generation, Arc::new(index));
-                    Answer::ok(id, Done::Opened {})
+enum Control {
+    Open {
+        id: u64,
+        generation: u64,
+        create: bool,
+    },
+    Close {
+        id: u64,
+        generation: u64,
+        delete: bool,
+    },
+    Size {
+        id: u64,
+        generation: u64,
+    },
+}
+
+/// Opens, closes, and measures indexes, one request at a time, so a close
+/// can't pass an open of the same index.
+fn run_control(
+    jobs: Receiver<Control>,
+    indexes: &Indexes,
+    answers: &Sender<Outgoing>,
+    maintenance: &Sender<maintain::Run>,
+) {
+    for job in jobs {
+        let answer = match job {
+            Control::Open {
+                id,
+                generation,
+                create,
+            } => {
+                if indexes.read().unwrap().contains_key(&generation) {
+                    Answer::ok(id, Done::Empty {})
+                } else {
+                    match index::open(generation, create, answers.clone(), maintenance.clone()) {
+                        Ok(index) => {
+                            indexes.write().unwrap().insert(generation, Arc::new(index));
+                            Answer::ok(id, Done::Empty {})
+                        }
+                        Err(failure) => Answer::failed(id, failure),
+                    }
                 }
-                Err(failure) => Answer::failed(id, failure),
             }
+            Control::Close {
+                id,
+                generation,
+                delete,
+            } => {
+                // Requests that arrive from now on find no index.
+                let open = indexes.write().unwrap().remove(&generation);
+                if let Some(index) = open {
+                    index.close();
+                }
+                match delete.then(|| index::remove(generation)) {
+                    Some(Err(failure)) => Answer::failed(id, failure),
+                    _ => Answer::ok(id, Done::Empty {}),
+                }
+            }
+            Control::Size { id, generation } => match index::size(generation) {
+                Ok(bytes) => Answer::ok(id, Done::Sized { bytes }),
+                Err(failure) => Answer::failed(id, failure),
+            },
         };
-        if answers.send(answer).is_err() {
+        if answers.send(answer.into()).is_err() {
             return;
         }
     }
