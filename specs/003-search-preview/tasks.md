@@ -492,11 +492,11 @@ Writing these tasks exposed places where the plan's order or contracts don't hol
 
 **Purpose**: Operator documentation and the release checks.
 
-- [ ] T159 [P] Update `docs/OPERATIONS.md` for FR-051 and FR-052: how search matches (capital letters ignored, accents not, prefixes, one-character words, no phrases or operators), the 100-byte word limit, the 2,000-page limit, what it covers (attachment names, not contents; the first 2,000,000 bytes of each body; no attached messages' contents), and what the preview guarantees, including what loading images reveals and that they show as they are now. Where the index lives, that it holds message text and needs the data directory's protection, that backups can skip it, the automatic build, how to rebuild, stopping the server before deleting it and the recovery for an index that crashes the search process at each start, the disk thresholds, the search process and its restarts, the eight log categories, the processing bounds, `musl-tools` for building, and the supported size from T158
-- [ ] T160 [P] Update `README.md`: Slice 3 of 7 works, with search and preview
-- [ ] T161 Run quickstart scenarios 1 to 7 in [quickstart.md](quickstart.md) and record each result in the pull request. Scenario 7 needs `sudo`; if it can't run, say so and name the remaining risk
-- [ ] T162 Do a manual screen reader pass over search, results, the message view, the problem list, and the status screen, and fix what it finds
-- [ ] T163 Update [the plan's remaining risks](plan.md#remaining-risks) with CI's run time and anything T158, T161, or T162 found. Run `mise run check`, and report any check that couldn't run with the reason and remaining risk
+- [X] T159 [P] Update `docs/OPERATIONS.md` for FR-051 and FR-052: how search matches (capital letters ignored, accents not, prefixes, one-character words, no phrases or operators), the 100-byte word limit, the 2,000-page limit, what it covers (attachment names, not contents; the first 2,000,000 bytes of each body; no attached messages' contents), and what the preview guarantees, including what loading images reveals and that they show as they are now. Where the index lives, that it holds message text and needs the data directory's protection, that backups can skip it, the automatic build, how to rebuild, stopping the server before deleting it and the recovery for an index that crashes the search process at each start, the disk thresholds, the search process and its restarts, the eight log categories, the processing bounds, `musl-tools` for building, and the supported size from T158
+- [X] T160 [P] Update `README.md`: Slice 3 of 7 works, with search and preview
+- [X] T161 Run quickstart scenarios 1 to 7 in [quickstart.md](quickstart.md) and record each result in the pull request. Scenario 7 needs `sudo`; if it can't run, say so and name the remaining risk
+- [X] T162 Do a manual screen reader pass over search, results, the message view, the problem list, and the status screen, and fix what it finds
+- [X] T163 Update [the plan's remaining risks](plan.md#remaining-risks) with CI's run time and anything T158, T161, or T162 found. Run `mise run check`, and report any check that couldn't run with the reason and remaining risk
 
 ---
 

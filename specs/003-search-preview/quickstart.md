@@ -64,7 +64,7 @@ This scenario uses its own data directory, `.data/upgrade`, and doesn't need the
 
 Expected:
 
-- The server starts, and `.data/upgrade.log` shows migration 0003 and `search state` with `building`.
+- The server starts, and `.data/upgrade.log` shows `search state` with `building`, then `up_to_date`. Migrations write no log line.
 - The status screen shows Not processed yet counting down to 0, then Building, then Up to date.
 - Rows change from capture data to sender, subject, and date as messages are processed. The list's order changes to list date.
 - History and downloads show exactly what they showed before. `sha256sum` of every file under `blobs/` matches its name.
@@ -111,8 +111,10 @@ Expected:
 With the server running and imports going on:
 
 ```sh
-pkill -KILL -x mailarkiv-search
+pkill -KILL -f 'mailarkiv-search$'
 ```
+
+`pkill -x` can't match it, because Linux cuts process names to 15 characters.
 
 Expected:
 

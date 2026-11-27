@@ -229,8 +229,12 @@ Each step ends in behavior that tests can check and merges to `main` with `mise 
 - Search answers only the first 100,000 results of a query, a limit the spec doesn't set.
 - Repeated failures raise the problem count by each repeat, so a search process that fails for days shows a large count.
 - The last search and its results sit in the browser's session storage and history state until the tab closes.
-- The Rust release build took 6 minutes on 3 cores for a probe. CI's 30 minute limit may need raising once the crate is real.
-- Tantivy 0.27.0 hasn't been measured at size; the sizing test is the first measurement.
+- CI hasn't run this branch: `check.yml` runs on pull requests and `main`, and no pull request is open. Its run time, with the Rust release build that took 6 minutes on 3 cores for a probe, is unknown. Slice 2's runs took 4 to 5 minutes against a 30 minute limit.
+- At 5,000,000 messages every sizing target held, but a 2-character prefix search, which matches nearly every message, had a 95th percentile of 2.1 seconds. Larger archives haven't been measured.
+- After 5 crashes mark the index Needs rebuild, deleting it starts an automatic build that clears the mark, as the operator guide says. While that build runs, the status screen still shows Needs rebuild with indexing Stopped, then jumps to Available and Up to date. The state rules put Needs rebuild first; the screen should show Building.
+- The screen reader pass read Chromium's accessibility tree on a headless host. No real screen reader (NVDA, VoiceOver, or Orca) has read the new screens.
+- The low disk scenario wasn't run: it needs `sudo` to mount a small file system, and this host blocks unprivileged user namespaces. Tests cover pausing and resuming with an injected free-space reading, and the real reading matched `df`, but no test has filled a real file system.
+- The end-to-end suite has timing failures on a loaded host. In 3 runs of `mise run check` that reached them, `after a rejected sign-in, opening the edit form doesn't sign in` failed twice, once after the image host's 8-second `route.fetch()` delay was removed, and `Back from a result shows the same search, page, and results` failed once. Both passed every repeat on their own. CI may show them.
 - As in Slices 1 and 2, no check cuts power.
 
 ## Complexity Tracking
