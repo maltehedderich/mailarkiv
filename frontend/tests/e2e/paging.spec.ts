@@ -81,7 +81,7 @@ test("51 messages take two pages, newest first", async ({ page }) => {
   await expect(rows(page)).toHaveCount(50);
 });
 
-// DESIGN.md: the pager sits in the sticky header. A turn goes to the top of
+// The pager sits in the sticky header. A turn goes to the top of
 // the page, where the next one is.
 for (const width of [1280, 360]) {
   test(`at ${width} px the pager stays in view, scrolled and after a turn`, async ({

@@ -423,7 +423,7 @@ test.describe("the sources screens", () => {
   }
 });
 
-// DESIGN.md: beside the sidebar, rows take two lines up to 1040 px, so the
+// Beside the sidebar, rows take two lines up to 1040 px, so the
 // name has room. At 721 px one line used to leave the name no width at all.
 for (const width of [721, 1041]) {
   test(`at ${width} px beside the sidebar, a row shows its whole name`, async ({
@@ -467,7 +467,7 @@ for (const width of [721, 1041]) {
   });
 }
 
-// DESIGN.md: at 720 px and below a row stacks. The name keeps the whole width,
+// At 720 px and below a row stacks. The name keeps the whole width,
 // and the download sits beside the two lines under it. On a line of its own,
 // the download made each row 97 px tall at 360 px.
 test("at 360 px a stacked row gives the name the whole width", async ({
@@ -526,7 +526,7 @@ test("a page that didn't load shows the error page and loads again", async ({
   ).toBeFocused();
 });
 
-// DESIGN.md: a slow Try again says so and keeps focus, a second press sends
+// A slow Try again says so and keeps focus, a second press sends
 // nothing, and a failed one says when it tried. The list streams, so it
 // arrives after the load settles, and the press waits for the list.
 test("Try again sends one request, then says when it tried", async ({

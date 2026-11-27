@@ -440,7 +440,8 @@ for (const id of ["999", "abc"]) {
   });
 }
 
-// DESIGN.md: Try again's button goes when the data arrives, and focus stays.
+// Try again goes when the data arrives, so focus moves to Close and stays in
+// the drawer.
 test("Try again loads the history and keeps focus in the drawer", async ({
   page,
 }) => {
@@ -463,7 +464,7 @@ test("Try again loads the history and keeps focus in the drawer", async ({
 });
 
 // History shows long names in full. At 360 px nothing scrolls sideways.
-// DESIGN: Download stays in view on a long history.
+// The pinned footer keeps Download in view on a long history.
 test("at 360 px a long name fits, and Download stays in view", async ({
   page,
 }) => {

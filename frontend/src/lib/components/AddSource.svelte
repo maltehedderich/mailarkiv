@@ -38,7 +38,9 @@
   import UntrustedText from "./UntrustedText.svelte";
 
   // Adds a source in two steps over the Sources list: sign in to the mailbox,
-  // then name it and choose its folders. Each opening starts empty.
+  // then name it and choose its folders. Each opening starts empty. A drawer,
+  // not a page, keeps the list in view, and a long folder list scrolls
+  // under a pinned Save.
 
   let {
     open,
@@ -178,6 +180,8 @@
     close();
   }
 
+  // A stray click on the scrim mustn't throw away what was typed, so an
+  // edited form asks first.
   function close() {
     if (busy === "save") return;
     if (dirty) discardDialog.open(() => dialog.close());
@@ -221,7 +225,7 @@
       ?.focus();
   }
 
-  /** Shows the outcome below the fields, where it appeared. */
+  /** Shows the outcome after the fields, so they never move, and scrolls it into view. */
   async function show(next: Outcome) {
     outcome = next;
     await tick();
@@ -442,6 +446,8 @@
               Change details
             </button>
           </div>
+          <!-- Name belongs here, not in step one, because Connect doesn't
+               send it. Step one holds only what the check signs in with. -->
           <FormField
             label="Name"
             bind:value={name}

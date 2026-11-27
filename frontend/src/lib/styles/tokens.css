@@ -151,6 +151,7 @@
     --state-bad-text: oklch(0.76 0.13 25);
     --state-bad-fill: oklch(0.7 0.17 25 / 0.16);
 
+    /* Dark surfaces lighten as they rise, so the panel needs only its edge. */
     --shadow-panel: 0 0 0 1px var(--line);
     --shadow-pop:
       0 0 0 1px var(--line-strong), 0 16px 48px -8px oklch(0 0 0 / 0.65);

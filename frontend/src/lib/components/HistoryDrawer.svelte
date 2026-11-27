@@ -321,7 +321,8 @@
     scroll-padding-bottom: var(--toast-room, 0px);
   }
 
-  /* The message's facts: a label column beside the values, as on Status. */
+  /* The message's facts: a label column beside the values, as on Status,
+     but 96 px instead of 136, so values keep their width in the drawer. */
   .facts {
     display: grid;
     gap: var(--space-12);
@@ -487,7 +488,7 @@
     flex: none;
   }
 
-  /* DESIGN.md: each label moves above its value. */
+  /* Each label moves above its value. */
   @media (max-width: 720px) {
     .facts > div {
       grid-template-columns: minmax(0, 1fr);

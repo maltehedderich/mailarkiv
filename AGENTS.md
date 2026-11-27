@@ -6,7 +6,7 @@ Read [the engineering constitution](.specify/memory/constitution.md) before plan
 
 ## Frontend design
 
-Read [the design guide](frontend/DESIGN.md) before you build or change a screen. Exact values live in [the tokens](frontend/src/lib/styles/tokens.css).
+Read [the design guide](frontend/DESIGN.md) before you build or change a screen. Exact values live in [the tokens](frontend/src/lib/styles/tokens.css). A screen's own layout and measurements live in its code, not in the guide.
 
 ## Required checks
 

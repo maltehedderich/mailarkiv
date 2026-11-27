@@ -173,7 +173,8 @@
   }
 
   /* As tall as a view header and inset like the panel, so the logo lines up
-     with the view title. */
+     with the view title. Both are whole pixels, which keeps the logo's
+     small tile and grip sharp. */
   .brand {
     display: flex;
     flex: none;
@@ -212,6 +213,8 @@
     transition: none;
   }
 
+  /* --text-3 on this fill falls just under 4.5:1 in light mode, so text
+     here uses --text-2 or stronger. */
   .item[aria-current="page"] {
     background: var(--fill-3);
     color: var(--text-1);
@@ -221,7 +224,9 @@
     color: var(--text-1);
   }
 
-  /* The problem count on the Status item. */
+  /* The problem count on the Status item. Its red on red stays above 4.5:1
+     over the hover and current fills too, so re-measure if any of them
+     changes. */
   .count {
     display: inline-flex;
     align-items: center;
@@ -263,7 +268,7 @@
     box-shadow: var(--shadow-panel);
   }
 
-  /* DESIGN.md: the sidebar becomes a bottom bar of tabs, icon over label, and
+  /* The sidebar becomes a bottom bar of tabs, icon over label, and
      the panel takes the whole width above it. */
   @media (max-width: 720px) {
     .shell {

@@ -9,7 +9,7 @@ import { CATEGORIES } from "#lib/status/categories.js";
 
 import type { Toast } from "./store.svelte";
 
-/** DESIGN.md's dot colour for each state. */
+/** The dot colour for each state. */
 export type Tone = "ok" | "neutral" | "warn" | "bad";
 
 export interface ToastWords {

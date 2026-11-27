@@ -370,7 +370,7 @@
     margin: calc((var(--leading-body) - var(--control-height)) / 2) 0;
   }
 
-  /* DESIGN.md: full width above the bottom tab bar, like the sign-out line. */
+  /* Full width above the bottom tab bar, like the sign-out line. */
   @media (max-width: 720px) {
     .toasts.page {
       right: var(--space-16);

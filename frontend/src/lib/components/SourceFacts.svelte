@@ -70,6 +70,8 @@
     </dd>
   </div>
   <div>
+    <!-- The syncing state's verb, as in "Archived 120 of 4,500 found", so
+         one act has one word. -->
     <dt>Archived</dt>
     <dd>
       {numbers.format(source.collected)}
