@@ -347,8 +347,11 @@
       padding: 0;
     }
 
+    /* The transparent border is the edge forced colours paint, since they
+       remove the shadow. */
     .sign-out .problem:not(:empty) {
       padding: var(--space-8) var(--space-12);
+      border: 1px solid transparent;
       border-radius: var(--radius-medium);
       background: var(--raised);
       box-shadow: var(--shadow-pop);

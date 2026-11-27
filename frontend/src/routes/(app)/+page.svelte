@@ -258,8 +258,8 @@
     {:else}
       <div class="table">
         <p class="heads" aria-hidden="true">
-          <span>File name</span>
-          <span>Imported</span>
+          <span>Latest entry</span>
+          <span>Recorded</span>
           <span class="right">Size</span>
           <span>Hash</span>
         </p>

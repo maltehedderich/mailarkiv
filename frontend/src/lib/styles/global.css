@@ -216,7 +216,10 @@ dialog.drawer {
   max-height: none;
   margin: 0;
   padding: 0;
+  /* Forced colours remove the shadow, so this transparent edge is what
+     they paint where the drawer meets the page. */
   border: 0;
+  border-left: 1px solid transparent;
   border-radius: var(--radius-large) 0 0 var(--radius-large);
   background: var(--raised);
   box-shadow: var(--shadow-pop);
