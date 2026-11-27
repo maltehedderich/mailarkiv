@@ -9,7 +9,11 @@ import {
 } from "@playwright/test";
 
 import { importRead, readMail, type MailFile } from "./support/archive";
-import { startImageHost, type ImageHost } from "./support/imagehost";
+import {
+  IMAGE_HOST_LAUNCH,
+  startImageHost,
+  type ImageHost,
+} from "./support/imagehost";
 import { startServer, type TestServer } from "./support/server";
 import { EMAIL, PASSWORD, signIn } from "./support/sources";
 
@@ -34,7 +38,7 @@ declare global {
   }
 }
 
-test.use({ ignoreHTTPSErrors: true });
+test.use({ ignoreHTTPSErrors: true, launchOptions: IMAGE_HOST_LAUNCH });
 
 let server: TestServer;
 let host: ImageHost;
