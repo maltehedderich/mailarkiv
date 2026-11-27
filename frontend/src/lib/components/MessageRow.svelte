@@ -76,10 +76,12 @@
   {/if}
   <!-- The column heads are hidden from screen readers, so values that don't
        name themselves carry their head. The mark keeps its space in every
-       row, so the dates line up. -->
+       row, so the dates line up. Its title is for the pointer only: the time
+       already says Archive time to screen readers. -->
   <span class="date"
     ><span
       class="mark"
+      aria-hidden="true"
       title={message.listDateIsArchiveTime ? "Archive time" : undefined}
       >{#if message.listDateIsArchiveTime}<ArchiveIcon />{/if}</span
     ><time datetime={message.listDate}
