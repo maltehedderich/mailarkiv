@@ -13,9 +13,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check:
+  # Each part runs on its own runner. On one 4-core runner the suites slowed
+  # each other down until timing-bound tests failed.
+  part:
+    name: ${{ matrix.part }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # Together these are the tasks of `mise run check`.
+        include:
+          - part: static
+            tasks: "lint ::: typecheck ::: audit"
+          - part: unit
+            tasks: "search:test ::: frontend:test"
+          - part: server
+            tasks: server:test
+          - part: e2e
+            tasks: test:e2e
     steps:
       - uses: actions/checkout@v7
         with:
@@ -30,9 +46,10 @@ jobs:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
-          key: go-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mise.lock', 'go.sum') }}-${{ github.sha }}
+          key: go-${{ runner.os }}-${{ runner.arch }}-${{ matrix.part }}-${{ hashFiles('mise.lock', 'go.sum') }}-${{ github.sha }}
           restore-keys: |
-            go-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mise.lock', 'go.sum') }}-
+            go-${{ runner.os }}-${{ runner.arch }}-${{ matrix.part }}-${{ hashFiles('mise.lock', 'go.sum') }}-
+            go-${{ runner.os }}-${{ runner.arch }}-${{ matrix.part }}-
             go-${{ runner.os }}-${{ runner.arch }}-
       # mise leaves CARGO_HOME at its default, ~/.cargo.
       - name: Cache the cargo registry and search program builds
@@ -41,12 +58,25 @@ jobs:
           path: |
             ~/.cargo/registry
             mailarkiv-search/target
-          key: cargo-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mise.lock', 'mailarkiv-search/Cargo.lock') }}-${{ github.sha }}
+          key: cargo-${{ runner.os }}-${{ runner.arch }}-${{ matrix.part }}-${{ hashFiles('mise.lock', 'mailarkiv-search/Cargo.lock') }}-${{ github.sha }}
           restore-keys: |
-            cargo-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mise.lock', 'mailarkiv-search/Cargo.lock') }}-
+            cargo-${{ runner.os }}-${{ runner.arch }}-${{ matrix.part }}-${{ hashFiles('mise.lock', 'mailarkiv-search/Cargo.lock') }}-
+            cargo-${{ runner.os }}-${{ runner.arch }}-${{ matrix.part }}-
             cargo-${{ runner.os }}-${{ runner.arch }}-
       - run: mise run setup
       - name: Install the browser's system libraries
+        if: matrix.part == 'e2e'
         working-directory: frontend
         run: bunx playwright install-deps chromium
-      - run: mise run check
+      - run: mise run ${{ matrix.tasks }}
+
+  # The main branch ruleset requires a check named check.
+  check:
+    needs: part
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every part to pass
+        env:
+          RESULT: ${{ needs.part.result }}
+        run: test "$RESULT" = success

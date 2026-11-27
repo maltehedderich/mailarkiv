@@ -159,6 +159,8 @@ run = [
 description = "Run the full test suite"
 depends = ["search:test", "server:test", "frontend:test", "test:e2e"]
 
+# CI splits these tasks across runners in .github/workflows/check.yml. A task
+# added here must be added to a part there too.
 [tasks.check]
 description = "Run everything CI gates on"
 depends = ["lint", "typecheck", "test", "audit"]
