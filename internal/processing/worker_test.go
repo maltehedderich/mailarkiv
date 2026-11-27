@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 	"syscall"
@@ -72,6 +73,9 @@ func TestWorkerRead(t *testing.T) {
 // A worker reads only what arrives on standard input, so a hostile message
 // has no file or connection to reach.
 func TestWorkerOpensNoFile(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("reads the worker's descriptors from /proc, which only Linux has")
+	}
 	logger, _ := newLogger()
 	pool := newTestPool(t, 1, logger)
 	readThrough(t, pool, plainFixture(t, "attachment.eml"), true)

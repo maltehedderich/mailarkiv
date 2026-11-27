@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -113,7 +112,7 @@ func (p *Pool) start() (*worker, error) {
 	cmd.Stdin, cmd.Stdout = childIn, childOut
 	// Standard error goes nowhere: a crash report could quote the message.
 	cmd.Stderr = nil
-	cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGKILL}
+	cmd.SysProcAttr = workerProcAttr()
 	err = cmd.Start()
 	childIn.Close()
 	childOut.Close()

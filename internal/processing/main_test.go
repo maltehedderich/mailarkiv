@@ -32,7 +32,8 @@ func TestMain(m *testing.M) {
 // close-on-exec, and every child gets those, so a worker would hold files the
 // pool never gave it.
 func markInheritedCloseOnExec() error {
-	entries, err := os.ReadDir("/proc/self/fd")
+	// /dev/fd lists this process's descriptors on Linux and macOS.
+	entries, err := os.ReadDir("/dev/fd")
 	if err != nil {
 		return fmt.Errorf("list inherited descriptors: %w", err)
 	}
