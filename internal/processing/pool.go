@@ -14,11 +14,25 @@ import (
 	"time"
 )
 
+// MessageLimit is the most time a worker may spend on one message. The
+// bounds on parts and depth keep real mail far below it.
+const MessageLimit = 60 * time.Second
+
+// The pools' sizes. Processing and indexing share the background pool, and
+// the message view gets its own, so neither waits for the other.
+const (
+	BackgroundWorkers  = 2
+	InteractiveWorkers = 2
+	// InteractiveWait is how long a view waits for an interactive worker.
+	InteractiveWait = 30 * time.Second
+)
+
 // Pool keeps a fixed number of long-lived workers and hands each request to
 // an idle one. A worker that exits is started again. Pool is safe for
 // concurrent use.
 type Pool struct {
 	command func() *exec.Cmd
+	limit   time.Duration
 	logger  *slog.Logger
 	idle    chan *worker
 
@@ -30,10 +44,13 @@ type Pool struct {
 // errPoolClosed means the server is stopping.
 var errPoolClosed = errors.New("the worker pool is closed")
 
-// WorkerStoppedError means a worker exited before it answered.
+// WorkerStoppedError means a worker exited before it answered, or was killed
+// at the limit.
 type WorkerStoppedError struct {
 	// Exit is the worker's exit status or signal, as the log shows it.
 	Exit string
+	// TookTooLong is true when the pool killed the worker at the limit.
+	TookTooLong bool
 }
 
 func (e *WorkerStoppedError) Error() string { return "the worker stopped: " + e.Exit }
@@ -51,9 +68,13 @@ func WorkerCommand(executable string) func() *exec.Cmd {
 	}
 }
 
-// NewPool starts size workers, each from command.
-func NewPool(size int, command func() *exec.Cmd, logger *slog.Logger) (*Pool, error) {
-	p := &Pool{command: command, logger: logger, idle: make(chan *worker, size), workers: make(map[*worker]bool)}
+// NewPool starts size workers, each from command. A worker that spends
+// longer than limit on one request is killed.
+func NewPool(size int, limit time.Duration, command func() *exec.Cmd, logger *slog.Logger) (*Pool, error) {
+	p := &Pool{
+		command: command, limit: limit, logger: logger,
+		idle: make(chan *worker, size), workers: make(map[*worker]bool),
+	}
 	for range size {
 		w, err := p.start()
 		if err != nil {
@@ -207,8 +228,8 @@ func (p *Pool) take(ctx context.Context) (*worker, error) {
 }
 
 // read sends one original of size bytes to a worker and returns its answer.
-// When ctx ends first, the worker is killed, so a message it is stuck on
-// can't hold it.
+// When the limit passes or ctx ends first, the worker is killed, so a message
+// it is stuck on can't hold it.
 func (p *Pool) read(ctx context.Context, original io.Reader, size int64, withText bool) (readAnswer, error) {
 	w, err := p.take(ctx)
 	if err != nil {
@@ -224,6 +245,8 @@ func (p *Pool) read(ctx context.Context, original io.Reader, size int64, withTex
 		r.err = w.exchange(workerRequest{Op: "read", Size: size, Text: withText}, original, &r.answer)
 		done <- r
 	}()
+	limit := time.NewTimer(p.limit)
+	defer limit.Stop()
 	select {
 	case r := <-done:
 		if r.err != nil {
@@ -242,6 +265,11 @@ func (p *Pool) read(ctx context.Context, original io.Reader, size int64, withTex
 		p.mu.Unlock()
 		p.idle <- w
 		return r.answer, nil
+	case <-limit.C:
+		w.stop()
+		<-done
+		go p.replace(w)
+		return readAnswer{}, &WorkerStoppedError{Exit: w.exitStatus(), TookTooLong: true}
 	case <-ctx.Done():
 		w.stop()
 		// The exchange ends once the worker is gone, and only then may the

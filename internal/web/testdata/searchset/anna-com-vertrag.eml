@@ -1,0 +1,18 @@
+From: anna@example.com
+To: bob@example.com
+Subject: Vertrag
+Date: Sun, 29 Mar 2026 00:15:00 +0100
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="mixed-boundary"
+
+--mixed-boundary
+Content-Type: text/plain; charset=utf-8
+
+Anbei das Dokument.
+--mixed-boundary
+Content-Type: application/pdf
+Content-Disposition: attachment; filename="Vertrag_2026.pdf"
+Content-Transfer-Encoding: base64
+
+JVBERi0xLjQKJSBzeW50aGV0aWMgY29udHJhY3QgZm9yIHRlc3RzCiUlRU9GCg==
+--mixed-boundary--

@@ -9,6 +9,7 @@ import {
   getSession,
   getStatus,
   listMessages,
+  listProcessingProblems,
   listSources,
   parseMessage,
   pauseSource,
@@ -122,6 +123,41 @@ describe("getSession", () => {
     ["a timeout", failing(timeout)],
   ])("%s is unavailable", async (_name, fetch) => {
     expect(await getSession(fetch)).toEqual({ kind: "unavailable" });
+  });
+});
+
+// The problem list takes the list's query and answers with its rows.
+describe("listProcessingProblems", () => {
+  test("asks for the page as typed", async () => {
+    const { fetch, calls } = answer(200, {
+      items: [],
+      page: 3,
+      page_size: 50,
+      total: 101,
+    });
+    expect(await listProcessingProblems("3", fetch)).toEqual({
+      kind: "ok",
+      value: { items: [], page: 3, pageSize: 50, total: 101 },
+    });
+    expect(calls[0].url).toBe("/api/processing-problems?page=3");
+  });
+
+  test("asks for no page when none is given", async () => {
+    const { fetch, calls } = answer(200, {
+      items: [],
+      page: 1,
+      page_size: 50,
+      total: 0,
+    });
+    await listProcessingProblems(null, fetch);
+    expect(calls[0].url).toBe("/api/processing-problems");
+  });
+
+  test("a marked 401 means the session ended", async () => {
+    const { fetch } = answer(401, { error: "no_session" });
+    expect(await listProcessingProblems(null, fetch)).toEqual({
+      kind: "session_ended",
+    });
   });
 });
 

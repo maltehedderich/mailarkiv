@@ -14,9 +14,25 @@ import (
 // refuses offsets past it.
 const MaxPage = 2000
 
-// Query is one search.
+// searchDeadline is when the search process stops a search. The call's own
+// limit is longer, so the process normally answers timed_out first.
+const searchDeadline = 10 * time.Second
+
+// Query is one search. Empty text, nil times, and a false HasAttachments are
+// no filter. Every word and filter must match.
 type Query struct {
 	Words string
+	// From matches senders, and To matches To, Cc, and Bcc: a complete
+	// address, a domain, or words.
+	From       string
+	To         string
+	Subject    string
+	Attachment string
+	// ListDateFrom keeps messages listed at or after it.
+	ListDateFrom *time.Time
+	// ListDateBefore keeps messages listed before it.
+	ListDateBefore *time.Time
+	HasAttachments bool
 	// Page counts from 1, with archive.PageSize rows on each.
 	Page int
 }
@@ -52,8 +68,26 @@ type searchRequest struct {
 	Op         string `json:"op"`
 	Generation int64  `json:"generation"`
 	Words      string `json:"words"`
-	Offset     int    `json:"offset"`
-	Limit      int    `json:"limit"`
+	From       string `json:"from"`
+	To         string `json:"to"`
+	Subject    string `json:"subject"`
+	Attachment string `json:"attachment"`
+	// Unix milliseconds, or null.
+	ListDateFrom   *int64 `json:"list_date_from"`
+	ListDateBefore *int64 `json:"list_date_before"`
+	HasAttachments bool   `json:"has_attachments"`
+	Offset         int    `json:"offset"`
+	Limit          int    `json:"limit"`
+	DeadlineMS     int64  `json:"deadline_ms"`
+}
+
+// unixMilli is t in Unix milliseconds, or nil.
+func unixMilli(t *time.Time) *int64 {
+	if t == nil {
+		return nil
+	}
+	ms := t.UnixMilli()
+	return &ms
 }
 
 type searchAnswer struct {
@@ -76,8 +110,12 @@ func (m *Module) Search(ctx context.Context, q Query) (Result, error) {
 	var answer searchAnswer
 	err = s.client.call(ctx, opstatus.OperationSearch, func(id int64) any {
 		return searchRequest{
-			ID: id, Op: "search", Generation: generationID, Words: q.Words,
-			Offset: (q.Page - 1) * archive.PageSize, Limit: archive.PageSize,
+			ID: id, Op: "search", Generation: generationID,
+			Words: q.Words, From: q.From, To: q.To, Subject: q.Subject, Attachment: q.Attachment,
+			ListDateFrom: unixMilli(q.ListDateFrom), ListDateBefore: unixMilli(q.ListDateBefore),
+			HasAttachments: q.HasAttachments,
+			Offset:         (q.Page - 1) * archive.PageSize, Limit: archive.PageSize,
+			DeadlineMS: searchDeadline.Milliseconds(),
 		}
 	}, &answer)
 	switch {

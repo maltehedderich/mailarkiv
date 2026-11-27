@@ -51,7 +51,8 @@ func newParser() *enmime.Parser {
 		enmime.DisableTextConversion(true),
 		// Trust a declared character set instead of guessing over it.
 		enmime.DisableCharacterDetection(true),
-		enmime.MaxMIMEParts(1000),
+		// scanParts keeps messages below this. It stays as a backstop.
+		enmime.MaxMIMEParts(maxParts),
 	)
 }
 
@@ -59,7 +60,8 @@ func newParser() *enmime.Parser {
 // problem on the message, and a header it can't read makes the message
 // Unreadable.
 func Read(original []byte) Message {
-	root, err := newParser().ReadParts(bytes.NewReader(withoutMboxFromLine(original)))
+	input, bounds := scanParts(withoutMboxFromLine(original))
+	root, err := newParser().ReadParts(bytes.NewReader(input))
 	if err != nil {
 		kind := MalformedHeader
 		if _, ok := errors.AsType[*enmime.TooManyPartsError](err); ok {
@@ -81,6 +83,9 @@ func Read(original []byte) Message {
 		m.HTML = body(html, &problems)
 	}
 	m.Attachments = attachments(leaves, plain, html, m.HTML)
+	for _, bound := range bounds {
+		problems.add(bound.Position, bound.DeclaredType, bound.Kind)
+	}
 	m.Problems = problems.items
 	return m
 }

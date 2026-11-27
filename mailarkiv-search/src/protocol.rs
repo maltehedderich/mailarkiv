@@ -50,13 +50,26 @@ impl Request {
     }
 }
 
+/// A search. Empty text, null dates, and a false `has_attachments` are no
+/// filter.
 #[derive(Deserialize)]
 pub struct Search {
     pub id: u64,
     pub generation: u64,
     pub words: String,
+    pub from: String,
+    /// Matches To, Cc, and Bcc.
+    pub to: String,
+    pub subject: String,
+    pub attachment: String,
+    /// Unix milliseconds. Messages whose list date is at or after it.
+    pub list_date_from: Option<i64>,
+    /// Unix milliseconds. Messages whose list date is before it.
+    pub list_date_before: Option<i64>,
+    pub has_attachments: bool,
     pub offset: u64,
     pub limit: u64,
+    pub deadline_ms: u64,
 }
 
 /// One message's index document.
@@ -130,6 +143,7 @@ pub enum ErrorCode {
     SchemaMismatch,
     WriteFailed,
     UnknownGeneration,
+    TimedOut,
 }
 
 /// Why a write failed.

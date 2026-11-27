@@ -1,0 +1,18 @@
+From: Jan Ott <jan@example.test>
+To: team@example.test
+Subject: Entwurf
+Date: Mon, 26 Oct 2026 18:00:00 +0100
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="mixed-boundary"
+
+--mixed-boundary
+Content-Type: text/plain; charset=utf-8
+
+Der Vertragsentwurf liegt bei.
+--mixed-boundary
+Content-Type: text/csv
+Content-Disposition: attachment; filename="Notizen.csv"
+Content-Transfer-Encoding: base64
+
+U3BhbHRlLFdlcnQK
+--mixed-boundary--

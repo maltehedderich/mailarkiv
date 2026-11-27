@@ -25,21 +25,30 @@ fn words_analyzer() -> TextAnalyzer {
         .build()
 }
 
+fn whole_analyzer() -> TextAnalyzer {
+    TextAnalyzer::builder(RawTokenizer::default())
+        .filter(LowerCaser)
+        .build()
+}
+
 /// Registers both analyzers on index, which must happen before the index
 /// is written or searched.
 pub fn register(index: &Index) {
     index.tokenizers().register(WORDS, words_analyzer());
-    index.tokenizers().register(
-        WHOLE,
-        TextAnalyzer::builder(RawTokenizer::default())
-            .filter(LowerCaser)
-            .build(),
-    );
+    index.tokenizers().register(WHOLE, whole_analyzer());
 }
 
 /// The terms words gives, in order.
 pub fn words(text: &str) -> Vec<String> {
-    let mut analyzer = words_analyzer();
+    terms(words_analyzer(), text)
+}
+
+/// The one term the whole value gives.
+pub fn whole(text: &str) -> String {
+    terms(whole_analyzer(), text).concat()
+}
+
+fn terms(mut analyzer: TextAnalyzer, text: &str) -> Vec<String> {
     let mut stream = analyzer.token_stream(text);
     let mut terms = Vec::new();
     stream.process(&mut |token| terms.push(token.text.clone()));

@@ -165,6 +165,51 @@ func (a *Archive) CountNotProcessed(ctx context.Context) (int, error) {
 	return count, nil
 }
 
+// ProcessingCounts is how many messages wait for processing and how many it
+// found problems in.
+type ProcessingCounts struct {
+	NotProcessed          int
+	ProcessedWithProblems int
+	Unreadable            int
+}
+
+// ProcessingCounts counts the messages in each state the status screen shows.
+func (a *Archive) ProcessingCounts(ctx context.Context) (ProcessingCounts, error) {
+	var counts ProcessingCounts
+	// processed_seq has no gaps, so the highest value counts the processed
+	// messages without a scan. Both counts come from one snapshot.
+	err := sqlitedb.InTx(ctx, a.db.Reader, func(tx *sql.Tx) error {
+		if err := tx.QueryRowContext(ctx,
+			"SELECT COUNT(*) - COALESCE(MAX(processed_seq), 0) FROM message").Scan(&counts.NotProcessed); err != nil {
+			return err
+		}
+		rows, err := tx.QueryContext(ctx,
+			"SELECT m.processing_state, COUNT(*) FROM message m WHERE "+withProblems+" GROUP BY m.processing_state")
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var state string
+			var n int
+			if err := rows.Scan(&state, &n); err != nil {
+				return err
+			}
+			switch state {
+			case ProcessedWithProblems.name:
+				counts.ProcessedWithProblems = n
+			case Unreadable.name:
+				counts.Unreadable = n
+			}
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		return ProcessingCounts{}, fmt.Errorf("count messages by processing state: %w", err)
+	}
+	return counts, nil
+}
+
 // HighestProcessedSeq returns the highest processed_seq, or 0 when no message
 // is processed.
 func (a *Archive) HighestProcessedSeq(ctx context.Context) (int64, error) {

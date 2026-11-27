@@ -101,9 +101,18 @@ func New(config Config) *Module {
 	return m
 }
 
+// faultsVariable holds the fault list that the search program's test build
+// reads. Release builds ignore it.
+const faultsVariable = "MAILARKIV_SEARCH_FAULTS"
+
+// programCommand starts the program with an empty environment, except for
+// the fault list when the server's environment sets one.
 func (m *Module) programCommand() *exec.Cmd {
 	cmd := exec.Command(m.config.Program)
 	cmd.Env = []string{}
+	if faults, set := os.LookupEnv(faultsVariable); set {
+		cmd.Env = append(cmd.Env, faultsVariable+"="+faults)
+	}
 	return cmd
 }
 

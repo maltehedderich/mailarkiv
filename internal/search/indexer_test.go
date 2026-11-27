@@ -107,7 +107,7 @@ func TestBatchesCommitWhenTheQueueIsEmpty(t *testing.T) {
 
 func TestUnreadableMessageGetsNoDocument(t *testing.T) {
 	f := newFixture(t, searchProgram(t))
-	unreadable := f.importBytes(tooManyParts())
+	unreadable := f.collectBytes(unreadableMessage())
 	plan := f.importFixture("plain-text.eml")
 	f.runProcessing()
 	f.waitForProcessed(2)

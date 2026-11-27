@@ -58,6 +58,7 @@ func Routes() []Route {
 		{Method: http.MethodDelete, Path: "/api/session", Access: SignedIn, Handler: signOut},
 		{Method: http.MethodPost, Path: "/api/imports", Access: SignedIn, Handler: importFile},
 		{Method: http.MethodGet, Path: "/api/messages", Access: SignedIn, Handler: listMessages},
+		{Method: http.MethodGet, Path: "/api/processing-problems", Access: SignedIn, Handler: listProcessingProblems},
 		{Method: http.MethodGet, Path: "/api/messages/{id}", Access: SignedIn, Handler: readHistory},
 		{Method: http.MethodPost, Path: "/api/search", Access: SignedIn, Handler: searchMessages},
 		{Method: http.MethodGet, Path: "/api/messages/{id}/original", Access: SignedIn, Handler: downloadOriginal, NoSession: redirectToSignIn},

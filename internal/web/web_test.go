@@ -82,6 +82,8 @@ type harness struct {
 	clock     *fakeClock
 	collector *collect.Collector
 	search    *search.Module
+	// stopProcessing stops processing early, when a search program runs.
+	stopProcessing func()
 }
 
 // harnessOptions choose how the harness collects mail. The zero value has a
@@ -177,7 +179,7 @@ func (h *harness) openSearch(t *testing.T, program string) *search.Module {
 		Status: h.status, Logger: logger, Now: h.clock.Now,
 	}
 	if program != "" {
-		pool, err := processing.NewPool(2, testWorkerCommand, logger)
+		pool, err := processing.NewPool(processing.BackgroundWorkers, processing.MessageLimit, testWorkerCommand, logger)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -186,7 +188,7 @@ func (h *harness) openSearch(t *testing.T, program string) *search.Module {
 	}
 	h.search = search.New(config)
 	if program != "" {
-		background(t, config.Processor.Run)
+		h.stopProcessing = background(t, config.Processor.Run)
 		background(t, h.search.Run)
 	}
 	return h.search

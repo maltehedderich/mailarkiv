@@ -269,3 +269,27 @@ func childProcesses(t *testing.T, pid int) []childProcess {
 func isAlive(pid int) bool {
 	return !errors.Is(syscall.Kill(pid, 0), syscall.ESRCH)
 }
+
+// A new message is searchable within 60 s of its import, with nothing else
+// waiting, in each of 10 trials.
+func TestSearchableWithin60s(t *testing.T) {
+	dataDir := t.TempDir()
+	createAdmin(t, dataDir)
+	server := startServer(t, dataDir)
+	token := signInOverHTTP(t, server.baseURL, adminAddress)
+	server.waitForAllIndexed(token, "pruefwort", 0)
+
+	for trial := range 10 {
+		// Each word is a prefix of no other.
+		word := "pruefwort" + string(rune('a'+trial))
+		message := fmt.Sprintf("From: versuch@example.test\r\nSubject: Versuch %d\r\n"+
+			"Date: Fri, 06 Nov 2026 10:00:00 +0100\r\n\r\nDas Merkwort ist %s.\r\n", trial, word)
+		id := importFixture(t, server, token, []byte(message))
+		started := time.Now()
+		answer := server.waitForSearch(token, word)
+		if answer.Total != 1 || answer.Items[0].ID != id {
+			t.Fatalf("trial %d found %+v, want message %d", trial, answer.Items, id)
+		}
+		t.Logf("trial %d: found after %s", trial, time.Since(started).Round(time.Millisecond))
+	}
+}

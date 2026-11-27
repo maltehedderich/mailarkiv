@@ -9,6 +9,8 @@ export type SenderDisplay =
       name: DisplayText | null;
       /** Cut before its @, so the domain stays in view. */
       address: DisplayText | null;
+      /** Further From addresses, such as "and 2 more". Null when none. */
+      more: string | null;
     }
   | { kind: "missing"; text: string };
 
@@ -29,6 +31,8 @@ export function senderDisplay(sender: Sender | null): SenderDisplay {
     kind: "sender",
     name: name === null || sameAsAddress ? null : displayParts(name),
     address: address === null ? null : splitAddress(address),
+    more:
+      sender.more > 0 ? `and ${sender.more.toLocaleString("en")} more` : null,
   };
 }
 

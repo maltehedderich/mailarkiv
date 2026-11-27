@@ -141,8 +141,10 @@ type Server struct {
 	folders map[string]bool
 	// added holds what AddMessage put in each folder, in UID order, because
 	// the in-memory server returns bodies only to a session.
-	added       map[string][]addedMessage
-	faults      map[messageKey]Fault
+	added  map[string][]addedMessage
+	faults map[messageKey]Fault
+	// raw marks the messages AddRawMessage added, which the session serves.
+	raw         map[messageKey]bool
 	holds       map[messageKey]*Hold
 	bodyFetches map[messageKey]int
 	// floods holds, by command name, how many bytes of LIST replies to send
@@ -205,6 +207,7 @@ func New(options Options) (*Server, error) {
 		password:    options.Password,
 		folders:     map[string]bool{},
 		added:       map[string][]addedMessage{},
+		raw:         map[messageKey]bool{},
 		faults:      map[messageKey]Fault{},
 		holds:       map[messageKey]*Hold{},
 		bodyFetches: map[messageKey]int{},
@@ -433,6 +436,11 @@ func (s *Server) forgetFolder(folder string) {
 			delete(s.holds, key)
 		}
 	}
+	for key := range s.raw {
+		if key.folder == folder {
+			delete(s.raw, key)
+		}
+	}
 	for key := range s.bodyFetches {
 		if key.folder == folder {
 			delete(s.bodyFetches, key)
@@ -451,11 +459,26 @@ func (s *Server) AddMessage(folder string, body []byte, received time.Time) (ima
 	if !bytes.Equal(served, body) {
 		return 0, errors.New("imaptest: BODY[] would return other bytes than the body added")
 	}
+	return s.add(folder, body, body, received, false)
+}
+
+// AddRawMessage appends body to folder as AddMessage does, but takes bytes
+// the in-memory server would rewrite, such as a message that doesn't start
+// with a header. The double serves them itself, so a FETCH of the message
+// answers only UID, RFC822.SIZE, INTERNALDATE, and BODY[], as a faulted
+// message's does.
+func (s *Server) AddRawMessage(folder string, body []byte, received time.Time) (imap.UID, error) {
+	// The in-memory server keeps a stand-in, which gives the message its UID
+	// and flags.
+	return s.add(folder, []byte("Subject: stand-in\r\n\r\n"), body, received, true)
+}
+
+func (s *Server) add(folder string, stored, body []byte, received time.Time, raw bool) (imap.UID, error) {
 	if received.IsZero() {
 		received = time.Now()
 	}
 	received = received.Truncate(time.Second)
-	data, err := s.user.Append(folder, bytes.NewReader(body), &imap.AppendOptions{Time: received})
+	data, err := s.user.Append(folder, bytes.NewReader(stored), &imap.AppendOptions{Time: received})
 	if err != nil {
 		return 0, err
 	}
@@ -463,6 +486,9 @@ func (s *Server) AddMessage(folder string, body []byte, received time.Time) (ima
 	defer s.mu.Unlock()
 	folder = canonical(folder)
 	s.added[folder] = append(s.added[folder], addedMessage{uid: data.UID, body: bytes.Clone(body), received: received})
+	if raw {
+		s.raw[messageKey{folder, data.UID}] = true
+	}
 	return data.UID, nil
 }
 
@@ -507,6 +533,7 @@ func (s *Server) DeleteMessage(folder string, uid imap.UID) error {
 	s.added[key.folder] = slices.DeleteFunc(s.added[key.folder], func(m addedMessage) bool { return m.uid == uid })
 	delete(s.faults, key)
 	delete(s.holds, key)
+	delete(s.raw, key)
 	return nil
 }
 

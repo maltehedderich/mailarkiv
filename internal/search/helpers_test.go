@@ -73,6 +73,18 @@ func testWorkerCommand() *exec.Cmd {
 // searchProgram finds bin/mailarkiv-search from the repository root.
 func searchProgram(t *testing.T) string {
 	t.Helper()
+	return builtProgram(t, filepath.Join("bin", "mailarkiv-search"), "search:build")
+}
+
+// faultsSearchProgram finds the search program's build with fault points.
+func faultsSearchProgram(t *testing.T) string {
+	t.Helper()
+	return builtProgram(t, filepath.Join("bin", "faults", "mailarkiv-search"), "search:build:faults")
+}
+
+// builtProgram finds path from the repository root, which task builds.
+func builtProgram(t *testing.T, path, task string) string {
+	t.Helper()
 	dir, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
@@ -87,9 +99,9 @@ func searchProgram(t *testing.T) string {
 		}
 		dir = parent
 	}
-	program := filepath.Join(dir, "bin", "mailarkiv-search")
+	program := filepath.Join(dir, path)
 	if _, err := os.Stat(program); err != nil {
-		t.Fatalf("%s is missing: run mise run search:build", program)
+		t.Fatalf("%s is missing: run mise run %s", program, task)
 	}
 	return program
 }
@@ -128,7 +140,7 @@ func newFixture(t *testing.T, program string) *fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pool, err := processing.NewPool(2, testWorkerCommand, logger)
+	pool, err := processing.NewPool(processing.BackgroundWorkers, processing.MessageLimit, testWorkerCommand, logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -280,17 +292,35 @@ func plainFixture(t *testing.T, name string) []byte {
 	return original
 }
 
-// tooManyParts is a message with more parts than processing reads, so it
-// ends Unreadable.
-func tooManyParts() []byte {
-	var b strings.Builder
-	b.WriteString("From: anna@example.test\r\nSubject: Zerlegt\r\nMIME-Version: 1.0\r\n")
-	b.WriteString("Content-Type: multipart/mixed; boundary=\"b\"\r\n\r\n")
-	for range 1100 {
-		b.WriteString("--b\r\nContent-Type: text/plain\r\n\r\nTeilwort\r\n")
+// unreadableMessage doesn't start with a header line, so processing can't
+// read its header. An import refuses it, and collection keeps it.
+func unreadableMessage() []byte {
+	return []byte("Kein Kopf vor Teilwort\r\nFrom: anna@example.test\r\nSubject: Zerlegt\r\n\r\nTeilwort\r\n")
+}
+
+// collectBytes stores original as a source's folder returned it.
+func (f *fixture) collectBytes(original []byte) int64 {
+	f.t.Helper()
+	statements := []string{
+		`INSERT OR IGNORE INTO imap_source (id, name, host, port, security, user_name, user_key, sealed_password, created_at)
+		 VALUES (1, 'Anna', 'imap.example.test', 993, 'tls', 'anna@example.test', 'anna@example.test', x'00', 0)`,
+		`INSERT OR IGNORE INTO imap_folder (id, source_id, name, chosen) VALUES (1, 1, 'INBOX', 1)`,
 	}
-	b.WriteString("--b--\r\n")
-	return []byte(b.String())
+	for _, statement := range statements {
+		if _, err := f.db.Writer.Exec(statement); err != nil {
+			f.t.Fatal(err)
+		}
+	}
+	result, err := f.archive.StoreCollected(context.Background(), bytes.NewReader(original),
+		archive.CollectedMeta{SourceID: 1, FolderID: 1})
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	stored, ok := result.(archive.Stored)
+	if !ok {
+		f.t.Fatalf("collection gave %#v, want Stored", result)
+	}
+	return stored.Message.ID
 }
 
 type lockedBuffer struct {

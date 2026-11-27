@@ -25,6 +25,7 @@ describe("senderDisplay", () => {
         start: [{ kind: "text", text: "anna" }],
         end: [{ kind: "text", text: "@example.com" }],
       },
+      more: null,
     });
   });
 
@@ -110,6 +111,62 @@ describe("senderDisplay", () => {
           { kind: "code", text: "U+2066" },
           { kind: "text", text: "mple.com" },
         ],
+      },
+      more: null,
+    });
+  });
+
+  test("further addresses in From show as a count after the first", () => {
+    const shown = senderDisplay({
+      name: "Anna Schmidt",
+      address: "anna@example.com",
+      more: 2,
+    });
+    expect(shown).toMatchObject({
+      kind: "sender",
+      name: { text: "Anna Schmidt" },
+      address: { text: "anna@example.com" },
+      more: "and 2 more",
+    });
+    expect(
+      senderDisplay({ name: null, address: "anna@example.com", more: 1 }),
+    ).toMatchObject({ more: "and 1 more" });
+  });
+
+  // The name looks like an address, so only the parts' styles tell it from
+  // the real one, whose domain stays in the part that always shows.
+  test("a name that looks like an address stays apart from the address", () => {
+    expect(
+      senderDisplay({
+        name: "ceo@example.com",
+        address: "x@attacker.example",
+        more: 0,
+      }),
+    ).toEqual({
+      kind: "sender",
+      name: {
+        text: "ceo@example.com",
+        start: [{ kind: "text", text: "ceo@example.com" }],
+        end: [],
+      },
+      address: {
+        text: "x@attacker.example",
+        start: [{ kind: "text", text: "x" }],
+        end: [{ kind: "text", text: "@attacker.example" }],
+      },
+      more: null,
+    });
+  });
+
+  test("a 500-character name leaves the domain whole", () => {
+    const name = "Langername".repeat(50);
+    const shown = senderDisplay({ name, address: "lang@example.com", more: 0 });
+    expect(shown).toMatchObject({
+      kind: "sender",
+      name: { text: name, end: [] },
+      address: {
+        start: [{ kind: "text", text: "lang" }],
+        end: [{ kind: "text", text: "@example.com" }],
       },
     });
   });

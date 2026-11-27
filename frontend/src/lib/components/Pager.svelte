@@ -8,14 +8,37 @@
     page,
     pageSize,
     total,
-  }: { page: number; pageSize: number; total: number } = $props();
+    label,
+    maxPage = Infinity,
+    onturn,
+  }: {
+    page: number;
+    pageSize: number;
+    total: number;
+    /** The list's name, which starts the spoken range. */
+    label: string;
+    /** The last page the list can show, however many it holds. */
+    maxPage?: number;
+    /**
+     * Turns the page in the caller's state instead of the address. The
+     * arrows are then buttons, and the range is announced as it changes,
+     * because focus stays on the arrow.
+     */
+    onturn?: (page: number) => void;
+  } = $props();
 
   const numbers = new Intl.NumberFormat("en-US");
 
   const first = $derived(numbers.format((page - 1) * pageSize + 1));
   const last = $derived(numbers.format(Math.min(page * pageSize, total)));
   const all = $derived(numbers.format(total));
-  const lastPage = $derived(Math.max(1, Math.ceil(total / pageSize)));
+  const lastPage = $derived(
+    Math.min(Math.max(1, Math.ceil(total / pageSize)), maxPage),
+  );
+
+  function turn(to: number) {
+    if (to >= 1 && to <= lastPage && to !== page) onturn?.(to);
+  }
 
   /** This address with another page, keeping any other parameter. */
   function pageHref(number: number): string {
@@ -32,46 +55,69 @@
 <nav class="pager" aria-label="Pages">
   <!-- Screen readers may skip the dash, which would leave "1 50 of 7,000".
        The no-break space keeps "of" with the total when the range wraps. -->
-  <p class="range">
+  <p class="range" aria-live={onturn === undefined ? undefined : "polite"}>
     <span aria-hidden="true">{first}–{last} of&nbsp;{all}</span>
-    <span class="visually-hidden">Messages {first} to {last} of {all}</span>
+    <span class="visually-hidden">{label} {first} to {last} of {all}</span>
   </p>
   <div class="arrows">
-    {#if page > 1}
-      <a
+    {#if onturn !== undefined}
+      <!-- An end that is off keeps focus, so a run of presses on Next
+           doesn't drop focus to the page at the last one. -->
+      <button
         class="button ghost icon-only"
-        href={pageHref(page - 1)}
+        type="button"
         aria-label="Previous page"
+        aria-disabled={page > 1 ? undefined : "true"}
+        onclick={() => turn(page - 1)}
       >
         <PreviousIcon />
-      </a>
-    {:else}
-      <span
+      </button>
+      <button
         class="button ghost icon-only"
-        role="link"
-        aria-disabled="true"
-        aria-label="Previous page"
-      >
-        <PreviousIcon />
-      </span>
-    {/if}
-    {#if page < lastPage}
-      <a
-        class="button ghost icon-only"
-        href={pageHref(page + 1)}
+        type="button"
         aria-label="Next page"
+        aria-disabled={page < lastPage ? undefined : "true"}
+        onclick={() => turn(page + 1)}
       >
         <NextIcon />
-      </a>
+      </button>
     {:else}
-      <span
-        class="button ghost icon-only"
-        role="link"
-        aria-disabled="true"
-        aria-label="Next page"
-      >
-        <NextIcon />
-      </span>
+      {#if page > 1}
+        <a
+          class="button ghost icon-only"
+          href={pageHref(page - 1)}
+          aria-label="Previous page"
+        >
+          <PreviousIcon />
+        </a>
+      {:else}
+        <span
+          class="button ghost icon-only"
+          role="link"
+          aria-disabled="true"
+          aria-label="Previous page"
+        >
+          <PreviousIcon />
+        </span>
+      {/if}
+      {#if page < lastPage}
+        <a
+          class="button ghost icon-only"
+          href={pageHref(page + 1)}
+          aria-label="Next page"
+        >
+          <NextIcon />
+        </a>
+      {:else}
+        <span
+          class="button ghost icon-only"
+          role="link"
+          aria-disabled="true"
+          aria-label="Next page"
+        >
+          <NextIcon />
+        </span>
+      {/if}
     {/if}
   </div>
 </nav>

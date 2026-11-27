@@ -131,9 +131,12 @@ run = [
 
 # Go tests start the search program from bin/ and bin/faults/.
 [tasks."server:test"]
-description = "Run the Go tests with the race detector"
+description = "Run the Go tests with the race detector, then fuzz the boundary scanner for 10 seconds"
 depends = ["frontend:build", "search:build", "search:build:faults"]
-run = "go test -race ./..."
+run = [
+  "go test -race ./...",
+  "go test -run '^$' -fuzz FuzzBoundaryScanner -fuzztime 10s ./internal/mailparse",
+]
 
 [tasks."search:test"]
 description = "Run the search program's tests, with and without fault points"
@@ -149,7 +152,7 @@ run = "bunx vitest run"
 
 [tasks."test:e2e"]
 description = "Run the browser tests against the built binary and the test IMAP server"
-depends = ["build"]
+depends = ["build", "search:build:faults"]
 run = [
   "go build -o bin/imaptestserver ./internal/imaptest/cmd/imaptestserver",
   "cd frontend && bunx playwright test",

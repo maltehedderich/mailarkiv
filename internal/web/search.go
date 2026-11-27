@@ -31,50 +31,63 @@ type searchRequest struct {
 	Page           json.RawMessage `json:"page"`
 }
 
-// searchMessages answers POST /api/search. The words travel only in the body,
-// and neither they nor the body are logged.
+// parse checks every field and returns the search, or the names of the
+// fields that break their rules, in body order.
+func (request searchRequest) parse() (search.Query, []string) {
+	var query search.Query
+	var invalid []string
+	text := func(name string, raw json.RawMessage, into *string) {
+		value, ok := searchText(raw)
+		if !ok {
+			invalid = append(invalid, name)
+		}
+		*into = value
+	}
+	instant := func(name string, raw json.RawMessage, into **time.Time) {
+		value, ok := instantOrNull(raw)
+		if !ok {
+			invalid = append(invalid, name)
+		}
+		*into = value
+	}
+	text("words", request.Words, &query.Words)
+	text("from", request.From, &query.From)
+	text("to", request.To, &query.To)
+	text("subject", request.Subject, &query.Subject)
+	text("attachment", request.Attachment, &query.Attachment)
+	instant("list_date_from", request.ListDateFrom, &query.ListDateFrom)
+	instant("list_date_before", request.ListDateBefore, &query.ListDateBefore)
+	hasAttachments, ok := strictDecode[bool](request.HasAttachments)
+	if !ok {
+		invalid = append(invalid, "has_attachments")
+	}
+	query.HasAttachments = hasAttachments
+	page, ok := strictDecode[int](request.Page)
+	if !ok || page < 1 {
+		invalid = append(invalid, "page")
+	}
+	query.Page = page
+	return query, invalid
+}
+
+// searchMessages answers POST /api/search. The words and filters travel only
+// in the body, and neither they nor the body are logged.
 func searchMessages(s *server, w http.ResponseWriter, r *http.Request) {
 	request, ok := decodeBody[searchRequest](w, r, maxSearchBody)
 	if !ok {
 		return
 	}
-	var invalid []string
-	text := func(name string, raw json.RawMessage) string {
-		value, ok := searchText(raw)
-		if !ok {
-			invalid = append(invalid, name)
-		}
-		return value
-	}
-	instant := func(name string, raw json.RawMessage) {
-		if !isInstantOrNull(raw) {
-			invalid = append(invalid, name)
-		}
-	}
-	words := text("words", request.Words)
-	text("from", request.From)
-	text("to", request.To)
-	text("subject", request.Subject)
-	text("attachment", request.Attachment)
-	instant("list_date_from", request.ListDateFrom)
-	instant("list_date_before", request.ListDateBefore)
-	if _, ok := strictDecode[bool](request.HasAttachments); !ok {
-		invalid = append(invalid, "has_attachments")
-	}
-	page, ok := strictDecode[int](request.Page)
-	if !ok || page < 1 {
-		invalid = append(invalid, "page")
-	}
+	query, invalid := request.parse()
 	if len(invalid) > 0 {
 		writeInvalidFields(w, invalid)
 		return
 	}
-	if page > search.MaxPage {
+	if query.Page > search.MaxPage {
 		writeError(w, http.StatusBadRequest, "page_too_deep")
 		return
 	}
 
-	result, err := s.search.Search(r.Context(), search.Query{Words: words, Page: page})
+	result, err := s.search.Search(r.Context(), query)
 	if unavailable, ok := errors.AsType[*search.UnavailableError](err); ok {
 		var next *string
 		if unavailable.NextStartAt != nil {
@@ -112,7 +125,7 @@ func searchMessages(s *server, w http.ResponseWriter, r *http.Request) {
 		NotIncluded     int           `json:"not_included"`
 		FullList        bool          `json:"full_list"`
 		MayBeIncomplete bool          `json:"may_be_incomplete"`
-	}{items, page, archive.PageSize, result.Total, result.NotIncluded, result.FullList, false})
+	}{items, query.Page, archive.PageSize, result.Total, result.NotIncluded, result.FullList, false})
 }
 
 // strictDecode decodes a field that must be present and of type T. The JSON
@@ -133,16 +146,18 @@ func searchText(raw json.RawMessage) (string, bool) {
 	return value, ok && utf8.RuneCountInString(value) <= maxSearchText
 }
 
-// isInstantOrNull reports whether raw is null or an RFC 3339 time with a
-// zone.
-func isInstantOrNull(raw json.RawMessage) bool {
+// instantOrNull decodes null, or an RFC 3339 time with a zone.
+func instantOrNull(raw json.RawMessage) (*time.Time, bool) {
 	if string(raw) == "null" {
-		return true
+		return nil, true
 	}
 	value, ok := strictDecode[string](raw)
 	if !ok {
-		return false
+		return nil, false
 	}
-	_, err := time.Parse(time.RFC3339Nano, value)
-	return err == nil
+	instant, err := time.Parse(time.RFC3339Nano, value)
+	if err != nil {
+		return nil, false
+	}
+	return &instant, true
 }

@@ -1,29 +1,37 @@
 <script lang="ts">
   import { onDestroy, tick } from "svelte";
 
-  import { beforeNavigate, goto, refreshAll } from "$app/navigation";
+  import { beforeNavigate, goto, refreshAll, snapshot } from "$app/navigation";
   import { page } from "$app/state";
 
   import {
     getSession,
+    SEARCH_MAX_PAGE,
     searchMessages,
     type ApiResult,
-    type Message,
     type MessagePage,
+    type SearchPage,
+    type SearchQuery,
     type SearchResult,
   } from "#lib/api.js";
   import FailedLoad from "#lib/components/FailedLoad.svelte";
   import HistoryDrawer from "#lib/components/HistoryDrawer.svelte";
   import ImportBox from "#lib/components/ImportBox.svelte";
-  import MessageRow from "#lib/components/MessageRow.svelte";
-  import Pager from "#lib/components/Pager.svelte";
-  import { historyHref } from "#lib/history.js";
+  import ListHeader from "#lib/components/ListHeader.svelte";
+  import MessageTable from "#lib/components/MessageTable.svelte";
+  import ResultsHeader from "#lib/components/ResultsHeader.svelte";
+  import SearchForm from "#lib/components/SearchForm.svelte";
   import { choose } from "#lib/import/choose.js";
   import { isBusy, type ImportStep } from "#lib/import/step.js";
   import { upload } from "#lib/import/upload.js";
-  import { wordsSearch } from "#lib/search/form.js";
+  import { pastTheEndHref, wantedPage } from "#lib/list/pages.js";
+  import {
+    emptyForm,
+    filterCount,
+    readForm,
+    type SearchForm as Form,
+  } from "#lib/search/form.js";
   import { signInPath } from "#lib/session.js";
-  import { CATEGORIES } from "#lib/status/categories.js";
   import {
     dismissToast,
     IMPORT_KEY,
@@ -34,7 +42,7 @@
 
   let { data }: PageProps = $props();
 
-  let heading: HTMLHeadingElement;
+  let heading = $state<HTMLHeadingElement>();
   let mounted = true;
   onDestroy(() => {
     mounted = false;
@@ -84,7 +92,7 @@
       // purpose instead of falling to the page.
       if (before === "unavailable" && result.kind === "ok") {
         await tick();
-        if (document.activeElement === document.body) heading.focus();
+        if (document.activeElement === document.body) heading?.focus();
       }
     });
     return () => {
@@ -95,68 +103,91 @@
   // A search shows in place of the list. It lives only in this page's state,
   // never in its address, so the words stay out of the browser's history and
   // any proxy's log.
-  let words = $state("");
-  type Search = { result: SearchResult | null };
+  let form = $state<Form>(emptyForm());
+  let filtersOpen = $state(false);
+  /** Why the days can't be searched, from the last submit. */
+  let dayProblem = $state<string | null>(null);
+  type Search = {
+    /** What was submitted, at the page asked for. */
+    query: SearchQuery;
+    /** The answer for that page, or null while it loads. */
+    result: SearchResult | null;
+    /** The last page this search answered, kept while another loads. */
+    shown: SearchPage | null;
+  };
   let search = $state<Search | null>(null);
   /** Counts searches, so only the last one's answer shows. */
   let searches = 0;
 
-  async function runSearch(event: SubmitEvent) {
-    event.preventDefault();
+  async function runSearch(query: SearchQuery, shown: SearchPage | null) {
     const run = ++searches;
-    const wanted = words.trim();
-    if (wanted === "") {
-      search = null;
-      return;
-    }
-    search = { result: null };
-    const result = await searchMessages(wordsSearch(wanted));
+    search = { query, result: null, shown };
+    const result = await searchMessages(query);
     if (run !== searches || !mounted) return;
     if (result.kind === "session_ended") {
       await goto(signInPath(page.url));
       return;
     }
-    search = { result };
+    search = {
+      query,
+      result,
+      shown: result.kind === "ok" ? result.value : shown,
+    };
+  }
+
+  function submitSearch() {
+    const reading = readForm(form);
+    dayProblem = reading.kind === "invalid" ? reading.problem : null;
+    if (reading.kind === "invalid") return;
+    if (reading.kind === "list") {
+      searches++;
+      search = null;
+      return;
+    }
+    void runSearch(reading.query, null);
+  }
+
+  // A turn keeps what was submitted, not what the form holds now.
+  function turnSearch(to: number) {
+    if (search === null) return;
+    window.scrollTo({ top: 0 });
+    void runSearch({ ...search.query, page: to }, search.shown);
   }
 
   function clearSearch() {
     searches++;
-    words = "";
+    form = emptyForm();
+    dayProblem = null;
     search = null;
   }
 
-  const counts = new Intl.NumberFormat("en-US");
+  const canClear = $derived(
+    search !== null ||
+      dayProblem !== null ||
+      form.words !== "" ||
+      filterCount(form) > 0,
+  );
 
-  function plural(count: number, one: string, many: string): string {
-    return `${counts.format(count)} ${count === 1 ? one : many}`;
-  }
-
-  /** The line that says how the search went, read out as it changes. */
-  const outcome = $derived.by(() => {
-    const result = search?.result;
-    if (result === undefined || result === null) return "";
-    switch (result.kind) {
-      case "ok": {
-        const { total, notIncluded, fullList } = result.value;
-        const found = fullList
-          ? "These words have nothing to search for, so this is the whole list."
-          : total === 0
-            ? "No messages match."
-            : `${plural(total, "message matches", "messages match")}.`;
-        if (notIncluded === 0) return found;
-        return `${found} ${plural(notIncluded, "message isn't", "messages aren't")} included yet, because processing or indexing hasn't reached them.`;
+  // Back to this page, from another page or a message's history, shows the
+  // same search without asking again. SvelteKit keeps this in the tab's
+  // session storage.
+  snapshot({
+    capture: () => ({
+      form: $state.snapshot(form),
+      filtersOpen,
+      search: $state.snapshot(search),
+    }),
+    restore: (value) => {
+      searches++;
+      form = value.form;
+      filtersOpen = value.filtersOpen;
+      dayProblem = null;
+      search = value.search;
+      // Left before the answer came, so ask again.
+      if (value.search !== null && value.search.result === null) {
+        void runSearch(value.search.query, value.search.shown);
       }
-      case "search_took_too_long":
-        return "This search took too long. Add words or filters.";
-      case "search_unavailable":
-        return `Search is unavailable: ${CATEGORIES[result.cause].name}. The list and downloads still work.`;
-      case "search_did_not_answer":
-        return "Search didn't answer. Try again.";
-      case "invalid_fields":
-        return "Search words can be at most 1,000 characters.";
-      default:
-        return "Search didn't finish. Try again.";
-    }
+    },
   });
 
   // The list streams, so the load settles before the list arrives. Try again
@@ -166,51 +197,54 @@
     await data.messages;
   }
 
-  /**
-   * A page past the end, from an old link or a typed address, moves back.
-   * Page 1 has no parameter, as in the pager's links.
-   */
-  async function movePastTheEnd({ items, total, pageSize }: MessagePage) {
-    if (items.length > 0 || total === 0) return;
-    const url = new URL(page.url.href);
-    const last = Math.ceil(total / pageSize);
-    if (last === 1) url.searchParams.delete("page");
-    else url.searchParams.set("page", String(last));
-    await goto(url.pathname + url.search, { replace: true });
+  async function movePastTheEnd(value: MessagePage) {
+    const href = pastTheEndHref(page.url, value);
+    if (href !== null) await goto(href, { replace: true });
   }
 
-  /** The page the address asks for, or null for a value the server refuses. */
-  const wanted = $derived(
-    data.pageParam === null
-      ? 1
-      : /^[1-9]\d*$/.test(data.pageParam)
-        ? Number(data.pageParam)
-        : null,
-  );
+  const wanted = $derived(wantedPage(data.pageParam));
 
   // SvelteKit announces the title after each navigation, and only when it
   // changes, so the page number makes Previous and Next heard. It comes from
   // the address, because the list may still be loading when the title is read.
-  const title = $derived(
-    wanted !== null && wanted > 1
+  const title = $derived.by(() => {
+    if (search !== null) {
+      return search.query.page > 1
+        ? `Search results, page ${search.query.page}`
+        : "Search results";
+    }
+    return wanted !== null && wanted > 1
       ? `Messages, page ${data.pageParam}`
-      : "Messages",
-  );
+      : "Messages";
+  });
+
+  // A search pages in this page's state, so its page stays out of the
+  // address. The range shows the page asked for at once, from the last total.
+  const searchPager = $derived.by(() => {
+    if (search === null || search.shown === null) return null;
+    const { pageSize, total } = search.shown;
+    if (total === 0) return null;
+    return {
+      page: search.query.page,
+      pageSize,
+      total,
+      label: "Search results",
+      maxPage: SEARCH_MAX_PAGE,
+      onturn: turnSearch,
+    };
+  });
 
   // While another page loads, the pager shows it at once, from the address
   // and the last total. The turn shows where it went before the rows arrive,
   // and on a slow archive the arrows stay put for the next one. A page past
   // the end has no range, and moves back once its answer arrives.
   const pager = $derived.by(() => {
-    if (
-      search !== null ||
-      data.session.kind !== "ok" ||
-      settled?.result.kind !== "ok"
-    ) {
+    if (data.session.kind !== "ok" || settled?.result.kind !== "ok") {
       return null;
     }
     if (list?.kind === "ok") {
-      return list.value.items.length > 0 ? list.value : null;
+      const { page, pageSize, total, items } = list.value;
+      return items.length > 0 ? { page, pageSize, total } : null;
     }
     if (list !== null || wanted === null) return null;
     const { pageSize, total } = settled.result.value;
@@ -318,133 +352,56 @@
 <svelte:window onbeforeunload={warnBeforeUnload} />
 
 <main>
-  <!-- Sticky, with the pager, so the next page is in view wherever the list
-       is scrolled. A turn goes to the top of the page. Below the list, the
-       next Next was then 2,100 px down at 1280 px wide, and 4,000 at 360. -->
-  <header class="messages-header">
-    <h1 bind:this={heading} tabindex="-1">Messages</h1>
-    {#if pager !== null}
-      <Pager page={pager.page} pageSize={pager.pageSize} total={pager.total} />
-    {/if}
-  </header>
+  <ListHeader
+    title="Messages"
+    pager={search === null ? pager : searchPager}
+    bind:heading
+  />
 
   <div class="body">
-    <!-- The input has no name, so a submit before the page has loaded its
-         script sends no words in the address. -->
-    <form class="search" role="search" onsubmit={runSearch}>
-      <label class="field words">
-        <span>Words</span>
-        <input type="search" bind:value={words} maxlength="1000" />
-      </label>
-      <button class="button large" type="submit">Search</button>
-      {#if search !== null}
-        <button class="button large ghost" type="button" onclick={clearSearch}
-          >Clear</button
-        >
-      {/if}
-    </form>
+    <SearchForm
+      bind:form
+      bind:open={filtersOpen}
+      {dayProblem}
+      {canClear}
+      onsearch={submitSearch}
+      onclear={clearSearch}
+    />
 
     <ImportBox {step} onchoose={chooseFiles} onimport={startImport} />
 
     {#if search !== null}
-      <p
-        class="outcome"
-        class:problem={search.result !== null && search.result.kind !== "ok"}
-        role="status"
-      >
-        {outcome}
-      </p>
+      <ResultsHeader
+        result={search.result}
+        shown={search.shown}
+        maxResults={SEARCH_MAX_PAGE * (search.shown?.pageSize ?? 0)}
+      />
       {#if search.result === null}
-        {@render table(null, "Search results")}
+        <MessageTable items={null} label="Search results" />
       {:else if search.result.kind === "ok" && search.result.value.items.length > 0}
-        {@render table(search.result.value.items, "Search results")}
+        <MessageTable
+          items={search.result.value.items}
+          label="Search results"
+        />
       {/if}
     {:else if data.session.kind !== "ok" || list?.kind === "unavailable"}
       <FailedLoad retry={retryList} />
     {:else if list?.kind === "ok" && list.value.total === 0}
       <p class="empty">No mail yet</p>
     {:else}
-      {@render table(
-        list?.kind === "ok" && list.value.items.length > 0
+      <MessageTable
+        items={list?.kind === "ok" && list.value.items.length > 0
           ? list.value.items
-          : null,
-        "Messages",
-      )}
+          : null}
+        label="Messages"
+      />
     {/if}
   </div>
 </main>
 
-<!-- Rows, or skeleton rows while they load. -->
-{#snippet table(items: Message[] | null, label: string)}
-  <div class="table">
-    <p class="heads" aria-hidden="true">
-      <span>Sender</span>
-      <span>Subject</span>
-      <span>Date</span>
-      <span class="right">Size</span>
-    </p>
-    {#if items !== null}
-      <ul aria-label={label}>
-        {#each items as message (message.id)}
-          <MessageRow
-            {message}
-            historyHref={historyHref(page.url, message.id)}
-          />
-        {/each}
-      </ul>
-    {:else}
-      <!-- Loading, or moving back from past the end. Still, so a slow
-           archive doesn't look busy. -->
-      <ul class="skeleton" aria-hidden="true">
-        {#each { length: 6 }, index (index)}
-          <li>
-            <span class="bone sender"></span>
-            <span class="bone subject"></span>
-            <span class="bone date"></span>
-            <span class="bone size"></span>
-          </li>
-        {/each}
-      </ul>
-    {/if}
-  </div>
-{/snippet}
-
 <HistoryDrawer history={data.history} onclose={closeHistory} />
 
 <style>
-  /* Above the rows' raised downloads as they scroll under it. Its corners
-     follow the panel's, which a square fill would cover. */
-  header {
-    position: sticky;
-    top: 0;
-    z-index: 2;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-16);
-    height: var(--header-height);
-    padding: 0 var(--header-inset);
-    border-bottom: 1px solid var(--line);
-    border-radius: var(--radius-large) var(--radius-large) 0 0;
-    background: var(--panel);
-  }
-
-  /* WCAG 2.4.11: focus scrolls a control clear of the header. */
-  :global(html:has(.messages-header)) {
-    scroll-padding-top: var(--header-height);
-  }
-
-  h1 {
-    font-size: var(--size-section);
-    font-weight: var(--weight-strong);
-    letter-spacing: var(--tracking-section);
-  }
-
-  /* Focused only when the content it heads was replaced. */
-  h1:focus {
-    outline: none;
-  }
-
   .body {
     display: grid;
     gap: var(--space-16);
@@ -453,207 +410,13 @@
     padding: var(--space-24);
   }
 
-  .empty,
-  .outcome {
+  .empty {
     color: var(--text-3);
   }
 
-  .outcome.problem {
-    color: var(--state-bad-text);
-  }
-
-  .search {
-    display: flex;
-    align-items: flex-end;
-    gap: var(--space-8);
-  }
-
-  /* An input keeps its default width unless told otherwise, which pushed
-     Clear off a 360 px screen. */
-  .words {
-    flex: auto;
-    min-width: 0;
-  }
-
-  .words > input {
-    min-width: 0;
-  }
-
-  /* The columns from DESIGN.md. 185 px fits the widest time, such as
-     "22 May 2026, 09:14:55 +05:30", in Inter at 12 px with tabular numerals,
-     and the archive time mark comes before it. A subgrid's padding doesn't
-     shrink a fixed column, so an edge column includes the rows' padding: 4 px
-     after the download. */
-  .table {
-    --date-width: calc(185px + var(--icon-size-small) + var(--space-4));
-
-    display: grid;
-    grid-template-columns:
-      minmax(0, 1fr) minmax(0, 1fr) var(--date-width) 62px
-      calc(var(--control-height) + var(--space-4));
-    column-gap: var(--space-12);
-    /* The rows' side padding reaches into the gutter, so names start on the
-       header's edge and only the hover fill extends past it. */
-    margin-inline: calc(-1 * var(--space-10)) calc(-1 * var(--space-4));
-  }
-
-  .heads,
-  ul {
-    display: grid;
-    grid-template-columns: subgrid;
-    grid-column: 1 / -1;
-    margin: 0;
-    padding: 0;
-    list-style: none;
-  }
-
-  .heads {
-    align-items: center;
-    height: var(--space-32);
-    padding: 0 var(--space-4) 0 var(--space-10);
-    color: var(--text-3);
-    font-size: var(--size-label);
-    font-weight: var(--weight-medium);
-    line-height: var(--leading-label);
-  }
-
-  .right {
-    text-align: right;
-  }
-
-  .skeleton li {
-    display: grid;
-    grid-template-columns: subgrid;
-    grid-column: 1 / -1;
-    align-items: center;
-    height: var(--row-height);
-    padding: 0 var(--space-4) 0 var(--space-10);
-  }
-
-  .bone {
-    height: 8px;
-    border-radius: var(--radius-small);
-    background: var(--fill-2);
-  }
-
-  .bone.sender,
-  .bone.subject {
-    width: 60%;
-  }
-
-  /* DESIGN.md: beside the sidebar, one line would leave the sender and
-     subject no room: at 721 px the table is 441 px wide and the fixed
-     columns take 330. So rows take two lines: the sender and date, then the
-     subject and size. MessageRow places its cells, and the skeleton matches
-     its height. */
-  @media (720px < width <= 1040px) {
-    .table {
-      grid-template-columns:
-        minmax(0, 1fr) var(--date-width)
-        calc(var(--control-height) + var(--space-4));
-    }
-
-    .heads {
-      display: none;
-    }
-
-    .skeleton li {
-      grid-template-rows: var(--leading-body) var(--leading-body);
-      row-gap: var(--space-2);
-      height: auto;
-      padding-block: var(--space-8);
-    }
-
-    .bone.sender,
-    .bone.date {
-      grid-row: 1;
-    }
-
-    .bone.subject,
-    .bone.size {
-      grid-row: 2;
-    }
-
-    .bone.sender,
-    .bone.subject {
-      grid-column: 1;
-    }
-
-    .bone.date,
-    .bone.size {
-      grid-column: 2;
-      justify-self: end;
-    }
-
-    .bone.date {
-      width: 140px;
-    }
-
-    .bone.size {
-      width: 40px;
-    }
-  }
-
-  /* DESIGN.md: the header row goes, and rows stack. The skeleton keeps the
-     stacked row's three lines, with the last two as tall as the download
-     beside them, so the list doesn't jump when it arrives. */
   @media (max-width: 720px) {
-    header {
-      padding: 0 var(--space-16);
-      border-radius: 0;
-    }
-
     .body {
       padding: var(--space-16);
-    }
-
-    .table {
-      display: block;
-      margin-inline: calc(-1 * var(--space-8)) calc(-1 * var(--space-4));
-    }
-
-    .heads {
-      display: none;
-    }
-
-    ul {
-      grid-template-columns: minmax(0, 1fr);
-    }
-
-    .skeleton li {
-      grid-template-columns: minmax(0, 1fr) auto var(--control-height-touch);
-      grid-template-rows:
-        var(--leading-body)
-        repeat(2, calc((var(--control-height-touch) - var(--space-2)) / 2));
-      grid-template-areas:
-        "sender sender sender"
-        "subject . ."
-        "date size .";
-      gap: var(--space-2) var(--space-12);
-      height: auto;
-      padding: var(--space-8) var(--space-4) var(--space-8) var(--space-8);
-    }
-
-    .skeleton li:not(:last-child) {
-      border-bottom: 1px solid var(--line);
-    }
-
-    .bone.sender {
-      grid-area: sender;
-    }
-
-    .bone.subject {
-      grid-area: subject;
-    }
-
-    .bone.date {
-      grid-area: date;
-      width: 50%;
-    }
-
-    .bone.size {
-      grid-area: size;
-      width: 40px;
     }
   }
 </style>

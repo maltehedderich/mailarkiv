@@ -38,9 +38,6 @@ const (
 	// shutdownGrace is how long requests in progress get after SIGTERM.
 	shutdownGrace = 5 * time.Second
 
-	// backgroundWorkers is the size of the pool that processing and indexing
-	// share.
-	backgroundWorkers = 2
 	// searchProgram is found in the server binary's directory.
 	searchProgram = "mailarkiv-search"
 )
@@ -186,7 +183,7 @@ func serveCatalog(logger *slog.Logger, dataDir string, db *sqlitedb.DB, options 
 	if err != nil {
 		return startupFailed(logger, causeWorkers, err)
 	}
-	pool, err := processing.NewPool(backgroundWorkers, processing.WorkerCommand(executable), logger)
+	pool, err := processing.NewPool(processing.BackgroundWorkers, processing.MessageLimit, processing.WorkerCommand(executable), logger)
 	if err != nil {
 		return startupFailed(logger, causeWorkers, err)
 	}

@@ -75,6 +75,9 @@ export interface SearchQuery {
   page: number;
 }
 
+/** The last page a search can ask for. A later one answers page_too_deep. */
+export const SEARCH_MAX_PAGE = 2_000;
+
 export interface SearchPage extends MessagePage {
   /** Messages the search couldn't look at yet. */
   notIncluded: number;
@@ -518,8 +521,26 @@ export async function listMessages(
   page: string | null,
   fetch: Fetch = globalThis.fetch,
 ): Promise<ApiResult<MessagePage>> {
-  const query = page === null ? "" : `?${new URLSearchParams({ page })}`;
-  return getJSON(fetch, `/api/messages${query}`, parseMessagePage);
+  return getJSON(fetch, `/api/messages${pageQuery(page)}`, parseMessagePage);
+}
+
+/**
+ * Lists one page of the messages processed with problems or that couldn't be
+ * read, as listMessages lists every message.
+ */
+export async function listProcessingProblems(
+  page: string | null,
+  fetch: Fetch = globalThis.fetch,
+): Promise<ApiResult<MessagePage>> {
+  return getJSON(
+    fetch,
+    `/api/processing-problems${pageQuery(page)}`,
+    parseMessagePage,
+  );
+}
+
+function pageQuery(page: string | null): string {
+  return page === null ? "" : `?${new URLSearchParams({ page })}`;
 }
 
 /**

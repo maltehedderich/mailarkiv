@@ -93,27 +93,21 @@ func (p *Processor) runOnce(ctx context.Context) (int, error) {
 }
 
 func (p *Processor) process(ctx context.Context, id int64) error {
-	original, err := p.archive.OpenVerified(ctx, id)
-	if err != nil {
-		if category, ok := skipCategory(err); ok {
-			p.skipped[id] = true
-			p.logger.Warn("processing skipped", "message_id", id, "category", category)
-			return nil
-		}
-		return err
-	}
-	defer original.File.Close()
-
-	answer, err := p.pool.read(ctx, original.File, original.Size, false)
-	if stopped, ok := errors.AsType[*WorkerStoppedError](err); ok {
+	answer, firstArchivedAt, err := p.readOriginal(ctx, id, false)
+	if category, ok := skipCategory(err); ok {
 		p.skipped[id] = true
-		p.logger.Error("processing_worker_stopped", "message_id", id, "exit", stopped.Exit)
+		p.logger.Warn("processing skipped", "message_id", id, "category", category)
 		return nil
 	}
-	if err != nil {
+	var result archive.ProcessingResult
+	if stopped, ok := errors.AsType[*WorkerStoppedError](err); ok {
+		result = stoppedResult(stopped, firstArchivedAt)
+	} else if err != nil {
 		return err
+	} else {
+		result = resultOf(answer.Message, firstArchivedAt)
 	}
-	if _, err := p.archive.RecordProcessed(ctx, id, resultOf(answer.Message, original.FirstArchivedAt)); err != nil {
+	if _, err := p.archive.RecordProcessed(ctx, id, result); err != nil {
 		return err
 	}
 	select {
@@ -133,6 +127,21 @@ func skipCategory(err error) (string, bool) {
 		return "stored_original_damaged", true
 	}
 	return "", false
+}
+
+// stoppedResult is the result for a message no worker could finish: it took
+// too long, or broke two workers in a row. The closed list of kinds has no
+// better fit for the second than the message's structure.
+func stoppedResult(stopped *WorkerStoppedError, firstArchivedAt time.Time) archive.ProcessingResult {
+	kind := mailparse.MalformedStructure
+	if stopped.TookTooLong {
+		kind = mailparse.TookTooLong
+	}
+	return archive.ProcessingResult{
+		State:    archive.Unreadable,
+		ListDate: firstArchivedAt,
+		Problems: []archive.Problem{{Position: "", Kind: string(kind)}},
+	}
 }
 
 func resultOf(m mailparse.Message, firstArchivedAt time.Time) archive.ProcessingResult {
