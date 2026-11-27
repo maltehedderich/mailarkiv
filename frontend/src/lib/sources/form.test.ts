@@ -19,8 +19,8 @@ import {
   widenChoice,
 } from "./form";
 
-// Expected values come from the spec: the port defaults to 993 for TLS and
-// 143 for STARTTLS, and the inbox is preselected.
+// The port defaults to 993 for TLS and 143 for STARTTLS, and the inbox is
+// preselected.
 
 describe("DEFAULT_PORTS", () => {
   test("are 993 for TLS and 143 for STARTTLS", () => {

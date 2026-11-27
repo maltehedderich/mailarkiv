@@ -258,8 +258,8 @@
     {:else}
       <div class="table">
         <p class="heads" aria-hidden="true">
-          <span>File name</span>
-          <span>Imported</span>
+          <span>Latest entry</span>
+          <span>Recorded</span>
           <span class="right">Size</span>
           <span>Hash</span>
         </p>
@@ -294,7 +294,8 @@
 <HistoryDrawer history={data.history} onclose={closeHistory} />
 
 <style>
-  /* Above the rows' raised downloads as they scroll under it. Its corners
+  /* Sticky, so the pager stays in view as the list scrolls. Above the rows'
+     raised downloads as they scroll under it. Its corners
      follow the panel's, which a square fill would cover. */
   header {
     position: sticky;
@@ -339,7 +340,7 @@
     color: var(--text-3);
   }
 
-  /* The columns from DESIGN.md. 185 px fits the widest time, such as
+  /* Name, time, size, hash, count, and download. 185 px fits the widest time, such as
      "22 May 2026, 09:14:55 +05:30", in Inter at 12 px with tabular numerals.
      A subgrid's padding doesn't shrink a fixed column, so an edge column
      includes the rows' padding: 4 px after the download. */
@@ -397,7 +398,7 @@
     width: 60%;
   }
 
-  /* DESIGN.md: beside the sidebar, one line would leave the name no room: at
+  /* Beside the sidebar, one line would leave the name no room: at
      721 px the table is 441 px wide and the fixed columns take 451. So rows
      take two lines. The name spans the first three columns, and time, size,
      and hash keep their order below it. Time comes first here, so its column
@@ -438,7 +439,7 @@
     }
   }
 
-  /* DESIGN.md: the header row goes, and rows stack. The skeleton keeps the
+  /* The header row goes, and rows stack. The skeleton keeps the
      stacked row's three lines, with the last two as tall as the download
      beside them, so the list doesn't jump when it arrives. */
   @media (max-width: 720px) {

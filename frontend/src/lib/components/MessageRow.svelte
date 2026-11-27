@@ -31,7 +31,7 @@
     ),
   );
 
-  // DESIGN.md: the key press must end here. Otherwise it could reach Close once
+  // The key press must end here. Otherwise it could reach Close once
   // the drawer has focus. With a modifier, the browser opens a new tab or window.
   function openOnEnter(event: KeyboardEvent) {
     if (event.key !== "Enter") return;
@@ -108,7 +108,7 @@
     transition: background-color var(--motion-fade);
   }
 
-  /* DESIGN.md: a fill appears at once and fades out. Only a pointer that can
+  /* A fill appears at once and fades out. Only a pointer that can
      hover lights the row, so a tap doesn't leave it lit on a touch screen.
      Keyboard focus on the row or its download lights it the same way. */
   @media (hover: hover) {
@@ -199,7 +199,7 @@
     font-variant-ligatures: none;
   }
 
-  /* DESIGN.md: beside the sidebar, one line leaves the name too little room,
+  /* Beside the sidebar, one line leaves the name too little room,
      so it takes the first line. Time, size, and hash keep their columns on
      the second, and the count and download sit across both. The parent sets
      the columns. */
@@ -244,7 +244,7 @@
     }
   }
 
-  /* DESIGN.md: each row stacks as the name, then time and size, then hash
+  /* Each row stacks as the name, then time and size, then hash
      and count, with a line between rows. The name keeps the whole width, and
      the download sits beside the two lines below it. On a line of its own it
      made each row 97 px tall with its divider, and now rows are 75. Its fixed

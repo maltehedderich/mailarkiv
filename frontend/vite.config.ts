@@ -29,6 +29,8 @@ export default defineConfig({
       compiler: "svelte",
       scale: 1,
       defaultClass: "icon",
+      // An icon from a set that isn't already a dependency fails the build,
+      // instead of the build installing a package.
       autoInstall: false,
       iconCustomizer: (_collection, _icon, props) => {
         props["aria-hidden"] = "true";

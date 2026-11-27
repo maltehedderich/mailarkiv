@@ -114,7 +114,7 @@ test("another site can't show MailArkiv in a frame", async ({ page }) => {
   }
 });
 
-// DESIGN.md, Sign-in: while the request runs, the button says so and keeps
+// While the request runs, the button says so and keeps
 // focus, and a second press doesn't send the form again.
 test("sign-in shows that it's working and sends the form once", async ({
   page,

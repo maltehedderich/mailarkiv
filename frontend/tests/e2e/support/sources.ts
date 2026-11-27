@@ -15,7 +15,7 @@ export const MAILBOX = {
   password: "mailbox password 7c2e",
 } as const;
 
-/** FR-007's line, shown before Save and on adding a folder. */
+/** The removal warning, shown before Save and on adding a folder. */
 export const REMOVAL_WARNING =
   "Archived mail can't be removed in this version.";
 

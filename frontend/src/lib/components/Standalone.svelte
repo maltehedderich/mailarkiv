@@ -14,7 +14,7 @@
   } = $props();
 </script>
 
-<!-- A page with no sidebar, from DESIGN.md: sign-in. -->
+<!-- A page with no sidebar, used by sign-in. -->
 <main>
   <div class="column">
     <div class="head">

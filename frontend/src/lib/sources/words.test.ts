@@ -2,8 +2,8 @@ import { describe, expect, test } from "vitest";
 
 import { CATEGORY_WORDS, STATE_WORDS } from "./words";
 
-// The expected words are the spec's state table and category table, copied
-// as written there.
+// The expected words are written out in full, so a copy change has to be
+// made here too.
 
 describe("STATE_WORDS", () => {
   test("names every state", () => {

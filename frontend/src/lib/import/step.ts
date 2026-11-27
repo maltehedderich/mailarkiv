@@ -1,8 +1,9 @@
 import type { BrowserRefusal } from "./choose";
 
 /**
- * Where the import box is, from DESIGN.md's step table. The page owns it, so
- * the box only shows it. Uploading and storing are the busy steps.
+ * Where the import box is: ready, chosen, uploading, storing, or refused. The
+ * page owns it, so the box only shows it. Uploading and storing are the busy
+ * steps.
  */
 export type ImportStep =
   | { kind: "ready" }

@@ -2,7 +2,8 @@
   import type { CollectionCategory } from "#lib/api.js";
   import { CATEGORY_WORDS } from "#lib/sources/words.js";
 
-  // A category's three rows from the spec's table, for a Facts list.
+  // A category's three rows for a Facts list: what happened, what MailArkiv
+  // does, and the next step.
 
   let { category }: { category: CollectionCategory } = $props();
 

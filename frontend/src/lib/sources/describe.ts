@@ -71,6 +71,10 @@ export const REFRESH_MS = 3000;
 /** The dependency a sources page's load declares, so a reload reruns only it. */
 export const SOURCES_DATA = "app:sources";
 
-/** The operator guide's section on the key, which the no-key notice links. */
+/**
+ * The operator guide's section on the key, which the no-key notice links.
+ * The anchor comes from the heading `The key` in docs/OPERATIONS.md, so
+ * renaming that heading breaks this link.
+ */
 export const KEY_GUIDE_URL =
   "https://github.com/maltehedderich/mailarkiv/blob/main/docs/OPERATIONS.md#the-key";

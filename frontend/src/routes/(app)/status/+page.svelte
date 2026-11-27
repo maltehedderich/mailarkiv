@@ -444,7 +444,7 @@
     line-height: var(--leading-label);
   }
 
-  /* DESIGN.md: 16 px gutters, and each label moves above its content. */
+  /* 16 px gutters, and each label moves above its content. */
   @media (max-width: 720px) {
     header {
       padding: 0 var(--space-16);

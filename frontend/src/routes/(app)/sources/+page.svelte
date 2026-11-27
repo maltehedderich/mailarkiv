@@ -23,8 +23,10 @@
 
   const numbers = new Intl.NumberFormat("en-US");
 
-  // The list drops the date from today's times, so they lead with the clock.
-  // At midnight the day changes, and today's times must take their date back.
+  // Each source shows two times, nearly always today's, and their dates hid
+  // the minutes that differ. So the list drops today's date, and a source's
+  // page keeps it. At midnight the day changes, and today's times must take
+  // their date back.
   let now = $state(new Date());
   $effect(() => {
     const timer = setTimeout(() => (now = new Date()), untilMidnight(now));
@@ -68,7 +70,8 @@
 
   // While a source syncs, reload so its archived count climbs. Each load
   // gives a new result, so the next timer starts only once the last load
-  // has finished.
+  // has finished. A failed reload shows the failed-load block, not the old
+  // counts, which could show a sync that has already ended.
   $effect(() => {
     const result = data.sources;
     if (result.kind !== "ok") return;
@@ -303,7 +306,8 @@
   }
 
   /* Who the source is beside its state and the evidence, so the states of
-     every source sit in one column. The evidence column fits the label
+     every source sit in one column, and the one that needs attention is
+     found by reading down it. The evidence column fits the label
      column and the widest value, a dated time with "1,204 new". */
   .sources > li {
     position: relative;
@@ -315,7 +319,7 @@
     transition: background-color var(--motion-fade);
   }
 
-  /* DESIGN.md: a fill appears at once and fades out, only where the pointer
+  /* A fill appears at once and fades out, only where the pointer
      can hover, and for keyboard focus too. */
   @media (hover: hover) {
     .sources > li:hover {
@@ -396,6 +400,7 @@
     outline-offset: -2px;
   }
 
+  /* Server, user name, and folders rarely change, so they stay quiet. */
   .mailbox,
   .folders {
     min-width: 0;
@@ -503,7 +508,6 @@
     }
   }
 
-  /* DESIGN.md: 16 px gutters at 720 px and below. */
   @media (max-width: 720px) {
     header {
       padding: 0 var(--space-16);

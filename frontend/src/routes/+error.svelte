@@ -137,7 +137,8 @@
     background: var(--panel);
   }
 
-  /* As tall as a view header, so the logo sits where the sidebar's does. */
+  /* As tall as a view header, so the logo sits where the sidebar's does, on
+     whole pixels, which keeps its small tile and grip sharp. */
   header {
     display: flex;
     align-items: center;

@@ -368,7 +368,7 @@
     outline-offset: 2px;
   }
 
-  /* DESIGN.md: the buttons move below the text and share the width, and the
+  /* The buttons move below the text and share the width, and the
      file icon goes. */
   @media (max-width: 720px) {
     .box {

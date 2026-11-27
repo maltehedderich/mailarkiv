@@ -6,24 +6,25 @@ Read [the engineering constitution](.specify/memory/constitution.md) before plan
 
 ## Frontend design
 
-Read [the design guide](frontend/DESIGN.md) before you build or change a screen. Exact values live in [the tokens](frontend/src/lib/styles/tokens.css).
+Read [the design guide](frontend/DESIGN.md) before you build or change a screen. Exact values live in [the tokens](frontend/src/lib/styles/tokens.css). A screen's own layout and measurements live in its code, not in the guide.
 
 ## Required checks
 
-`mise run` is the only interface, so CI, docs, and people all use these commands. Run `mise run setup` first on a new clone.
+`mise run` is the only interface, so CI, docs, and people all use these commands. Run `mise run setup` first on a new clone. It needs `musl-gcc` from the system's `musl-tools` package (`sudo apt-get install musl-tools`) and stops with that hint when it is missing.
 
 | Command | Runs | Layer |
 | ------- | ---- | ----- |
-| `mise run lint` | `gofmt -l`, `go vet`, `staticcheck`, `prettier --check` | Static |
+| `mise run lint` | `gofmt -l`, `go vet`, `staticcheck`, `prettier --check`, `cargo fmt --check`, and `cargo clippy --locked --all-targets -- -D warnings` with and without `--features faults` | Static |
 | `mise run typecheck` | `svelte-kit sync`, `svelte-check --fail-on-warnings` | Static |
-| `mise run audit` | `govulncheck ./...`, `bun audit --ignore=GHSA-gcqx-w48m-w2h4` | Static, needs network |
-| `mise run server:test` | `go test -race ./...`, including process-level crash, syscall, and marker tests. Needs `strace` | Unit, integration, process |
+| `mise run audit` | `govulncheck ./...`, `bun audit --ignore=GHSA-gcqx-w48m-w2h4`, `cargo audit` in `mailarkiv-search/` | Static, needs network |
+| `mise run search:test` | `cargo test --locked`, then `cargo test --locked --features faults`, in `mailarkiv-search/` | Unit, integration |
+| `mise run server:test` | Builds `bin/mailarkiv-search` and `bin/faults/mailarkiv-search` first, then `go test -race ./...`, including process-level crash, syscall, and marker tests. Needs `strace` | Unit, integration, process |
 | `mise run frontend:test` | `vitest run` | Unit |
-| `mise run test:e2e` | `go build` of `bin/imaptestserver`, the test IMAP server, then `playwright test` against the built binary and that server | End to end |
-| `mise run test` | The three test tasks above | |
+| `mise run test:e2e` | Builds `bin/mailarkiv` and `bin/mailarkiv-search`, and `go build` of `bin/imaptestserver`, the test IMAP server, then `playwright test` against the built binaries and that server | End to end |
+| `mise run test` | The four test tasks above | |
 | `mise run check` | `lint`, `typecheck`, `test`, `audit`. CI gates on this | |
 
-Other tasks are `setup`, `dev`, `dev:account`, `build`, `frontend:build`, `server:build`, `format`, and `clean`. `.github/workflows/check.yml` installs `strace`, caches Go builds, and runs `mise run setup` and `mise run check`.
+Other tasks are `setup`, `dev`, `dev:account`, `build`, `frontend:build`, `server:build`, `search:build`, `search:build:faults`, `format`, and `clean`. `search:build` builds the search program as a static musl binary at `bin/mailarkiv-search`, beside the server. `search:build:faults` builds it with test fault points at `bin/faults/mailarkiv-search`. `.github/workflows/check.yml` runs the tasks of `mise run check` in four parts, each on its own runner, because the suites starve each other on one: `static` runs `lint`, `typecheck`, and `audit`; `unit` runs `search:test` and `frontend:test`; `server` runs `server:test`; `e2e` runs `test:e2e`. Each part installs `strace` and `musl-tools`, caches Go and cargo builds, and runs `mise run setup` first. A last job named `check`, which the `main` ruleset requires, passes only when every part passes. A task added to `check` must join a part.
 
 - For documentation-only changes, review affected text against the constitution, check local links, and verify that scope and acceptance behavior agree across documents. These checks are sufficient while runtime behavior is unchanged.
 - When adding tooling, document its exact required check commands here in the same change. Feature plans must identify the checks that apply and the layer each runs at.

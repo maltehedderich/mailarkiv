@@ -4,7 +4,8 @@ import { SOURCE_STATES, SYNC_CATEGORIES } from "#lib/api.js";
 
 import { problemSummary, problemTone, stateTone } from "./describe";
 
-// The expected words and tones are the design guide's Sources section.
+// The expected words and tones are written out in full, so changing a
+// state's word or dot takes a change in both places.
 
 describe("stateTone", () => {
   test.each([

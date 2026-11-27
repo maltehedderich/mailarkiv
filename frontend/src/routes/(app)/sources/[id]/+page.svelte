@@ -53,6 +53,8 @@
   // While the source syncs, reload so its archived count climbs. Each load
   // gives a new result, so the next timer starts only once the last load
   // has finished. Not while editing: a failed load would take the form.
+  // A failed reload shows the failed-load block, not the old counts, which
+  // could show a sync that has already ended.
   $effect(() => {
     const result = data.source;
     if (editing) return;
@@ -197,7 +199,8 @@
             <SourceState {source} />
             {#if source.failure !== null}
               {@const failure = source.failure}
-              <!-- What the failure means, then the evidence of it. -->
+              <!-- The state line already names the category, so the failure
+                   adds only facts: what it means, then the evidence. -->
               <div class="failure">
                 <Facts>
                   <CategoryFacts category={failure.category} />
@@ -468,7 +471,8 @@
   }
 
   /* One track that may shrink, so a long folder name is cut, not widening
-     the page. */
+     the page. Folders sit 8 px apart, so each note stays with its own
+     folder. */
   .folders {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
@@ -513,7 +517,7 @@
     line-height: var(--leading-label);
   }
 
-  /* DESIGN.md: 16 px gutters, and each label moves above its content. */
+  /* 16 px gutters, and each label moves above its content. */
   @media (max-width: 720px) {
     header {
       padding: 0 var(--space-16);
