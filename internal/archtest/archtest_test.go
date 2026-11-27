@@ -74,9 +74,11 @@ var allowedImports = map[string][]string{
 	// The image host double, under the same rule as the IMAP one.
 	"internal/imagetest":               {},
 	"internal/imagetest/cmd/imagehost": {"internal/imagetest"},
-	// The sizing tool, which nothing imports.
+	// The sizing tool, which nothing imports. It signs in through identity,
+	// because a rebuild names the account that started it.
 	"internal/sizing/cmd/sizing": {
 		"internal/archive",
+		"internal/identity",
 		"internal/processing",
 		"internal/search",
 		"internal/opstatus",
@@ -348,6 +350,7 @@ func TestCheckerAllowsTheDeclaredImports(t *testing.T) {
 		{"internal/search", "internal/fault"},
 		{"internal/imagetest/cmd/imagehost", "internal/imagetest"},
 		{"internal/sizing/cmd/sizing", "internal/archive"},
+		{"internal/sizing/cmd/sizing", "internal/identity"},
 		{"internal/sizing/cmd/sizing", "internal/processing"},
 		{"internal/sizing/cmd/sizing", "internal/search"},
 		{"internal/sizing/cmd/sizing", "internal/opstatus"},

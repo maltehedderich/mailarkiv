@@ -38,9 +38,8 @@ func TestNeedsRebuildAfterCrashes(t *testing.T) {
 			}
 			f.killSearch()
 		}
-		if got := f.needsRebuild(); got != "search_process_stopped" {
-			t.Fatalf("search_needs_rebuild holds %q, want search_process_stopped", got)
-		}
+		// The mark is written just after the stop is recorded.
+		f.waitFor("the mark", func() bool { return f.needsRebuild() == "search_process_stopped" })
 		var since int64
 		if err := f.db.Reader.QueryRow("SELECT since FROM search_needs_rebuild").Scan(&since); err != nil {
 			t.Fatal(err)

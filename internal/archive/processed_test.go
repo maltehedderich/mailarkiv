@@ -9,6 +9,7 @@ import (
 	"os"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -156,6 +157,45 @@ func TestHighestProcessedSeqWhenEmpty(t *testing.T) {
 	f.importNew(t, "a")
 	if highest, err := f.archive.HighestProcessedSeq(context.Background()); err != nil || highest != 0 {
 		t.Errorf("HighestProcessedSeq = %d, %v; want 0", highest, err)
+	}
+}
+
+// Each recorded result reads the highest processed_seq, so the read must use
+// the index. Reading every row took 2.4 s per message at 5,000,000 messages.
+func TestProcessedSeqQueriesReadTheIndex(t *testing.T) {
+	f := newFixture(t)
+	for _, query := range []struct {
+		name string
+		sql  string
+		args []any
+	}{
+		{"highest processed_seq", highestProcessedSeqQuery, nil},
+		{"mark processed", markProcessedQuery, []any{Processed.name, 0, 1}},
+		{"count not processed", countNotProcessedQuery, nil},
+	} {
+		rows, err := f.db.Writer.Query("EXPLAIN QUERY PLAN "+query.sql, query.args...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var plan []string
+		for rows.Next() {
+			var id, parent, unused int
+			var detail string
+			if err := rows.Scan(&id, &parent, &unused, &detail); err != nil {
+				t.Fatal(err)
+			}
+			plan = append(plan, detail)
+		}
+		if err := rows.Close(); err != nil {
+			t.Fatal(err)
+		}
+		usesIndex := slices.ContainsFunc(plan, func(line string) bool {
+			return strings.Contains(line, "INDEX message_by_processed_seq")
+		})
+		readsEveryRow := slices.Contains(plan, "SCAN message") || slices.Contains(plan, "SEARCH message")
+		if !usesIndex || readsEveryRow {
+			t.Errorf("%s plans %q, want message_by_processed_seq and no read of every row", query.name, plan)
+		}
 	}
 }
 

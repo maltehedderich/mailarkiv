@@ -224,7 +224,7 @@ The body centres in `--content-width`. The subject comes first at title size in 
 
 The body follows a hairline. When the message has both bodies, a `role="group"` labelled `Body` holds two default buttons, `HTML` and `Plain text`, with `aria-pressed`; the pressed one takes `--fill-3`. Notices sit above the body in notice boxes (`--fill-1`, `--radius-medium`, a transparent border), the words in `--text-2` and the reason in `--text-3`:
 
-- Images from the internet: `Images from the internet aren't loaded.`, then why loading them matters, then a default `Load images` button. The choice reloads the frame with images and lasts until the view closes; opening any message, even the same one, starts without them.
+- Images from the internet: `Images from the internet aren't loaded.`, then why loading them matters, then a default `Load images` button. The choice reloads the frame with images and moves focus to it, because the button has gone. It lasts until the view closes; opening any message, even the same one, starts without them.
 - Embedded images left out: `Some embedded images are only in the attachment list, because together they pass the 10 MB the preview shows.`
 - A body cut at the limit: `This body is cut at 2,000,000 bytes. The rest is only in the original.` and a default `Download original`.
 

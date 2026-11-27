@@ -78,6 +78,25 @@ type ProcessedMessage struct {
 	Summary *Summary
 }
 
+// highestProcessedSeqQuery selects the highest processed_seq, or 0. Its WHERE
+// clause repeats the condition of the partial index message_by_processed_seq,
+// because SQLite uses a partial index only when the query implies its
+// condition. Without it, MAX reads every row of message.
+const highestProcessedSeqQuery = "SELECT COALESCE(MAX(processed_seq), 0) FROM message WHERE processed_seq IS NOT NULL"
+
+// markProcessedQuery stores a result's state and list date with the next
+// processed_seq. The catalog has one writer, so the highest value plus 1
+// leaves no gaps.
+const markProcessedQuery = `
+UPDATE message
+SET processing_state = ?, list_date = ?,
+    processed_seq = (` + highestProcessedSeqQuery + `) + 1
+WHERE id = ? AND processing_state = 'not_processed'`
+
+// countNotProcessedQuery counts the messages not processed yet. processed_seq
+// has no gaps, so its highest value is the number of processed messages.
+const countNotProcessedQuery = "SELECT (SELECT COUNT(*) FROM message) - (" + highestProcessedSeqQuery + ")"
+
 // RecordProcessed stores processing's result for a message that is not
 // processed yet, with the next processed_seq, in one transaction. It reports
 // false and changes nothing when the message already has a result.
@@ -90,12 +109,7 @@ func (a *Archive) RecordProcessed(ctx context.Context, messageID int64, result P
 	}
 	changed := false
 	err := sqlitedb.InTx(ctx, a.db.Writer, func(tx *sql.Tx) error {
-		// The catalog has one writer, so the highest value plus 1 leaves no gaps.
-		updated, err := tx.ExecContext(ctx, `
-UPDATE message
-SET processing_state = ?, list_date = ?,
-    processed_seq = (SELECT COALESCE(MAX(processed_seq), 0) + 1 FROM message)
-WHERE id = ? AND processing_state = 'not_processed'`,
+		updated, err := tx.ExecContext(ctx, markProcessedQuery,
 			result.State.name, result.ListDate.UnixMilli(), messageID)
 		if err != nil {
 			return err
@@ -179,11 +193,9 @@ type ProcessingCounts struct {
 // ProcessingCounts counts the messages in each state the status screen shows.
 func (a *Archive) ProcessingCounts(ctx context.Context) (ProcessingCounts, error) {
 	var counts ProcessingCounts
-	// processed_seq has no gaps, so the highest value counts the processed
-	// messages without a scan. Both counts come from one snapshot.
+	// Both counts come from one snapshot.
 	err := sqlitedb.InTx(ctx, a.db.Reader, func(tx *sql.Tx) error {
-		if err := tx.QueryRowContext(ctx,
-			"SELECT COUNT(*) - COALESCE(MAX(processed_seq), 0) FROM message").Scan(&counts.NotProcessed); err != nil {
+		if err := tx.QueryRowContext(ctx, countNotProcessedQuery).Scan(&counts.NotProcessed); err != nil {
 			return err
 		}
 		rows, err := tx.QueryContext(ctx,
@@ -217,7 +229,7 @@ func (a *Archive) ProcessingCounts(ctx context.Context) (ProcessingCounts, error
 // is processed.
 func (a *Archive) HighestProcessedSeq(ctx context.Context) (int64, error) {
 	var highest int64
-	err := a.db.Reader.QueryRowContext(ctx, "SELECT COALESCE(MAX(processed_seq), 0) FROM message").Scan(&highest)
+	err := a.db.Reader.QueryRowContext(ctx, highestProcessedSeqQuery).Scan(&highest)
 	if err != nil {
 		return 0, fmt.Errorf("read the highest processed_seq: %w", err)
 	}

@@ -8,12 +8,22 @@ import { fileURLToPath } from "node:url";
 // at start, and records every request it gets.
 
 /**
- * The name messages use for the host. The browser maps it to 127.0.0.1 (see
- * playwright.config.ts). Chromium treats loopback names and addresses as
- * secure and doesn't upgrade `http:` requests to them, so only a name that
- * isn't loopback behaves like an image host on the internet.
+ * The name messages use for the host. The browser maps it to 127.0.0.1 with
+ * IMAGE_HOST_LAUNCH. Chromium treats loopback names and addresses as secure
+ * and doesn't upgrade `http:` requests to them, so only a name that isn't
+ * loopback behaves like an image host on the internet.
  */
 export const IMAGE_HOST_NAME = "images.example.test";
+
+/**
+ * Browser launch options that map IMAGE_HOST_NAME to 127.0.0.1. Every other
+ * name still goes to DNS, so leak.example.test fails to resolve. Only specs
+ * that load from the host use them: with the mapping, Chromium takes 8
+ * seconds to answer `route.fetch()`.
+ */
+export const IMAGE_HOST_LAUNCH = {
+  args: [`--host-resolver-rules=MAP ${IMAGE_HOST_NAME} 127.0.0.1`],
+};
 
 const BINARY = fileURLToPath(
   new URL("../../../../bin/imagehost", import.meta.url),

@@ -169,6 +169,20 @@ depends = ["search:test", "server:test", "frontend:test", "test:e2e"]
 description = "Run everything CI gates on"
 depends = ["lint", "typecheck", "test", "audit"]
 
+# Outside check: it takes most of a day and about 80 GB of disk. A built
+# binary, because measure starts itself as its parse workers and records the
+# commit it was built from.
+[tasks.sizing]
+description = "Seed 5,000,000 synthetic messages, measure search, and append the results to the sizing page"
+depends = ["search:build"]
+run = [
+  "test ! -e .data/sizing || { echo 'Remove .data/sizing first, so the run starts from a fresh data directory' >&2; exit 1; }",
+  "mkdir -p .data",
+  "go build -o bin/sizing ./internal/sizing/cmd/sizing",
+  "bin/sizing seed --data-dir .data/sizing --messages 5000000",
+  "bin/sizing measure --data-dir .data/sizing --results docs/research/search-sizing/README.md",
+]
+
 [tasks.clean]
 description = "Delete generated files, and never the data in .data/"
 run = "rm -rf bin frontend/build frontend/.svelte-kit mailarkiv-search/target"
