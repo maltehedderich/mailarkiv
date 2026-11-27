@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -82,13 +84,32 @@ func TestWorkerOpensNoFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var fds []string
+	var extra []string
 	for _, entry := range entries {
-		fds = append(fds, entry.Name())
+		fd := entry.Name()
+		target, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/%s", pids[0], fd))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fd == "0" || fd == "1" || fd == "2" || isCgroupCPULimit(target) {
+			continue
+		}
+		extra = append(extra, fd+" -> "+target)
 	}
-	if want := []string{"0", "1", "2"}; !slices.Equal(fds, want) {
-		t.Errorf("worker holds descriptors %q, want only %q", fds, want)
+	if len(extra) > 0 {
+		t.Errorf("worker holds descriptors %q beyond standard input, output, and error", extra)
 	}
+}
+
+// isCgroupCPULimit reports whether target is a file the worker's Go runtime
+// keeps open, read only, to follow the cgroup's CPU limit with GOMAXPROCS:
+// cpu.max on cgroup v2, or cpu.cfs_quota_us and cpu.cfs_period_us on v1.
+func isCgroupCPULimit(target string) bool {
+	switch filepath.Base(target) {
+	case "cpu.max", "cpu.cfs_quota_us", "cpu.cfs_period_us":
+		return strings.HasPrefix(target, "/sys/fs/cgroup/")
+	}
+	return false
 }
 
 func TestWorkerStartsAgain(t *testing.T) {

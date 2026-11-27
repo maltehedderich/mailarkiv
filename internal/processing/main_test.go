@@ -3,12 +3,15 @@ package processing
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 )
 
@@ -17,7 +20,28 @@ func TestMain(m *testing.M) {
 	if os.Getenv("MAILARKIV_TEST_PARSE_WORKER") == "1" {
 		os.Exit(RunWorker(os.Stdin, os.Stdout))
 	}
+	if err := markInheritedCloseOnExec(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	os.Exit(m.Run())
+}
+
+// markInheritedCloseOnExec keeps descriptors the tests inherited out of the
+// workers they start. Whatever starts the tests can leave descriptors without
+// close-on-exec, and every child gets those, so a worker would hold files the
+// pool never gave it.
+func markInheritedCloseOnExec() error {
+	entries, err := os.ReadDir("/proc/self/fd")
+	if err != nil {
+		return fmt.Errorf("list inherited descriptors: %w", err)
+	}
+	for _, entry := range entries {
+		if fd, err := strconv.Atoi(entry.Name()); err == nil && fd > 2 {
+			syscall.CloseOnExec(fd)
+		}
+	}
+	return nil
 }
 
 // testWorkerCommand starts this test binary as a worker, with nothing in its
