@@ -199,8 +199,10 @@ func TestStandardErrorLinesAreOnlyCounted(t *testing.T) {
 	if strings.Contains(f.log.String(), "Quartalsbericht") {
 		t.Error("the log holds text the search process wrote")
 	}
+	// The stop is recorded just after the ignored output is logged.
+	f.waitFor("search_process_stopped", func() bool { return len(f.failures(opstatus.SearchProcessStopped)) > 0 })
 	stopped := f.failures(opstatus.SearchProcessStopped)
-	if len(stopped) == 0 || stopped[0].Detail.ExitStatus == nil || *stopped[0].Detail.ExitStatus != 0 {
+	if stopped[0].Detail.ExitStatus == nil || *stopped[0].Detail.ExitStatus != 0 {
 		t.Errorf("stopped events %+v, want exit status 0", stopped)
 	}
 }
