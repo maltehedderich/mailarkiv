@@ -15,25 +15,102 @@ import (
 	"time"
 )
 
-// Category is one of the failure categories below. Its field is private, so
+// Category is one of the failure categories below. Its fields are private, so
 // no other package can make another.
-type Category struct{ name string }
+type Category struct {
+	name string
+	// search marks the categories of the search process and its index,
+	// which log as "search failure" with their detail.
+	search bool
+}
 
 var (
-	StorageFull           = Category{"storage_full"}
-	StorageWriteFailed    = Category{"storage_write_failed"}
-	CatalogWriteFailed    = Category{"catalog_write_failed"}
-	StoredOriginalMissing = Category{"stored_original_missing"}
-	StoredOriginalDamaged = Category{"stored_original_damaged"}
-	TempFileNotRemoved    = Category{"temp_file_not_removed"}
+	StorageFull           = Category{name: "storage_full"}
+	StorageWriteFailed    = Category{name: "storage_write_failed"}
+	CatalogWriteFailed    = Category{name: "catalog_write_failed"}
+	StoredOriginalMissing = Category{name: "stored_original_missing"}
+	StoredOriginalDamaged = Category{name: "stored_original_damaged"}
+	TempFileNotRemoved    = Category{name: "temp_file_not_removed"}
 	// MessageTooLarge and MessageRemoved name a source, never a message.
-	MessageTooLarge = Category{"message_too_large"}
-	MessageRemoved  = Category{"message_removed"}
+	MessageTooLarge = Category{name: "message_too_large"}
+	MessageRemoved  = Category{name: "message_removed"}
+
+	SearchProcessStopped      = Category{name: "search_process_stopped", search: true}
+	SearchProcessDidNotStart  = Category{name: "search_process_did_not_start", search: true}
+	SearchProcessDidNotAnswer = Category{name: "search_process_did_not_answer", search: true}
+	IndexWriteFailed          = Category{name: "index_write_failed", search: true}
 )
 
 // String returns the category's name, which the log, the API, and the frontend
 // share.
 func (c Category) String() string { return c.name }
+
+// Cause is a closed reason in a search failure's detail.
+type Cause struct{ name string }
+
+var (
+	// Why the search process didn't start.
+	CauseMissing       = Cause{"missing"}
+	CauseNotExecutable = Cause{"not_executable"}
+	CauseBadHello      = Cause{"bad_hello"}
+	// Why an index write failed.
+	CauseNoSpace          = Cause{"no_space"}
+	CausePermissionDenied = Cause{"permission_denied"}
+	CauseOther            = Cause{"other"}
+)
+
+func (c Cause) String() string { return c.name }
+
+// Operation names a call to the search process.
+type Operation struct{ name string }
+
+var (
+	OperationOpen     = Operation{"open"}
+	OperationIndex    = Operation{"index"}
+	OperationSearch   = Operation{"search"}
+	OperationMaintain = Operation{"maintain"}
+	OperationClose    = Operation{"close"}
+	OperationSize     = Operation{"size"}
+)
+
+func (o Operation) String() string { return o.name }
+
+// Detail holds the IDs and closed causes of a search failure. A field that
+// doesn't apply is nil or zero.
+type Detail struct {
+	ExitStatus     *int
+	Signal         *int
+	Cause          Cause
+	Operation      Operation
+	GenerationID   *int64
+	FirstMessageID *int64
+	LastMessageID  *int64
+}
+
+func (d *Detail) attrs() []slog.Attr {
+	var attrs []slog.Attr
+	optional := func(key string, value any, set bool) {
+		if set {
+			attrs = append(attrs, slog.Any(key, value))
+		}
+	}
+	optional("exit_status", deref(d.ExitStatus), d.ExitStatus != nil)
+	optional("signal", deref(d.Signal), d.Signal != nil)
+	optional("cause", d.Cause.name, d.Cause != Cause{})
+	optional("operation", d.Operation.name, d.Operation != Operation{})
+	optional("generation_id", deref(d.GenerationID), d.GenerationID != nil)
+	optional("first_message_id", deref(d.FirstMessageID), d.FirstMessageID != nil)
+	optional("last_message_id", deref(d.LastMessageID), d.LastMessageID != nil)
+	return attrs
+}
+
+func deref[T any](p *T) T {
+	var zero T
+	if p == nil {
+		return zero
+	}
+	return *p
+}
 
 // RecoveryResult is what startup recovery found.
 type RecoveryResult struct {
@@ -62,6 +139,8 @@ type FailureEvent struct {
 	ContentHash *string
 	SourceID    *int64
 	Restored    bool
+	// Detail is set only for the search categories.
+	Detail *Detail
 }
 
 // Snapshot is a copy of the status at one moment.
@@ -90,7 +169,7 @@ func New(logger *slog.Logger, now func() time.Time) *Status {
 }
 
 // RecordFailure lists the event at the current time and logs it. The list has
-// no cap: failure events come only from signed-in actions and startup.
+// no cap yet, and search failures can now arrive without anyone acting.
 func (s *Status) RecordFailure(event FailureEvent) {
 	if event.Category == (Category{}) {
 		panic("opstatus: a failure event needs a category")
@@ -114,7 +193,14 @@ func (s *Status) RecordFailure(event FailureEvent) {
 	if event.Restored {
 		attrs = append(attrs, slog.Bool("restored", true))
 	}
-	s.logger.LogAttrs(context.Background(), slog.LevelError, "failure", attrs...)
+	msg := "failure"
+	if event.Category.search {
+		msg = "search failure"
+		if event.Detail != nil {
+			attrs = append(attrs, event.Detail.attrs()...)
+		}
+	}
+	s.logger.LogAttrs(context.Background(), slog.LevelError, msg, attrs...)
 }
 
 // RecordRecovery keeps startup recovery's result and logs it, with the duration

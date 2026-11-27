@@ -1,0 +1,21 @@
+From: anna@example.test
+To: team@example.test
+Subject: Encoded file names
+Date: Sun, 08 Nov 2026 14:00:00 +0000
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="names-boundary"
+
+--names-boundary
+Content-Type: text/plain; charset=utf-8
+
+Zwei Dateien.
+--names-boundary
+Content-Type: text/plain; charset=utf-8; name*=UTF-8''Gr%C3%BC%C3%9Fe.txt
+Content-Disposition: attachment; filename*=UTF-8''Gr%C3%BC%C3%9Fe.txt
+
+Hallo
+--names-boundary
+Content-Type: application/octet-stream; name="=?UTF-8?Q?K=C3=B6ln.bin?="
+
+xyz
+--names-boundary--

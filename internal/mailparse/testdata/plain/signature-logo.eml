@@ -1,0 +1,27 @@
+From: Emil Roth <emil@example.test>
+To: anna@example.test
+Subject: Mit Logo
+Date: Sat, 07 Nov 2026 15:00:00 +0000
+MIME-Version: 1.0
+Content-Type: multipart/related; boundary="related-boundary"
+
+--related-boundary
+Content-Type: multipart/alternative; boundary="inner-boundary"
+
+--inner-boundary
+Content-Type: text/plain; charset=utf-8
+
+Gruss, Emil
+--inner-boundary
+Content-Type: text/html; charset=utf-8
+
+<p>Gruss, Emil</p><img src="cid:logo@example.test" alt="Logo">
+--inner-boundary--
+--related-boundary
+Content-Type: image/png
+Content-ID: <logo@example.test>
+Content-Disposition: inline; filename="logo.png"
+Content-Transfer-Encoding: base64
+
+iVBORw0KGgpzeW50aGV0aWMgbG9nbw==
+--related-boundary--

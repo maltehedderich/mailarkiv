@@ -1,0 +1,16 @@
+From: Carla Braun <carla@example.test>
+To: anna@example.test
+Subject: Kuchen
+Date: Wed, 04 Nov 2026 12:00:00 +0000
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="alt-boundary"
+
+--alt-boundary
+Content-Type: text/plain; charset=utf-8
+
+Apfelkuchen am Freitag.
+--alt-boundary
+Content-Type: text/html; charset=utf-8
+
+<p>Birnenkuchen am Freitag.</p>
+--alt-boundary--

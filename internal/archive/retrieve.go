@@ -10,6 +10,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"time"
 
 	"github.com/maltehedderich/mailarkiv/internal/opstatus"
 	"github.com/maltehedderich/mailarkiv/internal/sqlitedb"
@@ -34,6 +35,9 @@ type Original struct {
 	MessageID   int64
 	ContentHash string
 	Size        int64
+	// FirstArchivedAt is the time of the message's first entry, which
+	// processing's list date rule needs.
+	FirstArchivedAt time.Time
 }
 
 // OpenVerified opens a message's stored original, hashes all of it, and
@@ -43,7 +47,9 @@ type Original struct {
 // event, and ErrNotFound doesn't, because nothing is wrong with the archive.
 func (a *Archive) OpenVerified(ctx context.Context, id int64) (Original, error) {
 	var contentHash string
-	err := a.db.Reader.QueryRowContext(ctx, "SELECT content_hash FROM message WHERE id = ?", id).Scan(&contentHash)
+	var firstArchived int64
+	err := a.db.Reader.QueryRowContext(ctx, "SELECT content_hash, first_archived_at FROM message WHERE id = ?", id).
+		Scan(&contentHash, &firstArchived)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Original{}, ErrNotFound
 	}
@@ -54,7 +60,10 @@ func (a *Archive) OpenVerified(ctx context.Context, id int64) (Original, error) 
 	file, size, err := openMatching(a.blobPath(contentHash), contentHash)
 	switch {
 	case err == nil:
-		return Original{File: file, MessageID: id, ContentHash: contentHash, Size: size}, nil
+		return Original{
+			File: file, MessageID: id, ContentHash: contentHash, Size: size,
+			FirstArchivedAt: time.UnixMilli(firstArchived).UTC(),
+		}, nil
 	case errors.Is(err, fs.ErrNotExist):
 		a.recordFailedRead(opstatus.StoredOriginalMissing, id, contentHash)
 		return Original{}, ErrOriginalMissing

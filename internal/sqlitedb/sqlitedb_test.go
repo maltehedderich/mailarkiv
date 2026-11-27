@@ -376,7 +376,8 @@ func TestMigrationCanRebuildAReferencedTable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	messageID := insertMessage(t, db, "hash")
+	// Only the first migration ran, so the row has the first schema's columns.
+	messageID := mustInsert(t, db, "message", row{"content_hash": "hash", "size": 1})
 	result, err := db.Writer.Exec(insertObservation, messageID, "manual_import")
 	if err != nil {
 		t.Fatal(err)
@@ -438,7 +439,7 @@ CREATE INDEX source_observation_by_message ON source_observation (message_id, id
 	}
 }
 
-func TestSchemaHasTheTenTables(t *testing.T) {
+func TestSchemaHasTheFifteenTables(t *testing.T) {
 	db, _ := openCatalog(t)
 
 	rows, err := db.Reader.Query(`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name`)
@@ -459,23 +460,27 @@ func TestSchemaHasTheTenTables(t *testing.T) {
 	}
 
 	want := "account collected_message_count imap_folder imap_message_problem imap_source " +
-		"message session sign_in_block sign_in_failure source_observation"
+		"message message_problem message_summary search_generation search_needs_rebuild search_rebuild " +
+		"session sign_in_block sign_in_failure source_observation"
 	if strings.Join(got, " ") != want {
 		t.Fatalf("tables = %v, want %s", got, want)
 	}
 }
 
+// unprocessedMessage is a message row as capture writes it.
+func unprocessedMessage(hash string) row {
+	return row{
+		"content_hash":      hash,
+		"size":              1,
+		"first_archived_at": 1,
+		"list_date":         1,
+		"processing_state":  "not_processed",
+	}
+}
+
 func insertMessage(t *testing.T, db *DB, hash string) int64 {
 	t.Helper()
-	result, err := db.Writer.Exec(`INSERT INTO message (content_hash, size) VALUES (?, 1)`, hash)
-	if err != nil {
-		t.Fatal(err)
-	}
-	id, err := result.LastInsertId()
-	if err != nil {
-		t.Fatal(err)
-	}
-	return id
+	return mustInsert(t, db, "message", unprocessedMessage(hash))
 }
 
 const insertObservation = `INSERT INTO source_observation
@@ -791,4 +796,161 @@ func TestInTxReportsAFailedBegin(t *testing.T) {
 	if err == nil || ran {
 		t.Fatalf("InTx on a closed catalog = %v, ran = %v, want an error and no run", err, ran)
 	}
+}
+
+func TestMessageProcessingColumns(t *testing.T) {
+	db, _ := openCatalog(t)
+	message := unprocessedMessage("hash")
+
+	refused(t, db, "message", message.with(row{"processing_state": "other"}), "CHECK constraint")
+	refused(t, db, "message", message.with(row{"processing_state": "processed"}), "CHECK constraint")
+	refused(t, db, "message", message.with(row{"processed_seq": 1}), "CHECK constraint")
+
+	for seq, state := range []string{"processed", "processed_with_problems", "unreadable"} {
+		mustInsert(t, db, "message", message.with(row{
+			"content_hash":     state,
+			"processing_state": state,
+			"processed_seq":    seq + 1,
+		}))
+	}
+	mustInsert(t, db, "message", message)
+
+	t.Run("each processed_seq once", func(t *testing.T) {
+		refused(t, db, "message", message.with(row{
+			"content_hash":     "second",
+			"processing_state": "processed",
+			"processed_seq":    1,
+		}), "UNIQUE constraint")
+	})
+}
+
+func TestMessageSummaryRules(t *testing.T) {
+	db, _ := openCatalog(t)
+	messageID := insertMessage(t, db, "hash")
+	summary := row{"message_id": messageID, "more_senders": 0, "has_attachments": 0}
+
+	refusedRows := []struct {
+		name string
+		row  row
+	}{
+		{"has_attachments 2", summary.with(row{"has_attachments": 2})},
+		{"date_reason late", summary.with(row{"date_reason": "late"})},
+		{"more_senders -1", summary.with(row{"more_senders": -1})},
+	}
+	for _, tt := range refusedRows {
+		t.Run(tt.name, func(t *testing.T) {
+			refused(t, db, "message_summary", tt.row, "CHECK constraint")
+		})
+	}
+	t.Run("a row for a message that doesn't exist", func(t *testing.T) {
+		refused(t, db, "message_summary", summary.with(row{"message_id": 999}), "FOREIGN KEY constraint")
+	})
+
+	t.Run("each date reason", func(t *testing.T) {
+		for i, reason := range []string{"missing", "unreadable", "ahead"} {
+			id := insertMessage(t, db, reason)
+			mustInsert(t, db, "message_summary", summary.with(row{
+				"message_id":   id,
+				"date_reason":  reason,
+				"more_senders": i,
+			}))
+		}
+	})
+	mustInsert(t, db, "message_summary", summary.with(row{
+		"sender_name":     "Anna",
+		"sender_address":  "anna@example.test",
+		"subject":         "Invoice",
+		"date_header":     "Thu, 5 Nov 2026 08:30:00 +0100",
+		"has_attachments": 1,
+	}))
+}
+
+func TestMessageProblemRules(t *testing.T) {
+	db, _ := openCatalog(t)
+	messageID := insertMessage(t, db, "hash")
+	problem := row{"message_id": messageID, "position": "1", "kind": "invalid_encoding"}
+
+	refused(t, db, "message_problem", problem.with(row{"kind": "other"}), "CHECK constraint")
+	refused(t, db, "message_problem", problem.with(row{"message_id": 999}), "FOREIGN KEY constraint")
+
+	mustInsert(t, db, "message_problem", problem.with(row{"declared_type": "text/plain"}))
+	refused(t, db, "message_problem", problem, "UNIQUE constraint")
+	mustInsert(t, db, "message_problem", problem.with(row{"position": "2"}))
+
+	t.Run("each kind", func(t *testing.T) {
+		for _, kind := range []string{
+			"unknown_charset", "invalid_encoding", "malformed_header", "malformed_structure", "cut_short",
+			"too_many_parts", "nested_too_deeply", "body_cut", "took_too_long",
+		} {
+			mustInsert(t, db, "message_problem", problem.with(row{"position": "", "kind": kind}))
+		}
+	})
+}
+
+func TestSearchGenerationRules(t *testing.T) {
+	db, _ := openCatalog(t)
+	generation := row{"role": "building", "schema_version": 1, "created_at": 1}
+
+	refused(t, db, "search_generation", generation.with(row{"role": "old"}), "CHECK constraint")
+
+	mustInsert(t, db, "search_generation", generation.with(row{"role": "active"}))
+	refused(t, db, "search_generation", generation.with(row{"role": "active"}), "UNIQUE constraint")
+	building := mustInsert(t, db, "search_generation", generation)
+	refused(t, db, "search_generation", generation, "UNIQUE constraint")
+
+	t.Run("a rebuild's generation", func(t *testing.T) {
+		accountID := mustInsert(t, db, "account", row{"email": "a@example.test", "password_hash": "x", "created_at": 1})
+		rebuildID := mustInsert(t, db, "search_rebuild", row{"started_by": accountID, "started_at": 1})
+		if _, err := db.Writer.Exec("DELETE FROM search_generation WHERE id = ?", building); err != nil {
+			t.Fatal(err)
+		}
+		mustInsert(t, db, "search_generation", generation.with(row{"rebuild_id": rebuildID}))
+	})
+
+	// The ID names a directory under index/, so a reused one could name an
+	// old generation's files.
+	t.Run("IDs are never reused", func(t *testing.T) {
+		var highest int64
+		if err := db.Writer.QueryRow("SELECT MAX(id) FROM search_generation").Scan(&highest); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Writer.Exec("DELETE FROM search_generation WHERE id = ?", highest); err != nil {
+			t.Fatal(err)
+		}
+		if next := mustInsert(t, db, "search_generation", generation); next <= highest {
+			t.Fatalf("next ID = %d after deleting %d", next, highest)
+		}
+	})
+}
+
+func TestSearchRebuildRules(t *testing.T) {
+	db, _ := openCatalog(t)
+	accountID := mustInsert(t, db, "account", row{"email": "a@example.test", "password_hash": "x", "created_at": 1})
+	rebuild := row{"started_by": accountID, "started_at": 1}
+
+	refused(t, db, "search_rebuild", rebuild.with(row{"ended_at": 2, "outcome": "stopped"}), "CHECK constraint")
+	refused(t, db, "search_rebuild", rebuild.with(row{"outcome": "finished"}), "CHECK constraint")
+	refused(t, db, "search_rebuild", rebuild.with(row{"ended_at": 2}), "CHECK constraint")
+	refused(t, db, "search_rebuild", rebuild.with(row{"started_by": 999}), "FOREIGN KEY constraint")
+
+	mustInsert(t, db, "search_rebuild", rebuild)
+	mustInsert(t, db, "search_rebuild", rebuild.with(row{"ended_at": 2, "outcome": "finished"}))
+	mustInsert(t, db, "search_rebuild", rebuild.with(row{"ended_at": 2, "outcome": "failed"}))
+}
+
+func TestSearchNeedsRebuildRules(t *testing.T) {
+	db, _ := openCatalog(t)
+	needs := row{"id": 1, "category": "index_damaged", "since": 1}
+
+	refused(t, db, "search_needs_rebuild", needs.with(row{"id": 2}), "CHECK constraint")
+	refused(t, db, "search_needs_rebuild", needs.with(row{"category": "other"}), "CHECK constraint")
+
+	for _, category := range []string{"search_process_stopped", "index_maintenance_failed", "index_damaged"} {
+		mustInsert(t, db, "search_needs_rebuild", needs.with(row{"category": category}))
+		if _, err := db.Writer.Exec("DELETE FROM search_needs_rebuild"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mustInsert(t, db, "search_needs_rebuild", needs)
+	refused(t, db, "search_needs_rebuild", needs, "UNIQUE constraint")
 }
