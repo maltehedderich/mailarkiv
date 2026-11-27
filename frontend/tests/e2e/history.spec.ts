@@ -56,8 +56,13 @@ async function signInWithOneMessage(page: Page) {
   await expect(rowLink(page)).toBeVisible();
 }
 
-/** Import turns off once the import has ended, until the next file. */
+/**
+ * The import has ended once Choose a file works again and Import is off until
+ * the next file. Import is off during the upload too, so it can't tell alone,
+ * and the box drops a file chosen before the upload ends.
+ */
 async function importEnded(page: Page) {
+  await expect(page.getByLabel("Choose a file")).toBeEnabled();
   await expect(
     page.getByRole("button", { name: "Import", exact: true }),
   ).toBeDisabled();
