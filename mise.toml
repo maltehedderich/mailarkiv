@@ -9,14 +9,28 @@ bun = "1.4"
 node = "26"
 "go:honnef.co/go/tools/cmd/staticcheck" = "2026.2.2"
 "go:golang.org/x/vuln/cmd/govulncheck" = "1.9.0"
-rust = { version = "1.100.0", targets = "x86_64-unknown-linux-musl", profile = "minimal", components = "rustfmt,clippy" }
+rust = { version = "1.100.0", targets = "x86_64-unknown-linux-musl,aarch64-unknown-linux-musl", profile = "minimal", components = "rustfmt,clippy" }
 "cargo:cargo-audit" = "0.23.0"
+
+[vars]
+# The search program is a static musl binary on Linux. On macOS, where
+# MailArkiv is only developed, it builds for the Mac.
+search_target = "{% if arch() == 'arm64' %}aarch64{% else %}x86_64{% endif %}-{% if os() == 'linux' %}unknown-linux-musl{% else %}apple-darwin{% endif %}"
+# The Linux container for macOS. The checkout is mounted at /work. Builds,
+# dependencies, and tools live in volumes, so no Linux file reaches the Mac's
+# checkout. --init reaps the processes that tests orphan.
+linux_run = """docker run --rm --init \
+  --mount type=bind,src="$PWD",dst=/work \
+  --mount type=volume,src=mailarkiv-linux-home,dst=/home/ubuntu \
+  --mount type=volume,src=mailarkiv-linux-bin,dst=/work/bin \
+  --mount type=volume,src=mailarkiv-linux-node-modules,dst=/work/frontend/node_modules \
+  --mount type=volume,src=mailarkiv-linux-target,dst=/work/mailarkiv-search/target"""
 
 [tasks.setup]
 description = "Install project dependencies from the lockfiles"
 run = [
-  # mimalloc's C code in the search program builds with musl-gcc.
-  "command -v musl-gcc >/dev/null || { echo 'Install musl-gcc: sudo apt-get install musl-tools' >&2; exit 1; }",
+  # On Linux, mimalloc's C code in the search program builds with musl-gcc.
+  "if [ \"$(uname -s)\" = Linux ] && ! command -v musl-gcc >/dev/null; then echo 'Install musl-gcc: sudo apt-get install musl-tools' >&2; exit 1; fi",
   "cd frontend && bun install --frozen-lockfile && bunx playwright install chromium",
   "go mod download",
   "cd mailarkiv-search && cargo fetch --locked",
@@ -36,19 +50,19 @@ run = "go build -o bin/mailarkiv ./cmd/mailarkiv"
 
 # The server looks for the search program beside its own executable.
 [tasks."search:build"]
-description = "Build the search program as a static binary"
+description = "Build the search program, as a static binary on Linux"
 dir = "mailarkiv-search"
 run = [
-  "cargo build --release --locked --target x86_64-unknown-linux-musl",
-  "mkdir -p ../bin && cp target/x86_64-unknown-linux-musl/release/mailarkiv-search ../bin/mailarkiv-search",
+  "cargo build --release --locked --target {{vars.search_target}}",
+  "mkdir -p ../bin && cp target/{{vars.search_target}}/release/mailarkiv-search ../bin/mailarkiv-search",
 ]
 
 [tasks."search:build:faults"]
 description = "Build the search program with fault points for the process tests"
 dir = "mailarkiv-search"
 run = [
-  "cargo build --locked --features faults --target x86_64-unknown-linux-musl",
-  "mkdir -p ../bin/faults && cp target/x86_64-unknown-linux-musl/debug/mailarkiv-search ../bin/faults/mailarkiv-search",
+  "cargo build --locked --features faults --target {{vars.search_target}}",
+  "mkdir -p ../bin/faults && cp target/{{vars.search_target}}/debug/mailarkiv-search ../bin/faults/mailarkiv-search",
 ]
 
 [tasks.build]
@@ -164,6 +178,24 @@ depends = ["search:test", "server:test", "frontend:test", "test:e2e"]
 [tasks.check]
 description = "Run everything CI gates on"
 depends = ["lint", "typecheck", "test", "audit"]
+
+[tasks."linux:build"]
+description = "Build the image that linux:check and linux:shell run in"
+hide = true
+run = "docker build --tag mailarkiv-linux --file dev/linux/Dockerfile ."
+
+# One task at a time: run together on one machine, the suites slow each other
+# down until timing-bound tests fail. CI gives each part its own runner.
+[tasks."linux:check"]
+description = "Run the checks on Linux in a container, from macOS"
+depends = ["linux:build"]
+run = "{{vars.linux_run}} mailarkiv-linux bash -c 'mise install && mise run setup && mise run --jobs 1 check'"
+
+[tasks."linux:shell"]
+description = "Open a shell on Linux in a container, from macOS"
+depends = ["linux:build"]
+interactive = true
+run = "{{vars.linux_run}} --interactive --tty mailarkiv-linux bash"
 
 [tasks.clean]
 description = "Delete generated files, and never the data in .data/"

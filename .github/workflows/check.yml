@@ -16,21 +16,40 @@ jobs:
   # Each part runs on its own runner. On one 4-core runner the suites slowed
   # each other down until timing-bound tests failed.
   part:
-    name: ${{ matrix.part }}
-    runs-on: ubuntu-latest
+    name: ${{ matrix.part }} (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        # Together these are the tasks of `mise run check`.
+        # Together the amd64 parts are the tasks of `mise run check`. unit and
+        # server also run on arm64, because the SQLite driver and the search
+        # program compile to different code there. Ubuntu 24.04 is also what
+        # dev/linux/Dockerfile uses.
         include:
           - part: static
+            arch: amd64
+            runner: ubuntu-24.04
             tasks: "lint ::: typecheck ::: audit"
           - part: unit
+            arch: amd64
+            runner: ubuntu-24.04
+            tasks: "search:test ::: frontend:test"
+          - part: unit
+            arch: arm64
+            runner: ubuntu-24.04-arm
             tasks: "search:test ::: frontend:test"
           - part: server
+            arch: amd64
+            runner: ubuntu-24.04
+            tasks: server:test
+          - part: server
+            arch: arm64
+            runner: ubuntu-24.04-arm
             tasks: server:test
           - part: e2e
+            arch: amd64
+            runner: ubuntu-24.04
             tasks: test:e2e
     steps:
       - uses: actions/checkout@v7

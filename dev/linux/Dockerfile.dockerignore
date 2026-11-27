@@ -1,0 +1,6 @@
+# The image needs only these. The checkout itself is mounted at run time.
+*
+!mise.toml
+!mise.lock
+!frontend/package.json
+!frontend/bun.lock

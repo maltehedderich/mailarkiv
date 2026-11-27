@@ -6,7 +6,7 @@ MailArkiv is built in seven slices toward its first release. Slices 1 and 2 are 
 
 ## What you need
 
-- Linux on amd64.
+- Linux on amd64 or arm64.
 - `git` and [mise](https://mise.jdx.dev). mise installs Go, bun, and Node for the build.
 - A local filesystem for the archive that honors flush requests. See [Storage](#storage).
 - HTTPS through a reverse proxy, unless people only use MailArkiv on the server itself. See [HTTPS and the reverse proxy](#https-and-the-reverse-proxy).
