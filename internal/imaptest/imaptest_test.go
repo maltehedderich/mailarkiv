@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sync"
 	"testing"
@@ -130,7 +131,11 @@ func TestCertificateTrust(t *testing.T) {
 				client.Close()
 				t.Fatal("a client trusting only the system's roots connected")
 			}
-			if !errors.As(err, new(x509.UnknownAuthorityError)) {
+			// macOS checks the system's roots itself and reports some
+			// untrusted certificates without x509's error type.
+			if !errors.As(err, new(*tls.CertificateVerificationError)) {
+				t.Errorf("error = %v, want a failed certificate check", err)
+			} else if runtime.GOOS != "darwin" && !errors.As(err, new(x509.UnknownAuthorityError)) {
 				t.Errorf("error = %v, want an unknown authority", err)
 			}
 			if logins := count(server.Commands(), "LOGIN"); logins != 0 {

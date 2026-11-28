@@ -10,7 +10,7 @@ Read [the design guide](frontend/DESIGN.md) before you build or change a screen.
 
 ## Required checks
 
-`mise run` is the only interface, so CI, docs, and people all use these commands. Run `mise run setup` first on a new clone. It needs `musl-gcc` from the system's `musl-tools` package (`sudo apt-get install musl-tools`) and stops with that hint when it is missing.
+`mise run` is the only interface, so CI, docs, and people all use these commands. Run `mise run setup` first on a new clone. On Linux it needs `musl-gcc` from the system's `musl-tools` package (`sudo apt-get install musl-tools`) and stops with that hint when it is missing.
 
 | Command | Runs | Layer |
 | ------- | ---- | ----- |
@@ -24,7 +24,9 @@ Read [the design guide](frontend/DESIGN.md) before you build or change a screen.
 | `mise run test` | The four test tasks above | |
 | `mise run check` | `lint`, `typecheck`, `test`, `audit`. CI gates on this | |
 
-Other tasks are `setup`, `dev`, `dev:account`, `build`, `frontend:build`, `server:build`, `search:build`, `search:build:faults`, `format`, and `clean`. `search:build` builds the search program as a static musl binary at `bin/mailarkiv-search`, beside the server. `search:build:faults` builds it with test fault points at `bin/faults/mailarkiv-search`. `.github/workflows/check.yml` runs the tasks of `mise run check` in four parts, each on its own runner, because the suites starve each other on one: `static` runs `lint`, `typecheck`, and `audit`; `unit` runs `search:test` and `frontend:test`; `server` runs `server:test`; `e2e` runs `test:e2e`. Each part installs `strace` and `musl-tools`, caches Go and cargo builds, and runs `mise run setup` first. A last job named `check`, which the `main` ruleset requires, passes only when every part passes. A task added to `check` must join a part.
+Other tasks are `setup`, `dev`, `dev:account`, `build`, `frontend:build`, `server:build`, `search:build`, `search:build:faults`, `format`, `clean`, `linux:check`, and `linux:shell`. On Linux, `search:build` builds the search program as a static musl binary for the machine's architecture at `bin/mailarkiv-search`, beside the server. On macOS it builds a binary for the Mac. `search:build:faults` builds it with test fault points at `bin/faults/mailarkiv-search`. `.github/workflows/check.yml` runs the tasks of `mise run check` in four parts, each on its own Ubuntu 24.04 amd64 runner, because the suites starve each other on one: `static` runs `lint`, `typecheck`, and `audit`; `unit` runs `search:test` and `frontend:test`; `server` runs `server:test`; `e2e` runs `test:e2e`. `unit` and `server` also run on an arm64 runner. Each part installs `strace` and `musl-tools`, caches Go and cargo builds, and runs `mise run setup` first. A last job named `check`, which the `main` ruleset requires, passes only when every part passes. A task added to `check` must join a part.
+
+MailArkiv runs on Linux, on amd64 and arm64, and is developed on macOS ([ADR 0010](docs/adr/0010-platforms.md)). On macOS, tests that check a Linux guarantee skip. They count as not run until they pass on Linux. `mise run linux:check` runs `mise run check` in an Ubuntu 24.04 container through Docker Desktop, one task at a time. `mise run linux:shell` opens a shell in that container, where `mise run <task>` runs one task.
 
 - For documentation-only changes, review affected text against the constitution, check local links, and verify that scope and acceptance behavior agree across documents. These checks are sufficient while runtime behavior is unchanged.
 - When adding tooling, document its exact required check commands here in the same change. Feature plans must identify the checks that apply and the layer each runs at.

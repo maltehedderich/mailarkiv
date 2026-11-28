@@ -6,8 +6,8 @@ Use this guide to validate Slice 3. Automated checks cover most of it. The manua
 
 ## Prerequisites
 
-- Linux on amd64, with [mise](https://mise.jdx.dev) and `strace` installed.
-- `musl-gcc`, for the search process's allocator. On Debian or Ubuntu, run `sudo apt-get install musl-tools` once in your own terminal.
+- Linux on amd64 or arm64, with [mise](https://mise.jdx.dev) and `strace` installed. On macOS, `mise run linux:check` runs the automated checks on Linux, and scenarios 7 and 8 need a Linux machine.
+- On Linux, `musl-gcc`, for the search process's allocator. On Debian or Ubuntu, run `sudo apt-get install musl-tools` once in your own terminal.
 - `curl` and `jq` for the manual scenarios. Scenario 7 also needs `sudo` to mount a small file system.
 
 ```sh
@@ -16,7 +16,7 @@ mise install
 mise run setup
 ```
 
-`mise install` adds Rust 1.100.0 with the musl target and `cargo-audit` 0.23.0. `mise run setup` stops with a message if `musl-gcc` is missing.
+`mise install` adds Rust 1.100.0 with the two musl targets and `cargo-audit` 0.23.0. On Linux, `mise run setup` stops with a message if `musl-gcc` is missing.
 
 ## Automated checks
 

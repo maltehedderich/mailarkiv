@@ -272,6 +272,8 @@ A From or To value with an `@` and text on both sides is a complete address. A v
 
 **Rationale:** Looked up in the mise documentation through Context7: the Rust tool takes `targets`, `profile`, and `components`, and runs rustup with its own `RUSTUP_HOME` and `CARGO_HOME`. The `cargo:` backend installs pinned Rust tools. Tested: cargo 1.100.0 is the current stable in `rust:alpine`, and Tantivy 0.27.0 needs 1.88 or later. This host has `gcc` but not `musl-gcc`, so a developer installs `musl-tools` once with `sudo`. The quickstart says so.
 
+**Amended 2026-11-27 by [ADR 0010](../../docs/adr/0010-platforms.md):** `targets` adds `aarch64-unknown-linux-musl`, and each Linux machine builds for its own architecture. On macOS the search program builds for the Mac, and `mise run setup` asks for `musl-gcc` only on Linux.
+
 **Alternatives rejected:** Building in a container: CI and developers would need Docker for every check. Using `cross`: another tool to pin for one target.
 
 ## Preview

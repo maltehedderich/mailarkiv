@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"syscall"
 	"testing"
@@ -164,6 +165,9 @@ func durableAfterBlob(dataDir, hash string) []traceStep {
 // The 201 response leaves only after the bytes, their directory entries, and
 // the catalog commit are on disk.
 func TestCaptureSyscallOrder(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("traces Linux syscalls with strace")
+	}
 	t.Run("new bytes", func(t *testing.T) {
 		content := []byte("From: sender@example.test\r\nTo: admin@example.test\r\nSubject: Traced\r\n\r\nBody.\r\n")
 		hash := contentHash(content)

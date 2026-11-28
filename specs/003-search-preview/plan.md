@@ -18,14 +18,14 @@ Three new Go packages carry the work. `mailparse` turns untrusted bytes into fie
 
 - New in Go: `github.com/jhillyerd/enmime/v2` v2.5.0, adopted in [ADR 0003](../../docs/adr/0003-mail-libraries.md), with 20 modules it brings. `golang.org/x/net` v0.62.0, `golang.org/x/text` v0.43.0, and `golang.org/x/sys` v0.49.0 pinned, because enmime's default `x/net` has GO-2026-6860. `x/net/html` is used directly.
 - New in Rust: `tantivy` =0.27.0 with only `mmap` and `lz4-compression`, `mimalloc` =0.1.52, and `serde` and `serde_json`, which Tantivy already needs. 113 crates in all, with no OSV advisory on 2026-11-15.
-- New tools: Rust through mise with the `x86_64-unknown-linux-musl` target, `musl-gcc` from the system's `musl-tools`, and `cargo-audit` 0.23.0.
+- New tools: Rust through mise with the `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl` targets, `musl-gcc` from the system's `musl-tools` on Linux, and `cargo-audit` 0.23.0.
 - No new frontend packages.
 
 **Storage**: SQLite as before. Migration 0003 adds four columns to `message` and two tables, owned by `archive`, and three tables owned by `search`. Index generations live in `<data-dir>/index/<id>/`. Bodies, recipients, and attachment lists aren't stored; they are read from the original when needed. [data-model.md](data-model.md) has the details.
 
 **Testing**: `go test -race` against real SQLite, real files, real worker processes, and the real search process, in its release build and in a build with the `faults` cargo feature. Worker tests re-run the test binary as a worker with a 2 s limit. `testing/synctest` and an injected clock for backoff, the crash window, and the maintenance schedule. An injected free space reader stands in for the disk. The `faults` Go build for the indexing crash matrix. `cargo test` for matching, order, the deadline, delete before add, maintenance, and silent output. Vitest for parsers, date range instants, and words. Playwright with axe against the built binaries, with a recording HTTPS image host.
 
-**Target Platform**: Linux on amd64. The server stays a static `CGO_ENABLED=0` binary. The search process is a static musl binary beside it. Current browsers, tested in Chromium.
+**Target Platform**: Linux on amd64 and arm64, with macOS for development only, as [ADR 0010](../../docs/adr/0010-platforms.md) decides. The server stays a static `CGO_ENABLED=0` binary. The search process is a static musl binary beside it. Current browsers, tested in Chromium.
 
 **Project Type**: Web service with an embedded single-page interface, a small command line, background collection and processing, and a supervised search process.
 
@@ -115,7 +115,7 @@ The commands in `AGENTS.md` stay, and they change in step 1, with `AGENTS.md` in
 | `mise run check` | `lint`, `typecheck`, `test`, `audit`. CI gates on this | |
 | `mise run sizing` | New, outside `check`. Seeds 5,000,000 messages and measures | Performance, manual |
 
-`search:build` runs `cargo build --release --locked --target x86_64-unknown-linux-musl` and copies the result to `bin/mailarkiv-search`. `search:build:faults` builds with `--features faults` in the dev profile to `bin/faults/mailarkiv-search`, which process tests copy beside the `faults` server binary. `mise run setup` checks for `musl-gcc` and says how to install it. `.github/workflows/check.yml` installs `musl-tools` with `strace`, and caches `~/.cargo/registry` and `mailarkiv-search/target` keyed on `Cargo.lock` and `mise.lock`.
+`search:build` runs `cargo build --release --locked --target <arch>-unknown-linux-musl` for the machine's architecture, or for the Mac on macOS, and copies the result to `bin/mailarkiv-search`. `search:build:faults` builds with `--features faults` in the dev profile to `bin/faults/mailarkiv-search`, which process tests copy beside the `faults` server binary. `mise run setup` checks for `musl-gcc` and says how to install it. `.github/workflows/check.yml` installs `musl-tools` with `strace`, and caches `~/.cargo/registry` and `mailarkiv-search/target` keyed on `Cargo.lock` and `mise.lock`.
 
 This planning change adds only documents under `specs/003-search-preview/`. Per `AGENTS.md`, the check for it is a review against the constitution and of local links.
 
